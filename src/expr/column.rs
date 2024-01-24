@@ -1,0 +1,20 @@
+use crate::error::{Error, Result};
+use crate::{
+    expr::LogicalExpr, logical_plan::plan::LogicalPlan, types::field::Field,
+};
+
+pub struct Column {
+    name: String,
+}
+
+impl LogicalExpr for Column {
+    fn to_field(&self, plan: &impl LogicalPlan) -> Result<Field> {
+        plan.schema()
+            .fields
+            .iter()
+            .filter(|t| t.name.as_str() == self.name.as_str())
+            .next()
+            .cloned()
+            .ok_or(Error::ColumnNotFound(self.name.clone()))
+    }
+}

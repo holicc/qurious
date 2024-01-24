@@ -1,7 +1,7 @@
 use crate::types::field::Field;
 
 pub struct Schema {
-    fields: Vec<Field>,
+    pub fields: Vec<Field>,
 }
 
 
