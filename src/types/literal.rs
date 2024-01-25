@@ -1,5 +1,6 @@
 use crate::types::{columner::ColumnVector, datatype::DataType, value::Value};
 
+#[derive(Debug, Clone)]
 pub struct LiteralColumnVector {
     value: Value,
     size: usize,

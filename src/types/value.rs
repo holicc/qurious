@@ -1,3 +1,2 @@
-pub enum Value{
-    
-}
+#[derive(Debug, Clone)]
+pub enum Value {}

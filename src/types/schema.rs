@@ -1,5 +1,6 @@
 use crate::types::field::Field;
 
+#[derive(Debug, Clone)]
 pub struct Schema {
     pub fields: Vec<Field>,
 }

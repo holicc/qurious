@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 pub type ColumnVectorRef = Arc<dyn ColumnVector>;
 
+#[derive(Debug, Clone)]
 pub struct RecordBatch {
     schema: Schema,
     columns: Vec<ColumnVectorRef>,
