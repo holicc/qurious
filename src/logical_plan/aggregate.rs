@@ -1,14 +1,18 @@
 use std::{fmt::Display, sync::Arc};
 
-use crate::{expr::LogicalExpr, types::schema::Schema};
+use crate::{
+    expr::{self, LogicalExpr},
+    types::schema::Schema,
+};
 
 use super::LogicalPlan;
 
 pub struct Aggregate {
+    /// The schema description of the aggregate output
     schema: Schema,
     input: Arc<dyn LogicalPlan>,
     group_expr: Vec<Box<dyn LogicalExpr>>,
-    aggr_expr: Vec<Box<dyn LogicalExpr>>,
+    aggr_expr: Vec<expr::AggregateExpr>,
 }
 
 impl LogicalPlan for Aggregate {
