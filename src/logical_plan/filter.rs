@@ -22,7 +22,7 @@ impl Filter {
         self.input.schema()
     }
 
-    fn children(&self) -> Option<Vec<&LogicalPlan>> {
+    pub fn children(&self) -> Option<Vec<&LogicalPlan>> {
         Some(vec![&self.input])
     }
 }

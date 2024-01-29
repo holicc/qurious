@@ -22,6 +22,7 @@ mod tests {
     use crate::{
         expr::{column, eq, literal},
         types::{datatype::DataType, field::Field},
+        utils,
     };
 
     use super::*;
@@ -50,7 +51,7 @@ mod tests {
                 column("salary"),
             ])?;
 
-        println!("Plan: {:?}", plan);
+        println!("Plan: {}", utils::format(&plan.plan(), 0));
 
         Ok(())
     }

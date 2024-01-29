@@ -31,7 +31,7 @@ impl Projection {
         &self.schema
     }
 
-    fn children(&self) -> Option<Vec<&LogicalPlan>> {
+    pub fn children(&self) -> Option<Vec<&LogicalPlan>> {
         Some(vec![&self.input])
     }
 }
@@ -40,7 +40,7 @@ impl Display for Projection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Projection: ${{ {} }}",
+            "Projection: {{ {} }}",
             self.exprs
                 .iter()
                 .map(|f| f.to_string())

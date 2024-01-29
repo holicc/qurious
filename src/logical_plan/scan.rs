@@ -24,7 +24,7 @@ impl TableScan {
         self.source.schema()
     }
 
-    fn children(&self) -> Option<Vec<&LogicalPlan>> {
+    pub fn children(&self) -> Option<Vec<&LogicalPlan>> {
         None
     }
 }

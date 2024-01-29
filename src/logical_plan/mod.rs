@@ -27,4 +27,24 @@ impl LogicalPlan {
             LogicalPlan::TableScan(t) => t.schema(),
         }
     }
+
+    pub fn children(&self) -> Option<Vec<&LogicalPlan>> {
+        match self {
+            LogicalPlan::Projection(p) => p.children(),
+            LogicalPlan::Filter(f) => f.children(),
+            LogicalPlan::Aggregate(a) => a.children(),
+            LogicalPlan::TableScan(t) => t.children(),
+        }
+    }
+}
+
+impl std::fmt::Display for LogicalPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogicalPlan::Projection(p) => write!(f, "{}", p),
+            LogicalPlan::Filter(a) => write!(f, "{}", a),
+            LogicalPlan::Aggregate(a) => write!(f, "{}", a),
+            LogicalPlan::TableScan(t) => write!(f, "{}", t),
+        }
+    }
 }
