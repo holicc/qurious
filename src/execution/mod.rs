@@ -3,13 +3,14 @@ use std::sync::Arc;
 use crate::dataframe::DataFrame;
 use crate::error::Result;
 use crate::logical_plan::LogicalPlan;
+use crate::types::schema::Schema;
 use crate::{datasource, logical_plan};
 
 pub struct ExecutionContext {}
 
 impl ExecutionContext {
-    pub fn memory() -> Result<DataFrame> {
-        let source = datasource::memory::MemoryDataSource::default();
+    pub fn memory(schame: Schema) -> Result<DataFrame> {
+        let source = datasource::memory::MemoryDataSource::new(schame, vec![]);
         let plan = logical_plan::TableScan::new("test", Arc::new(source), None);
         Ok(DataFrame::new(LogicalPlan::TableScan(plan)))
     }
@@ -17,15 +18,27 @@ impl ExecutionContext {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
 
-    use crate::expr::{self, column, eq, literal, Column};
+    use crate::{
+        expr::{column, eq, literal},
+        types::{datatype::DataType, field::Field},
+    };
 
     use super::*;
 
     #[test]
     pub fn test_simple_df() -> Result<()> {
-        let df = ExecutionContext::memory()?;
+        let schema = Schema {
+            fields: vec![
+                Field::new("id", DataType::UInt32),
+                Field::new("first_name", DataType::Utf8),
+                Field::new("last_name", DataType::Utf8),
+                Field::new("state", DataType::Utf8),
+                Field::new("salary", DataType::UInt32),
+            ],
+        };
+
+        let df = ExecutionContext::memory(schema)?;
 
         let plan = df
             .filter(eq(column("state"), literal("CO")))?

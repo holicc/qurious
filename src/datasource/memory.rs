@@ -12,6 +12,12 @@ pub struct MemoryDataSource {
     data: Vec<RecordBatch>,
 }
 
+impl MemoryDataSource {
+    pub fn new(schema: Schema, data: Vec<RecordBatch>) -> Self {
+        Self { schema, data }
+    }
+}
+
 impl Default for MemoryDataSource {
     fn default() -> Self {
         Self {

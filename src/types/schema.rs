@@ -5,14 +5,16 @@ pub struct Schema {
     pub fields: Vec<Field>,
 }
 
+impl Schema {
+    pub fn new(fields: Vec<Field>) -> Self {
+        Self { fields }
+    }
 
-impl Schema{
-
-    pub fn project(&self,indices:Vec<usize>)->Schema{
+    pub fn project(&self, indices: Vec<usize>) -> Schema {
         todo!()
     }
 
-    pub fn select(&self,names:Vec<String>)->Schema{
+    pub fn select(&self, names: Vec<String>) -> Schema {
         todo!()
     }
 }
