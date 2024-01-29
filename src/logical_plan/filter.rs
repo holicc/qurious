@@ -1,22 +1,29 @@
 use std::fmt::Display;
-use std::sync::Arc;
 
 use crate::expr::LogicalExpr;
 use crate::logical_plan::LogicalPlan;
 use crate::types::schema::Schema;
 
+#[derive(Debug, Clone)]
 pub struct Filter {
-    input: Arc<dyn LogicalPlan>,
-    expr: Box<dyn LogicalExpr>,
+    input: Box<LogicalPlan>,
+    expr: LogicalExpr,
 }
 
-impl LogicalPlan for Filter {
-    fn schema(&self) -> &Schema {
+impl Filter {
+    pub fn new(input: LogicalPlan, expr: LogicalExpr) -> Self {
+        Self {
+            input: Box::new(input),
+            expr,
+        }
+    }
+
+    pub fn schema(&self) -> &Schema {
         self.input.schema()
     }
 
-    fn children(&self) -> Option<Vec<&dyn LogicalPlan>> {
-        Some(vec![&*self.input])
+    fn children(&self) -> Option<Vec<&LogicalPlan>> {
+        Some(vec![&self.input])
     }
 }
 

@@ -1,27 +1,45 @@
-use std::{fmt::Display, sync::Arc};
-
+use super::LogicalPlan;
 use crate::{
     expr::{self, LogicalExpr},
     types::schema::Schema,
 };
+use std::fmt::Display;
 
-use super::LogicalPlan;
-
+#[derive(Debug, Clone)]
 pub struct Aggregate {
     /// The schema description of the aggregate output
     schema: Schema,
-    input: Arc<dyn LogicalPlan>,
-    group_expr: Vec<Box<dyn LogicalExpr>>,
+    input: Box<LogicalPlan>,
+    group_expr: Vec<LogicalExpr>,
     aggr_expr: Vec<expr::AggregateExpr>,
 }
 
-impl LogicalPlan for Aggregate {
-    fn schema(&self) -> &Schema {
+impl Aggregate {
+    pub fn new(
+        input: LogicalPlan,
+        group_expr: Vec<LogicalExpr>,
+        aggr_expr: Vec<expr::AggregateExpr>,
+    ) -> Self {
+        let mut schema = input.schema().clone();
+        schema.fields = group_expr
+            .iter()
+            .map(|f| f.to_field(&input).unwrap())
+            .collect::<Vec<_>>();
+
+        Self {
+            schema,
+            input: Box::new(input),
+            group_expr,
+            aggr_expr,
+        }
+    }
+
+    pub fn schema(&self) -> &Schema {
         &self.schema
     }
 
-    fn children(&self) -> Option<Vec<&dyn LogicalPlan>> {
-        Some(vec![&*self.input])
+    fn children(&self) -> Option<Vec<&LogicalPlan>> {
+        Some(vec![&self.input])
     }
 }
 

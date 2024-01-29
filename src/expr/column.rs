@@ -1,14 +1,18 @@
 use std::fmt::Display;
+use std::str::FromStr;
 
 use crate::error::{Error, Result};
-use crate::{expr::LogicalExpr, logical_plan::LogicalPlan, types::field::Field};
+use crate::{logical_plan::LogicalPlan, types::field::Field};
 
+use super::LogicalExpr;
+
+#[derive(Debug, Clone)]
 pub struct Column {
     name: String,
 }
 
-impl LogicalExpr for Column {
-    fn to_field(&self, plan: &dyn LogicalPlan) -> Result<Field> {
+impl Column {
+    pub fn to_field(&self, plan: &LogicalPlan) -> Result<Field> {
         plan.schema()
             .fields
             .iter()
@@ -23,4 +27,20 @@ impl Display for Column {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#{}", self.name)
     }
+}
+
+impl FromStr for Column {
+    type Err = Error;
+
+    fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
+        Ok(Self {
+            name: s.to_string(),
+        })
+    }
+}
+
+pub fn column(name: &str) -> LogicalExpr {
+    LogicalExpr::Column(Column {
+        name: name.to_string(),
+    })
 }

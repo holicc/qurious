@@ -6,9 +6,19 @@ use crate::{
 
 use super::DataSource;
 
+#[derive(Debug)]
 pub struct MemoryDataSource {
     schema: Schema,
     data: Vec<RecordBatch>,
+}
+
+impl Default for MemoryDataSource {
+    fn default() -> Self {
+        Self {
+            schema: Schema { fields: vec![] },
+            data: vec![],
+        }
+    }
 }
 
 impl DataSource for MemoryDataSource {

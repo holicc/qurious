@@ -4,7 +4,7 @@ use crate::types::datatype::DataType;
 use crate::{logical_plan::LogicalPlan, types::field::Field};
 use std::fmt::Display;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AggregateOperator {
     Sum,
     Min,
@@ -25,13 +25,14 @@ impl Display for AggregateOperator {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct AggregateExpr {
     op: AggregateOperator,
-    expr: Box<dyn LogicalExpr>,
+    expr: Box<LogicalExpr>,
 }
 
-impl LogicalExpr for AggregateExpr {
-    fn to_field(&self, plan: &dyn LogicalPlan) -> Result<Field> {
+impl AggregateExpr {
+    pub fn to_field(&self, plan: &LogicalPlan) -> Result<Field> {
         Ok(Field {
             name: self.op.to_string(),
             datatype: if self.op == AggregateOperator::Count {
@@ -51,8 +52,11 @@ impl Display for AggregateExpr {
 
 macro_rules! make_aggregate_expr_fn {
     ($name: ident, $op: expr, $re: ident) => {
-        pub fn $name(expr: Box<dyn LogicalExpr>) -> $re {
-            $re { op: $op, expr }
+        pub fn $name(expr: LogicalExpr) -> $re {
+            $re {
+                op: $op,
+                expr: Box::new(expr),
+            }
         }
     };
 }

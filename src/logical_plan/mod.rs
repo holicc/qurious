@@ -3,28 +3,28 @@ mod filter;
 mod projection;
 mod scan;
 
+pub use aggregate::Aggregate;
+pub use filter::Filter;
+pub use projection::Projection;
+pub use scan::TableScan;
+
 use crate::types::schema::Schema;
-use std::fmt::Display;
 
-pub trait LogicalPlan: Display {
-    fn schema(&self) -> &Schema;
+#[derive(Debug, Clone)]
+pub enum LogicalPlan {
+    Projection(Projection),
+    Filter(Filter),
+    Aggregate(Aggregate),
+    TableScan(TableScan),
+}
 
-    fn children(&self) -> Option<Vec<&dyn LogicalPlan>>;
-
-    fn to_string(&self, ident: usize) -> String {
-        let mut result = String::new();
-        for _ in 0..ident {
-            result.push_str("\t");
+impl LogicalPlan {
+    pub fn schema(&self) -> &Schema {
+        match self {
+            LogicalPlan::Projection(p) => p.schema(),
+            LogicalPlan::Filter(f) => f.schema(),
+            LogicalPlan::Aggregate(a) => a.schema(),
+            LogicalPlan::TableScan(t) => t.schema(),
         }
-
-        result.push_str(format!("{}\n", self).as_str());
-
-        if let Some(children) = self.children() {
-            for child in children {
-                result.push_str(&child.to_string(ident + 1));
-            }
-        }
-
-        result
     }
 }

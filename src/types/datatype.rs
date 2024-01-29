@@ -1,9 +1,10 @@
 #[derive(Debug, Clone)]
 pub enum DataType {
+    Null,
     String,
-    Bool,
+    Boolean,
     Float32,
-    FLoat64,
+    Float64,
     Int8,
     Int16,
     Int32,
@@ -12,4 +13,5 @@ pub enum DataType {
     UInt16,
     UInt32,
     UInt64,
+    Utf8,
 }
