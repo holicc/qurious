@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
 use crate::dataframe::DataFrame;
+use crate::datasource;
 use crate::error::Result;
-use crate::logical_plan::LogicalPlan;
+use crate::logical::plan::{LogicalPlan, TableScan};
 use crate::types::schema::Schema;
-use crate::{datasource, logical_plan};
 
 pub struct ExecutionContext {}
 
 impl ExecutionContext {
     pub fn memory(schame: Schema) -> Result<DataFrame> {
         let source = datasource::memory::MemoryDataSource::new(schame, vec![]);
-        let plan = logical_plan::TableScan::new("test", Arc::new(source), None);
+        let plan = TableScan::new("test", Arc::new(source), None);
         Ok(DataFrame::new(LogicalPlan::TableScan(plan)))
     }
 }
@@ -20,7 +20,7 @@ impl ExecutionContext {
 mod tests {
 
     use crate::{
-        expr::{column, eq, literal},
+        logical::expr::{column, eq, literal},
         types::{datatype::DataType, field::Field},
         utils,
     };

@@ -1,6 +1,6 @@
-use crate::expr::LogicalExpr;
-use crate::types::{datatype::DataType, field::Field};
 use std::fmt::Display;
+
+use super::{datatype::DataType, field::Field};
 
 #[derive(Debug, Clone)]
 pub enum ScalarValue {
@@ -37,6 +37,24 @@ impl ScalarValue {
             ScalarValue::Utf8(_) => Field::new("utf8", DataType::Utf8),
         }
     }
+
+    pub fn data_type(&self) -> DataType {
+        match self {
+            ScalarValue::Null => DataType::Null,
+            ScalarValue::Boolean(_) => DataType::Boolean,
+            ScalarValue::Int64(_) => DataType::Int64,
+            ScalarValue::Int32(_) => DataType::Int32,
+            ScalarValue::Int16(_) => DataType::Int16,
+            ScalarValue::Int8(_) => DataType::Int8,
+            ScalarValue::UInt64(_) => DataType::UInt64,
+            ScalarValue::UInt32(_) => DataType::UInt32,
+            ScalarValue::UInt16(_) => DataType::UInt16,
+            ScalarValue::UInt8(_) => DataType::UInt8,
+            ScalarValue::Float64(_) => DataType::Float64,
+            ScalarValue::Float32(_) => DataType::Float32,
+            ScalarValue::Utf8(_) => DataType::Utf8,
+        }
+    }
 }
 
 impl Display for ScalarValue {
@@ -70,74 +88,3 @@ impl Display for ScalarValue {
         }
     }
 }
-
-macro_rules! impl_from {
-    ($ty: ty, $scalar: tt) => {
-        impl From<$ty> for ScalarValue {
-            fn from(value: $ty) -> Self {
-                ScalarValue::$scalar(Some(value))
-            }
-        }
-
-        impl From<Option<$ty>> for ScalarValue {
-            fn from(value: Option<$ty>) -> Self {
-                ScalarValue::$scalar(value)
-            }
-        }
-    };
-}
-
-impl_from!(bool, Boolean);
-impl_from!(i64, Int64);
-impl_from!(i32, Int32);
-impl_from!(i16, Int16);
-impl_from!(i8, Int8);
-impl_from!(u64, UInt64);
-impl_from!(u32, UInt32);
-impl_from!(u16, UInt16);
-impl_from!(u8, UInt8);
-impl_from!(f64, Float64);
-impl_from!(f32, Float32);
-impl_from!(String, Utf8);
-
-pub trait Literal {
-    fn literal(&self) -> LogicalExpr;
-}
-
-pub fn literal<T: Literal>(value: T) -> LogicalExpr {
-    value.literal()
-}
-
-impl Literal for &str {
-    fn literal(&self) -> LogicalExpr {
-        LogicalExpr::Literal(ScalarValue::Utf8(Some(self.to_string())))
-    }
-}
-
-impl Literal for String {
-    fn literal(&self) -> LogicalExpr {
-        LogicalExpr::Literal(ScalarValue::Utf8(Some(self.clone())))
-    }
-}
-
-macro_rules! make_literal {
-    ($ty: ty, $scalar: ident) => {
-        impl Literal for $ty {
-            fn literal(&self) -> LogicalExpr {
-                LogicalExpr::Literal(ScalarValue::from(*self))
-            }
-        }
-    };
-}
-
-make_literal!(bool, Boolean);
-make_literal!(i64, Int64);
-make_literal!(i32, Int32);
-make_literal!(i16, Int16);
-make_literal!(i8, Int8);
-make_literal!(u64, UInt64);
-make_literal!(u32, UInt32);
-make_literal!(u16, UInt16);
-make_literal!(u8, UInt8);
-make_literal!(f64, Float64);
-make_literal!(f32, Float32);

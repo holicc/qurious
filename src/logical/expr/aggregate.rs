@@ -1,7 +1,7 @@
 use crate::error::Result;
-use crate::expr::LogicalExpr;
+use crate::logical::expr::LogicalExpr;
 use crate::types::datatype::DataType;
-use crate::{logical_plan::LogicalPlan, types::field::Field};
+use crate::{logical::plan::LogicalPlan, types::field::Field};
 use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq)]

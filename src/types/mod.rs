@@ -1,7 +1,9 @@
 pub mod batch;
-pub mod columner;
-pub mod literal;
+pub mod columnar;
 pub mod datatype;
-pub mod value;
-pub mod schema;
 pub mod field;
+pub mod literal;
+pub mod operator;
+pub mod scalar;
+pub mod schema;
+pub mod vector;

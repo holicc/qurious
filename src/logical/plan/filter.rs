@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
-use crate::expr::LogicalExpr;
-use crate::logical_plan::LogicalPlan;
+use crate::logical::expr::LogicalExpr;
+use crate::logical::plan::LogicalPlan;
 use crate::types::schema::Schema;
 
 #[derive(Debug, Clone)]

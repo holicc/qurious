@@ -1,23 +1,24 @@
-use crate::types::{columner::ColumnVector, datatype::DataType, value::Value};
+use super::{datatype::DataType, scalar::ScalarValue, vector::ColumnVector};
 
 #[derive(Debug, Clone)]
-pub struct LiteralColumnVector {
-    value: Value,
+pub struct Literal {
+    value: ScalarValue,
     size: usize,
-    data_type: DataType,
 }
 
-impl ColumnVector for LiteralColumnVector {
-    fn data_type(&self) -> &DataType {
-        &self.data_type
+impl Literal {
+    pub fn new(value: ScalarValue, size: usize) -> Self {
+        Self { value, size }
+    }
+}
+
+impl ColumnVector for Literal {
+    fn data_type(&self) -> DataType {
+        self.value.data_type()
     }
 
-    fn get_value(&self, index: usize) -> Option<&Value> {
-        if index < self.size {
-            Some(&self.value)
-        } else {
-            None
-        }
+    fn get_value(&self, index: usize) -> ScalarValue {
+        self.value.clone()
     }
 
     fn size(&self) -> usize {

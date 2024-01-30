@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 
 use crate::error::{Error, Result};
-use crate::{logical_plan::LogicalPlan, types::field::Field};
+use crate::{logical::plan::LogicalPlan, types::field::Field};
 
 use super::LogicalExpr;
 

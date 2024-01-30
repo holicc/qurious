@@ -1,6 +1,6 @@
 use super::LogicalPlan;
 use crate::{
-    expr::{self, LogicalExpr},
+    logical::expr::{self, LogicalExpr},
     types::schema::Schema,
 };
 use std::fmt::Display;

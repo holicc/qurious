@@ -1,7 +1,7 @@
 mod aggregate;
 mod binary;
 mod column;
-mod scalar;
+mod literal;
 
 use std::fmt::Display;
 
@@ -9,10 +9,11 @@ pub use aggregate::{AggregateExpr, AggregateOperator};
 
 pub use binary::*;
 pub use column::*;
-pub use scalar::*;
+pub use literal::*;
 
 use crate::error::Result;
-use crate::{logical_plan::LogicalPlan, types::field::Field};
+use crate::types::scalar::ScalarValue;
+use crate::{logical::plan::LogicalPlan, types::field::Field};
 
 #[derive(Debug, Clone)]
 pub enum LogicalExpr {

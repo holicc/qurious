@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::{
-    expr::LogicalExpr,
-    logical_plan::LogicalPlan,
+    logical::expr::LogicalExpr,
+    logical::plan::LogicalPlan,
     types::{field::Field, schema::Schema},
 };
 use std::fmt::Display;

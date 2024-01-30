@@ -1,7 +1,10 @@
 use crate::{
     error::Result,
-    expr::{self, LogicalExpr},
-    logical_plan::{self, LogicalPlan},
+    logical::expr::{self, LogicalExpr},
+    logical::{
+        plan::LogicalPlan,
+        plan::{Aggregate, Filter, Projection},
+    },
     types::schema::Schema,
 };
 
@@ -26,14 +29,14 @@ impl DataFrame {
 
 impl DataFrame {
     pub fn project(self, columns: Vec<LogicalExpr>) -> Result<Self> {
-        logical_plan::Projection::try_new(self.plan, columns).map(|plan| Self {
+        Projection::try_new(self.plan, columns).map(|plan| Self {
             plan: LogicalPlan::Projection(plan),
         })
     }
 
     pub fn filter(self, predicate: LogicalExpr) -> Result<Self> {
         Ok(Self {
-            plan: LogicalPlan::Filter(logical_plan::Filter::new(self.plan.clone(), predicate)),
+            plan: LogicalPlan::Filter(Filter::new(self.plan.clone(), predicate)),
         })
     }
 
@@ -43,11 +46,7 @@ impl DataFrame {
         aggr_expr: Vec<expr::AggregateExpr>,
     ) -> Result<Self> {
         Ok(Self {
-            plan: LogicalPlan::Aggregate(logical_plan::Aggregate::new(
-                self.plan.clone(),
-                group_by,
-                aggr_expr,
-            )),
+            plan: LogicalPlan::Aggregate(Aggregate::new(self.plan.clone(), group_by, aggr_expr)),
         })
     }
 }

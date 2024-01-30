@@ -1,17 +1,20 @@
-use crate::types::{columner::ColumnVector, schema::Schema};
-use std::sync::Arc;
-
-pub type ColumnVectorRef = Arc<dyn ColumnVector>;
+use super::columnar::ColumnarValue;
+use crate::types::schema::Schema;
 
 #[derive(Debug, Clone)]
 pub struct RecordBatch {
     schema: Schema,
-    columns: Vec<ColumnVectorRef>,
+    row_count: usize,
+    columns: Vec<ColumnarValue>,
 }
 
 impl RecordBatch {
-    pub fn new(schema: Schema, columns: Vec<ColumnVectorRef>) -> Self {
-        Self { schema, columns }
+    pub fn new(schema: Schema, columns: Vec<ColumnarValue>, row_count: usize) -> Self {
+        Self {
+            schema,
+            columns,
+            row_count,
+        }
     }
 
     pub fn schema(&self) -> &Schema {
@@ -19,14 +22,14 @@ impl RecordBatch {
     }
 
     pub fn row_count(&self) -> usize {
-        self.columns[0].size()
+        self.row_count
     }
 
     pub fn column_count(&self) -> usize {
         self.columns.len()
     }
 
-    pub fn field(&self, index: usize) -> &ColumnVectorRef {
-        &self.columns[index]
+    pub fn field(&self, index: usize) -> ColumnarValue {
+        self.columns[index].clone()
     }
 }

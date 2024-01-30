@@ -1,4 +1,4 @@
-use crate::logical_plan::LogicalPlan;
+use crate::logical::plan::LogicalPlan;
 
 pub fn format(plan: &LogicalPlan, ident: usize) -> String {
     let mut sb = String::new();
