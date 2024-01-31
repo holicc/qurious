@@ -1,5 +1,5 @@
 use crate::types::datatype::DataType;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use super::scalar::ScalarValue;
 

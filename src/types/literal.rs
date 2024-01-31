@@ -17,7 +17,7 @@ impl ColumnVector for Literal {
         self.value.data_type()
     }
 
-    fn get_value(&self, index: usize) -> ScalarValue {
+    fn get_value(&self, _index: usize) -> ScalarValue {
         self.value.clone()
     }
 

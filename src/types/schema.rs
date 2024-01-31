@@ -10,11 +10,11 @@ impl Schema {
         Self { fields }
     }
 
-    pub fn project(&self, indices: Vec<usize>) -> Schema {
+    pub fn project(&self, _indices: Vec<usize>) -> Schema {
         todo!()
     }
 
-    pub fn select(&self, names: Vec<String>) -> Schema {
+    pub fn select(&self, _names: Vec<String>) -> Schema {
         todo!()
     }
 }
