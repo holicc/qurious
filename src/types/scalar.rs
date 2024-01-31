@@ -1,8 +1,8 @@
+use super::{datatype::DataType, field::Field};
+use crate::error::{Error, Result};
 use std::fmt::Display;
 
-use super::{datatype::DataType, field::Field};
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum ScalarValue {
     Null,
     Boolean(Option<bool>),
@@ -53,6 +53,212 @@ impl ScalarValue {
             ScalarValue::Float64(_) => DataType::Float64,
             ScalarValue::Float32(_) => DataType::Float32,
             ScalarValue::Utf8(_) => DataType::Utf8,
+        }
+    }
+
+    pub fn add(l: &ScalarValue, r: &ScalarValue) -> Result<ScalarValue> {
+        Ok(match (l, r) {
+            (ScalarValue::Int64(Some(l)), ScalarValue::Int64(Some(r))) => {
+                ScalarValue::Int64(Some(l + r))
+            }
+            (ScalarValue::Int32(Some(l)), ScalarValue::Int32(Some(r))) => {
+                ScalarValue::Int32(Some(l + r))
+            }
+            (ScalarValue::Int16(Some(l)), ScalarValue::Int16(Some(r))) => {
+                ScalarValue::Int16(Some(l + r))
+            }
+            (ScalarValue::Int8(Some(l)), ScalarValue::Int8(Some(r))) => {
+                ScalarValue::Int8(Some(l + r))
+            }
+            (ScalarValue::UInt64(Some(l)), ScalarValue::UInt64(Some(r))) => {
+                ScalarValue::UInt64(Some(l + r))
+            }
+            (ScalarValue::UInt32(Some(l)), ScalarValue::UInt32(Some(r))) => {
+                ScalarValue::UInt32(Some(l + r))
+            }
+            (ScalarValue::UInt16(Some(l)), ScalarValue::UInt16(Some(r))) => {
+                ScalarValue::UInt16(Some(l + r))
+            }
+            (ScalarValue::UInt8(Some(l)), ScalarValue::UInt8(Some(r))) => {
+                ScalarValue::UInt8(Some(l + r))
+            }
+            (ScalarValue::Float64(Some(l)), ScalarValue::Float64(Some(r))) => {
+                ScalarValue::Float64(Some(l + r))
+            }
+            (ScalarValue::Float32(Some(l)), ScalarValue::Float32(Some(r))) => {
+                ScalarValue::Float32(Some(l + r))
+            }
+            _ => return Err(crate::error::Error::ComputeError("add".to_string())),
+        })
+    }
+
+    pub fn sub(l: &ScalarValue, r: &ScalarValue) -> Result<ScalarValue> {
+        Ok(match (l, r) {
+            (ScalarValue::Int64(Some(l)), ScalarValue::Int64(Some(r))) => {
+                ScalarValue::Int64(Some(l - r))
+            }
+            (ScalarValue::Int32(Some(l)), ScalarValue::Int32(Some(r))) => {
+                ScalarValue::Int32(Some(l - r))
+            }
+            (ScalarValue::Int16(Some(l)), ScalarValue::Int16(Some(r))) => {
+                ScalarValue::Int16(Some(l - r))
+            }
+            (ScalarValue::Int8(Some(l)), ScalarValue::Int8(Some(r))) => {
+                ScalarValue::Int8(Some(l - r))
+            }
+            (ScalarValue::UInt64(Some(l)), ScalarValue::UInt64(Some(r))) => {
+                ScalarValue::UInt64(Some(l - r))
+            }
+            (ScalarValue::UInt32(Some(l)), ScalarValue::UInt32(Some(r))) => {
+                ScalarValue::UInt32(Some(l - r))
+            }
+            (ScalarValue::UInt16(Some(l)), ScalarValue::UInt16(Some(r))) => {
+                ScalarValue::UInt16(Some(l - r))
+            }
+            (ScalarValue::UInt8(Some(l)), ScalarValue::UInt8(Some(r))) => {
+                ScalarValue::UInt8(Some(l - r))
+            }
+            (ScalarValue::Float64(Some(l)), ScalarValue::Float64(Some(r))) => {
+                ScalarValue::Float64(Some(l - r))
+            }
+            (ScalarValue::Float32(Some(l)), ScalarValue::Float32(Some(r))) => {
+                ScalarValue::Float32(Some(l - r))
+            }
+            _ => return Err(crate::error::Error::ComputeError("sub".to_string())),
+        })
+    }
+
+    pub fn div(l: &ScalarValue, r: &ScalarValue) -> Result<ScalarValue> {
+        Ok(match (l, r) {
+            (ScalarValue::Int64(Some(l)), ScalarValue::Int64(Some(r))) => {
+                ScalarValue::Int64(Some(l / r))
+            }
+            (ScalarValue::Int32(Some(l)), ScalarValue::Int32(Some(r))) => {
+                ScalarValue::Int32(Some(l / r))
+            }
+            (ScalarValue::Int16(Some(l)), ScalarValue::Int16(Some(r))) => {
+                ScalarValue::Int16(Some(l / r))
+            }
+            (ScalarValue::Int8(Some(l)), ScalarValue::Int8(Some(r))) => {
+                ScalarValue::Int8(Some(l / r))
+            }
+            (ScalarValue::UInt64(Some(l)), ScalarValue::UInt64(Some(r))) => {
+                ScalarValue::UInt64(Some(l / r))
+            }
+            (ScalarValue::UInt32(Some(l)), ScalarValue::UInt32(Some(r))) => {
+                ScalarValue::UInt32(Some(l / r))
+            }
+            (ScalarValue::UInt16(Some(l)), ScalarValue::UInt16(Some(r))) => {
+                ScalarValue::UInt16(Some(l / r))
+            }
+            (ScalarValue::UInt8(Some(l)), ScalarValue::UInt8(Some(r))) => {
+                ScalarValue::UInt8(Some(l / r))
+            }
+            (ScalarValue::Float64(Some(l)), ScalarValue::Float64(Some(r))) => {
+                ScalarValue::Float64(Some(l / r))
+            }
+            (ScalarValue::Float32(Some(l)), ScalarValue::Float32(Some(r))) => {
+                ScalarValue::Float32(Some(l / r))
+            }
+            _ => return Err(crate::error::Error::ComputeError("div".to_string())),
+        })
+    }
+
+    pub fn mul(l: &ScalarValue, r: &ScalarValue) -> Result<ScalarValue> {
+        Ok(match (l, r) {
+            (ScalarValue::Int64(Some(l)), ScalarValue::Int64(Some(r))) => {
+                ScalarValue::Int64(Some(l * r))
+            }
+            (ScalarValue::Int32(Some(l)), ScalarValue::Int32(Some(r))) => {
+                ScalarValue::Int32(Some(l * r))
+            }
+            (ScalarValue::Int16(Some(l)), ScalarValue::Int16(Some(r))) => {
+                ScalarValue::Int16(Some(l * r))
+            }
+            (ScalarValue::Int8(Some(l)), ScalarValue::Int8(Some(r))) => {
+                ScalarValue::Int8(Some(l * r))
+            }
+            (ScalarValue::UInt64(Some(l)), ScalarValue::UInt64(Some(r))) => {
+                ScalarValue::UInt64(Some(l * r))
+            }
+            (ScalarValue::UInt32(Some(l)), ScalarValue::UInt32(Some(r))) => {
+                ScalarValue::UInt32(Some(l * r))
+            }
+            (ScalarValue::UInt16(Some(l)), ScalarValue::UInt16(Some(r))) => {
+                ScalarValue::UInt16(Some(l * r))
+            }
+            (ScalarValue::UInt8(Some(l)), ScalarValue::UInt8(Some(r))) => {
+                ScalarValue::UInt8(Some(l * r))
+            }
+            (ScalarValue::Float64(Some(l)), ScalarValue::Float64(Some(r))) => {
+                ScalarValue::Float64(Some(l * r))
+            }
+            (ScalarValue::Float32(Some(l)), ScalarValue::Float32(Some(r))) => {
+                ScalarValue::Float32(Some(l * r))
+            }
+            _ => return Err(crate::error::Error::ComputeError("mul".to_string())),
+        })
+    }
+
+    pub fn modulus(l: &ScalarValue, r: &ScalarValue) -> Result<ScalarValue> {
+        Ok(match (l, r) {
+            (ScalarValue::Int64(Some(l)), ScalarValue::Int64(Some(r))) => {
+                ScalarValue::Int64(Some(l % r))
+            }
+            (ScalarValue::Int32(Some(l)), ScalarValue::Int32(Some(r))) => {
+                ScalarValue::Int32(Some(l % r))
+            }
+            (ScalarValue::Int16(Some(l)), ScalarValue::Int16(Some(r))) => {
+                ScalarValue::Int16(Some(l % r))
+            }
+            (ScalarValue::Int8(Some(l)), ScalarValue::Int8(Some(r))) => {
+                ScalarValue::Int8(Some(l % r))
+            }
+            (ScalarValue::UInt64(Some(l)), ScalarValue::UInt64(Some(r))) => {
+                ScalarValue::UInt64(Some(l % r))
+            }
+            (ScalarValue::UInt32(Some(l)), ScalarValue::UInt32(Some(r))) => {
+                ScalarValue::UInt32(Some(l % r))
+            }
+            (ScalarValue::UInt16(Some(l)), ScalarValue::UInt16(Some(r))) => {
+                ScalarValue::UInt16(Some(l % r))
+            }
+            (ScalarValue::UInt8(Some(l)), ScalarValue::UInt8(Some(r))) => {
+                ScalarValue::UInt8(Some(l % r))
+            }
+            (ScalarValue::Float64(Some(l)), ScalarValue::Float64(Some(r))) => {
+                ScalarValue::Float64(Some(l % r))
+            }
+            (ScalarValue::Float32(Some(l)), ScalarValue::Float32(Some(r))) => {
+                ScalarValue::Float32(Some(l % r))
+            }
+            _ => return Err(crate::error::Error::ComputeError("modulo".to_string())),
+        })
+    }
+
+    pub fn and(l: &ScalarValue, r: &ScalarValue) -> Result<ScalarValue> {
+        match (l, r) {
+            (ScalarValue::Boolean(Some(l)), ScalarValue::Boolean(Some(r))) => {
+                Ok(ScalarValue::Boolean(Some(*l && *r)))
+            }
+            _ => Err(Error::CompareError(format!(
+                "Cannot compare {:?} and {:?}",
+                l.data_type(),
+                r.data_type()
+            ))),
+        }
+    }
+
+    pub fn or(l: &ScalarValue, r: &ScalarValue) -> Result<ScalarValue> {
+        match (l, r) {
+            (ScalarValue::Boolean(Some(l)), ScalarValue::Boolean(Some(r))) => {
+                Ok(ScalarValue::Boolean(Some(*l || *r)))
+            }
+            _ => Err(Error::CompareError(format!(
+                "Cannot compare {:?} and {:?}",
+                l.data_type(),
+                r.data_type()
+            ))),
         }
     }
 }

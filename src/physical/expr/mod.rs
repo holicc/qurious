@@ -1,6 +1,7 @@
+pub mod aggregate;
+pub mod binary;
 pub mod column;
 pub mod literal;
-pub mod binary;
 
 use crate::error::Result;
 use crate::types::batch::RecordBatch;
