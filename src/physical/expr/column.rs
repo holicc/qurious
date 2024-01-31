@@ -3,8 +3,9 @@ use std::fmt::Display;
 use super::PhysicalExpr;
 use crate::error::Result;
 use crate::types::columnar::ColumnarValue;
-use crate::types::{batch::RecordBatch, vector::ColumnarVectorRef};
+use crate::types::batch::RecordBatch;
 
+#[derive(Debug)]
 pub struct Column {
     index: usize,
 }

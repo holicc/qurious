@@ -2,8 +2,10 @@ use super::PhysicalExpr;
 use crate::error::{Error, Result};
 use crate::types::scalar::ScalarValue;
 use crate::types::{batch::RecordBatch, columnar::ColumnarValue, operator::Operator};
+use std::fmt::Display;
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct BinaryExpr {
     left: Arc<dyn PhysicalExpr>,
     op: Operator,
@@ -45,5 +47,11 @@ impl PhysicalExpr for BinaryExpr {
         };
 
         Ok(ColumnarValue::Scalar(scalar))
+    }
+}
+
+impl Display for BinaryExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.left, self.op, self.right)
     }
 }
