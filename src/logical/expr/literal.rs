@@ -1,6 +1,5 @@
 use crate::logical::expr::LogicalExpr;
-use crate::types::{datatype::DataType, field::Field, scalar::ScalarValue};
-use std::fmt::Display;
+use crate::types::scalar::ScalarValue;
 
 macro_rules! impl_from {
     ($ty: ty, $scalar: tt) => {
