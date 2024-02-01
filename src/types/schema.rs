@@ -14,7 +14,7 @@ impl Schema {
         todo!()
     }
 
-    pub fn select(&self, _names: Vec<String>) -> Schema {
+    pub fn select(&self, names: Vec<String>) -> &Schema {
         todo!()
     }
 }
