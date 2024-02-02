@@ -1,5 +1,5 @@
+use crate::datatypes::scalar::ScalarValue;
 use crate::logical::expr::LogicalExpr;
-use crate::types::scalar::ScalarValue;
 
 macro_rules! impl_from {
     ($ty: ty, $scalar: tt) => {

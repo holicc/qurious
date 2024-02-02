@@ -11,9 +11,7 @@ pub use binary::*;
 pub use column::*;
 pub use literal::*;
 
-use crate::error::Result;
-use crate::types::scalar::ScalarValue;
-use crate::{logical::plan::LogicalPlan, types::field::Field};
+use crate::datatypes::scalar::ScalarValue;
 
 #[derive(Debug, Clone)]
 pub enum LogicalExpr {
@@ -21,17 +19,6 @@ pub enum LogicalExpr {
     Literal(ScalarValue),
     BinaryExpr(BinaryExpr),
     AggregateExpr(AggregateExpr),
-}
-
-impl LogicalExpr {
-    pub fn to_field(&self, plan: &LogicalPlan) -> Result<Field> {
-        match self {
-            LogicalExpr::Column(c) => c.to_field(plan),
-            LogicalExpr::Literal(v) => Ok(v.to_field()),
-            LogicalExpr::BinaryExpr(e) => e.to_field(plan),
-            LogicalExpr::AggregateExpr(e) => e.to_field(plan),
-        }
-    }
 }
 
 impl Display for LogicalExpr {

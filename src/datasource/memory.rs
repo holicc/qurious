@@ -1,19 +1,22 @@
+use std::sync::Arc;
+
+use arrow::datatypes::Schema;
+use arrow::datatypes::SchemaRef;
+use arrow::record_batch::RecordBatch;
+
+use crate::error::Error;
 use crate::error::Result;
-use crate::{
-    error::Error,
-    types::{batch::RecordBatch, schema::Schema},
-};
 
 use super::DataSource;
 
 #[derive(Debug)]
 pub struct MemoryDataSource {
-    schema: Schema,
+    schema: SchemaRef,
     data: Vec<RecordBatch>,
 }
 
 impl MemoryDataSource {
-    pub fn new(schema: Schema, data: Vec<RecordBatch>) -> Self {
+    pub fn new(schema: SchemaRef, data: Vec<RecordBatch>) -> Self {
         Self { schema, data }
     }
 }
@@ -21,15 +24,15 @@ impl MemoryDataSource {
 impl Default for MemoryDataSource {
     fn default() -> Self {
         Self {
-            schema: Schema { fields: vec![] },
+            schema: Arc::new(Schema::empty()),
             data: vec![],
         }
     }
 }
 
 impl DataSource for MemoryDataSource {
-    fn schema(&self) -> &Schema {
-        &self.schema
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 
     fn scan(&self, projection: Option<Vec<String>>) -> Result<Vec<RecordBatch>> {
@@ -40,7 +43,7 @@ impl DataSource for MemoryDataSource {
                     .schema
                     .fields
                     .iter()
-                    .position(|f| f.name == p)
+                    .position(|f| f.name() == &p)
                     .ok_or(Error::ColumnNotFound(p))?;
                 r.push(self.data[index].clone());
             }

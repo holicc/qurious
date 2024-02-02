@@ -1,7 +1,4 @@
-use crate::error::Result;
 use crate::logical::expr::LogicalExpr;
-use crate::types::datatype::DataType;
-use crate::{logical::plan::LogicalPlan, types::field::Field};
 use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -29,19 +26,6 @@ impl Display for AggregateOperator {
 pub struct AggregateExpr {
     op: AggregateOperator,
     expr: Box<LogicalExpr>,
-}
-
-impl AggregateExpr {
-    pub fn to_field(&self, plan: &LogicalPlan) -> Result<Field> {
-        Ok(Field {
-            name: self.op.to_string(),
-            datatype: if self.op == AggregateOperator::Count {
-                DataType::Int64
-            } else {
-                self.expr.to_field(plan)?.datatype
-            },
-        })
-    }
 }
 
 impl Display for AggregateExpr {

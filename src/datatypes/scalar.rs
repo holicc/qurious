@@ -1,4 +1,5 @@
-use super::{datatype::DataType, field::Field};
+use arrow::datatypes::{DataType, Field};
+
 use crate::error::{Error, Result};
 use std::fmt::Display;
 
@@ -22,19 +23,19 @@ pub enum ScalarValue {
 impl ScalarValue {
     pub fn to_field(&self) -> Field {
         match self {
-            ScalarValue::Null => Field::new("null", DataType::Null),
-            ScalarValue::Boolean(_) => Field::new("bool", DataType::Boolean),
-            ScalarValue::Int64(_) => Field::new("i64", DataType::Int64),
-            ScalarValue::Int32(_) => Field::new("i32", DataType::Int32),
-            ScalarValue::Int16(_) => Field::new("i16", DataType::Int16),
-            ScalarValue::Int8(_) => Field::new("i8", DataType::Int8),
-            ScalarValue::UInt64(_) => Field::new("u64", DataType::UInt64),
-            ScalarValue::UInt32(_) => Field::new("u32", DataType::UInt32),
-            ScalarValue::UInt16(_) => Field::new("u16", DataType::UInt16),
-            ScalarValue::UInt8(_) => Field::new("u8", DataType::UInt8),
-            ScalarValue::Float64(_) => Field::new("f64", DataType::Float64),
-            ScalarValue::Float32(_) => Field::new("f32", DataType::Float32),
-            ScalarValue::Utf8(_) => Field::new("utf8", DataType::Utf8),
+            ScalarValue::Null => Field::new("null", DataType::Null, true),
+            ScalarValue::Boolean(_) => Field::new("bool", DataType::Boolean, true),
+            ScalarValue::Int64(_) => Field::new("i64", DataType::Int64, true),
+            ScalarValue::Int32(_) => Field::new("i32", DataType::Int32, true),
+            ScalarValue::Int16(_) => Field::new("i16", DataType::Int16, true),
+            ScalarValue::Int8(_) => Field::new("i8", DataType::Int8, true),
+            ScalarValue::UInt64(_) => Field::new("u64", DataType::UInt64, true),
+            ScalarValue::UInt32(_) => Field::new("u32", DataType::UInt32, true),
+            ScalarValue::UInt16(_) => Field::new("u16", DataType::UInt16, true),
+            ScalarValue::UInt8(_) => Field::new("u8", DataType::UInt8, true),
+            ScalarValue::Float64(_) => Field::new("f64", DataType::Float64, true),
+            ScalarValue::Float32(_) => Field::new("f32", DataType::Float32, true),
+            ScalarValue::Utf8(_) => Field::new("utf8", DataType::Utf8, true),
         }
     }
 

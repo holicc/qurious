@@ -1,14 +1,13 @@
+use arrow::datatypes::SchemaRef;
+
 use super::LogicalPlan;
-use crate::{
-    logical::expr::{self, LogicalExpr},
-    types::schema::Schema,
-};
+use crate::logical::expr::{self, LogicalExpr};
 use std::fmt::Display;
 
 #[derive(Debug, Clone)]
 pub struct Aggregate {
     /// The schema description of the aggregate output
-    schema: Schema,
+    schema: SchemaRef,
     input: Box<LogicalPlan>,
     group_expr: Vec<LogicalExpr>,
     aggr_expr: Vec<expr::AggregateExpr>,
@@ -34,8 +33,8 @@ impl Aggregate {
         }
     }
 
-    pub fn schema(&self) -> &Schema {
-        &self.schema
+    pub fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 
     pub fn children(&self) -> Option<Vec<&LogicalPlan>> {

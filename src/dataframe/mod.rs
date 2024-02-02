@@ -1,3 +1,5 @@
+use arrow::datatypes::SchemaRef;
+
 use crate::{
     error::Result,
     logical::expr::{self, LogicalExpr},
@@ -5,7 +7,6 @@ use crate::{
         plan::LogicalPlan,
         plan::{Aggregate, Filter, Projection},
     },
-    types::schema::Schema,
 };
 
 #[derive(Debug)]
@@ -22,7 +23,7 @@ impl DataFrame {
         self.plan.clone()
     }
 
-    pub fn schema(&self) -> &Schema {
+    pub fn schema(&self) -> SchemaRef {
         self.plan.schema()
     }
 }

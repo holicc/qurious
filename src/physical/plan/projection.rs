@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
+use arrow::record_batch::RecordBatch;
+
 use super::PhysicalPlan;
 use crate::error::Result;
-use crate::types::batch::RecordBatch;
 use crate::types::columnar::ColumnarValue;
 use crate::{physical::expr::PhysicalExpr, types::schema::Schema};
 
@@ -26,9 +27,7 @@ impl PhysicalPlan for Projection {
                         .iter()
                         .map(|expr| expr.evaluate(&batch))
                         .collect::<Result<Vec<ColumnarValue>>>()
-                        .map(|columns| {
-                            RecordBatch::new(self.schema.clone(), columns, batch.row_count())
-                        })
+                        .map(|columns| RecordBatch::try_new(schema, columns))
                 })
                 .collect()
         })

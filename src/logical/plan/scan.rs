@@ -1,6 +1,8 @@
 use std::{fmt::Display, sync::Arc};
 
-use crate::{datasource::DataSource, types::schema::Schema};
+use arrow::datatypes::SchemaRef;
+
+use crate::datasource::DataSource;
 
 use super::LogicalPlan;
 
@@ -20,7 +22,7 @@ impl TableScan {
         }
     }
 
-    pub fn schema(&self) -> &Schema {
+    pub fn schema(&self) -> SchemaRef {
         self.source.schema()
     }
 

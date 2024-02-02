@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use arrow::record_batch::RecordBatch;
+
 use crate::error::Result;
-use crate::types::batch::RecordBatch;
 use crate::{datasource::DataSource, types::schema::Schema};
 
 use super::PhysicalPlan;

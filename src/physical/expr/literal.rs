@@ -1,9 +1,11 @@
 use std::fmt::Display;
 
+use arrow::record_batch::RecordBatch;
+
 use super::PhysicalExpr;
 use crate::error::Result;
 use crate::types::columnar::ColumnarValue;
-use crate::types::{batch::RecordBatch, scalar::ScalarValue};
+use crate::types::scalar::ScalarValue;
 
 #[derive(Debug)]
 pub struct Literal {

@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
+use arrow::datatypes::SchemaRef;
+
 use crate::dataframe::DataFrame;
 use crate::datasource;
 use crate::error::Result;
 use crate::logical::plan::{LogicalPlan, TableScan};
-use crate::types::schema::Schema;
 
 pub struct ExecutionContext {}
 
 impl ExecutionContext {
-    pub fn memory(schame: Schema) -> Result<DataFrame> {
+    pub fn memory(schame: SchemaRef) -> Result<DataFrame> {
         let source = datasource::memory::MemoryDataSource::new(schame, vec![]);
         let plan = TableScan::new("test", Arc::new(source), None);
         Ok(DataFrame::new(LogicalPlan::TableScan(plan)))
@@ -19,9 +20,10 @@ impl ExecutionContext {
 #[cfg(test)]
 mod tests {
 
+    use arrow::datatypes::{DataType, Field, Fields, Schema};
+
     use crate::{
         logical::expr::{column, eq, literal},
-        types::{datatype::DataType, field::Field},
         utils,
     };
 
@@ -29,15 +31,13 @@ mod tests {
 
     #[test]
     pub fn test_simple_df() -> Result<()> {
-        let schema = Schema {
-            fields: vec![
-                Field::new("id", DataType::UInt32),
-                Field::new("first_name", DataType::Utf8),
-                Field::new("last_name", DataType::Utf8),
-                Field::new("state", DataType::Utf8),
-                Field::new("salary", DataType::UInt32),
-            ],
-        };
+        let schema = Arc::new(Schema::new(Fields::from(vec![
+            Field::new("id", DataType::Int32, true),
+            Field::new("first_name", DataType::Utf8, true),
+            Field::new("last_name", DataType::Utf8, true),
+            Field::new("state", DataType::Utf8, true),
+            Field::new("salary", DataType::Float64, true),
+        ])));
 
         let df = ExecutionContext::memory(schema)?;
 

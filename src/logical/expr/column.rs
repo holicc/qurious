@@ -1,8 +1,10 @@
 use std::fmt::Display;
 use std::str::FromStr;
 
+use arrow::datatypes::Field;
+
 use crate::error::{Error, Result};
-use crate::{logical::plan::LogicalPlan, types::field::Field};
+use crate::logical::plan::LogicalPlan;
 
 use super::LogicalExpr;
 
@@ -12,14 +14,10 @@ pub struct Column {
 }
 
 impl Column {
-    pub fn to_field(&self, plan: &LogicalPlan) -> Result<Field> {
+    pub fn to_field(&self, plan: &LogicalPlan) -> Result<&Field> {
         plan.schema()
-            .fields
-            .iter()
-            .filter(|t| t.name.as_str() == self.name.as_str())
-            .next()
-            .cloned()
-            .ok_or(Error::ColumnNotFound(self.name.clone()))
+            .field_with_name(&self.name)
+            .map_err(|e| Error::ArrowError(e))
     }
 }
 

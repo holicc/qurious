@@ -1,7 +1,9 @@
+use arrow::record_batch::RecordBatch;
+
 use super::PhysicalExpr;
 use crate::error::{Error, Result};
 use crate::types::scalar::ScalarValue;
-use crate::types::{batch::RecordBatch, columnar::ColumnarValue, operator::Operator};
+use crate::types::{columnar::ColumnarValue, operator::Operator};
 use std::fmt::Display;
 use std::sync::Arc;
 

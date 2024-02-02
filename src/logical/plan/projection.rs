@@ -1,9 +1,7 @@
+use arrow::datatypes::{Schema, SchemaRef};
+
 use crate::error::Result;
-use crate::{
-    logical::expr::LogicalExpr,
-    logical::plan::LogicalPlan,
-    types::{field::Field, schema::Schema},
-};
+use crate::{logical::expr::LogicalExpr, logical::plan::LogicalPlan};
 use std::fmt::Display;
 
 #[derive(Debug, Clone)]
@@ -27,7 +25,7 @@ impl Projection {
         })
     }
 
-    pub fn schema(&self) -> &Schema {
+    pub fn schema(&self) -> SchemaRef {
         &self.schema
     }
 

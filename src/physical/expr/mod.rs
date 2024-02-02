@@ -5,8 +5,9 @@ pub mod literal;
 
 use std::fmt::{Debug, Display};
 
+use arrow::record_batch::RecordBatch;
+
 use crate::error::Result;
-use crate::types::batch::RecordBatch;
 use crate::types::columnar::ColumnarValue;
 
 pub trait PhysicalExpr: Debug + Display {

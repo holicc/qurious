@@ -1,9 +1,5 @@
-use crate::error::Result;
-use crate::types::operator::Operator;
+use crate::datatypes::operator::Operator;
 use std::fmt::Display;
-
-use crate::types::datatype::DataType;
-use crate::{logical::plan::LogicalPlan, types::field::Field};
 
 use super::LogicalExpr;
 
@@ -12,27 +8,6 @@ pub struct BinaryExpr {
     left: Box<LogicalExpr>,
     op: Operator,
     right: Box<LogicalExpr>,
-}
-
-impl BinaryExpr {
-    pub fn to_field(&self, plan: &LogicalPlan) -> Result<Field> {
-        Ok(Field {
-            name: self.op.to_string(),
-            datatype: match self.op {
-                Operator::Eq
-                | Operator::NotEq
-                | Operator::Gt
-                | Operator::GtEq
-                | Operator::Lt
-                | Operator::LtEq
-                | Operator::And
-                | Operator::Or => DataType::Boolean,
-                Operator::Add | Operator::Sub | Operator::Mul | Operator::Div | Operator::Mod => {
-                    self.left.to_field(plan)?.datatype
-                }
-            },
-        })
-    }
 }
 
 impl Display for BinaryExpr {

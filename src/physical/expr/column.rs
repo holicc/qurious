@@ -1,9 +1,10 @@
 use std::fmt::Display;
 
+use arrow::record_batch::RecordBatch;
+
 use super::PhysicalExpr;
 use crate::error::Result;
 use crate::types::columnar::ColumnarValue;
-use crate::types::batch::RecordBatch;
 
 #[derive(Debug)]
 pub struct Column {
@@ -12,7 +13,7 @@ pub struct Column {
 
 impl PhysicalExpr for Column {
     fn evaluate(&self, input: &RecordBatch) -> Result<ColumnarValue> {
-        Ok(input.field(self.index))
+        Ok(input.column(self.index).clone().into())
     }
 }
 

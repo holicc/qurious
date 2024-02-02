@@ -1,8 +1,9 @@
 use std::fmt::Display;
 
+use arrow::datatypes::SchemaRef;
+
 use crate::logical::expr::LogicalExpr;
 use crate::logical::plan::LogicalPlan;
-use crate::types::schema::Schema;
 
 #[derive(Debug, Clone)]
 pub struct Filter {
@@ -18,7 +19,7 @@ impl Filter {
         }
     }
 
-    pub fn schema(&self) -> &Schema {
+    pub fn schema(&self) -> SchemaRef {
         self.input.schema()
     }
 

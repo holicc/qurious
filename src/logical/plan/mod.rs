@@ -4,11 +4,10 @@ mod projection;
 mod scan;
 
 pub use aggregate::Aggregate;
+use arrow::datatypes::SchemaRef;
 pub use filter::Filter;
 pub use projection::Projection;
 pub use scan::TableScan;
-
-use crate::types::schema::Schema;
 
 #[derive(Debug, Clone)]
 pub enum LogicalPlan {
@@ -19,7 +18,7 @@ pub enum LogicalPlan {
 }
 
 impl LogicalPlan {
-    pub fn schema(&self) -> &Schema {
+    pub fn schema(&self) -> SchemaRef {
         match self {
             LogicalPlan::Projection(p) => p.schema(),
             LogicalPlan::Filter(f) => f.schema(),
