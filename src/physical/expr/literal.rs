@@ -1,11 +1,9 @@
 use std::fmt::Display;
 
-use arrow::record_batch::RecordBatch;
+use arrow::{array::ArrayRef, record_batch::RecordBatch};
 
 use super::PhysicalExpr;
-use crate::error::Result;
-use crate::types::columnar::ColumnarValue;
-use crate::types::scalar::ScalarValue;
+use crate::{datatypes::scalar::ScalarValue, error::Result};
 
 #[derive(Debug)]
 pub struct Literal {
@@ -13,8 +11,8 @@ pub struct Literal {
 }
 
 impl PhysicalExpr for Literal {
-    fn evaluate(&self, _input: &RecordBatch) -> Result<ColumnarValue> {
-        Ok(ColumnarValue::Scalar(self.value.clone()))
+    fn evaluate(&self, input: &RecordBatch) -> Result<ArrayRef> {
+        Ok(self.value.to_array(input.num_rows()))
     }
 }
 

@@ -1,7 +1,7 @@
 mod max;
 
+use crate::datatypes::scalar::ScalarValue;
 use crate::error::Result;
-use crate::types::scalar::ScalarValue;
 use std::fmt::Debug;
 use std::sync::Arc;
 

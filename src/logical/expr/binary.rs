@@ -1,5 +1,10 @@
+use arrow::datatypes::{DataType, Field, FieldRef};
+
 use crate::datatypes::operator::Operator;
+use crate::error::Result;
+use crate::logical::plan::LogicalPlan;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use super::LogicalExpr;
 
@@ -8,6 +13,28 @@ pub struct BinaryExpr {
     left: Box<LogicalExpr>,
     op: Operator,
     right: Box<LogicalExpr>,
+}
+
+impl BinaryExpr {
+    pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
+        Ok(Arc::new(Field::new(
+            self.op.to_string(),
+            match self.op {
+                Operator::Eq
+                | Operator::NotEq
+                | Operator::Gt
+                | Operator::GtEq
+                | Operator::Lt
+                | Operator::LtEq
+                | Operator::And
+                | Operator::Or => DataType::Boolean,
+                Operator::Add | Operator::Sub | Operator::Mul | Operator::Div | Operator::Mod => {
+                    self.left.field(plan)?.data_type().clone()
+                }
+            },
+            false,
+        )))
+    }
 }
 
 impl Display for BinaryExpr {

@@ -46,8 +46,8 @@ impl DataFrame {
         group_by: Vec<LogicalExpr>,
         aggr_expr: Vec<expr::AggregateExpr>,
     ) -> Result<Self> {
-        Ok(Self {
-            plan: LogicalPlan::Aggregate(Aggregate::new(self.plan.clone(), group_by, aggr_expr)),
+        Aggregate::try_new(self.plan.clone(), group_by, aggr_expr).map(|a| Self {
+            plan: LogicalPlan::Aggregate(a),
         })
     }
 }

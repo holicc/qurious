@@ -1,36 +1,37 @@
 use std::sync::Arc;
 
+use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;
 
 use super::PhysicalPlan;
-use crate::error::Result;
-use crate::types::columnar::ColumnarValue;
-use crate::{physical::expr::PhysicalExpr, types::schema::Schema};
+use crate::error::{Error, Result};
+use crate::physical::expr::PhysicalExpr;
 
 pub struct Projection {
     input: Arc<dyn PhysicalPlan>,
-    schema: Schema,
+    schema: SchemaRef,
     exprs: Vec<Arc<dyn PhysicalExpr>>,
 }
 
 impl PhysicalPlan for Projection {
-    fn schema(&self) -> &Schema {
-        &self.schema
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 
     fn execute(&self) -> Result<Vec<RecordBatch>> {
-        self.input.execute().and_then(|batches| {
-            batches
-                .into_iter()
-                .map(|batch| {
-                    self.exprs
-                        .iter()
-                        .map(|expr| expr.evaluate(&batch))
-                        .collect::<Result<Vec<ColumnarValue>>>()
-                        .map(|columns| RecordBatch::try_new(schema, columns))
-                })
-                .collect()
-        })
+        let batches = self.input.execute()?;
+        let mut reulsts = vec![];
+        for batch in batches {
+            let mut columns = vec![];
+            for expr in &self.exprs {
+                columns.push(expr.evaluate(&batch)?);
+            }
+            reulsts.push(
+                RecordBatch::try_new(self.schema(), columns).map_err(|e| Error::ArrowError(e))?,
+            );
+        }
+
+        Ok(reulsts)
     }
 
     fn children(&self) -> Option<Vec<Arc<dyn PhysicalPlan>>> {

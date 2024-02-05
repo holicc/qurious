@@ -4,10 +4,11 @@ mod projection;
 mod scan;
 
 pub use aggregate::Aggregate;
-use arrow::datatypes::SchemaRef;
 pub use filter::Filter;
 pub use projection::Projection;
 pub use scan::TableScan;
+
+use arrow::datatypes::SchemaRef;
 
 #[derive(Debug, Clone)]
 pub enum LogicalPlan {

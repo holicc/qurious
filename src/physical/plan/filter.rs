@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use arrow::array::AsArray;
 use arrow::compute::filter_record_batch;
+use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;
 
 use super::PhysicalPlan;
-use crate::error::Result;
-use crate::{physical::expr::PhysicalExpr, types::schema::Schema};
+use crate::error::{Error, Result};
+use crate::physical::expr::PhysicalExpr;
 
 pub struct Filter {
     input: Arc<dyn PhysicalPlan>,
@@ -14,20 +15,19 @@ pub struct Filter {
 }
 
 impl PhysicalPlan for Filter {
-    fn schema(&self) -> &Schema {
+    fn schema(&self) -> SchemaRef {
         self.input.schema()
     }
 
     fn execute(&self) -> Result<Vec<RecordBatch>> {
-        let batches = self.input.execute()?;
-
-        for batch in batches {
-            let new_barch = self.predicate.evaluate(&batch).and_then(|v| {
-                filter_record_batch(&batch.try_into()?, v.to_array().as_boolean()).try_into()
-            });
-        }
-
-        Ok(vec![])
+        self.input
+            .execute()?
+            .into_iter()
+            .map(|batch| {
+                filter_record_batch(&batch, &self.predicate.evaluate(&batch)?.as_boolean())
+                    .map_err(|e| Error::ArrowError(e))
+            })
+            .collect()
     }
 
     fn children(&self) -> Option<Vec<Arc<dyn PhysicalPlan>>> {

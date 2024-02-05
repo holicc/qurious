@@ -1,22 +1,36 @@
 use std::sync::Arc;
 
+use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;
 
+use crate::datasource::DataSource;
 use crate::error::Result;
-use crate::{datasource::DataSource, types::schema::Schema};
 
 use super::PhysicalPlan;
 
 pub struct Scan {
+    schema: SchemaRef,
     datasource: Arc<dyn DataSource>,
     projections: Option<Vec<String>>,
 }
 
+impl Scan {
+    pub fn new(
+        schema: SchemaRef,
+        datasource: Arc<dyn DataSource>,
+        projections: Option<Vec<String>>,
+    ) -> Self {
+        Self {
+            schema,
+            datasource,
+            projections,
+        }
+    }
+}
+
 impl PhysicalPlan for Scan {
-    fn schema(&self) -> &Schema {
-        self.datasource
-            .schema()
-            .select(self.projections.clone().unwrap_or_default())
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 
     fn execute(&self) -> Result<Vec<RecordBatch>> {

@@ -1,7 +1,8 @@
 use std::fmt::Display;
 use std::str::FromStr;
+use std::sync::Arc;
 
-use arrow::datatypes::Field;
+use arrow::datatypes::FieldRef;
 
 use crate::error::{Error, Result};
 use crate::logical::plan::LogicalPlan;
@@ -14,9 +15,10 @@ pub struct Column {
 }
 
 impl Column {
-    pub fn to_field(&self, plan: &LogicalPlan) -> Result<&Field> {
+    pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
         plan.schema()
             .field_with_name(&self.name)
+            .map(|f| Arc::new(f.clone()))
             .map_err(|e| Error::ArrowError(e))
     }
 }

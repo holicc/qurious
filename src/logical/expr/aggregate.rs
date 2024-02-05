@@ -1,5 +1,10 @@
+use arrow::datatypes::{Field, FieldRef};
+
+use crate::error::Result;
 use crate::logical::expr::LogicalExpr;
+use crate::logical::plan::LogicalPlan;
 use std::fmt::Display;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AggregateOperator {
@@ -26,6 +31,19 @@ impl Display for AggregateOperator {
 pub struct AggregateExpr {
     op: AggregateOperator,
     expr: Box<LogicalExpr>,
+}
+
+impl AggregateExpr {
+    pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
+        match self.op {
+            AggregateOperator::Count => Ok(Arc::new(Field::new(
+                self.op.to_string(),
+                self.expr.field(plan)?.data_type().clone(),
+                false,
+            ))),
+            _ => self.expr.field(plan),
+        }
+    }
 }
 
 impl Display for AggregateExpr {

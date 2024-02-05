@@ -1,9 +1,13 @@
+use arrow::array::{ArrayRef, AsArray, BooleanArray, Datum};
+use arrow::compute::kernels::cmp::*;
+use arrow::compute::kernels::numeric::{add_wrapping, div, mul_wrapping, rem, sub_wrapping};
+use arrow::compute::{and_kleene, or_kleene};
+use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatch;
 
 use super::PhysicalExpr;
+use crate::datatypes::operator::Operator;
 use crate::error::{Error, Result};
-use crate::types::scalar::ScalarValue;
-use crate::types::{columnar::ColumnarValue, operator::Operator};
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -15,41 +19,43 @@ pub struct BinaryExpr {
 }
 
 impl PhysicalExpr for BinaryExpr {
-    fn evaluate(&self, input: &RecordBatch) -> Result<ColumnarValue> {
+    fn evaluate(&self, input: &RecordBatch) -> Result<ArrayRef> {
         let l = self.left.evaluate(input)?;
         let r = self.right.evaluate(input)?;
 
-        if l.data_type() != r.data_type() {
-            return Err(Error::CompareError(format!(
-                "Cannot compare {:?} and {:?}",
-                l.data_type(),
-                r.data_type()
-            )));
+        match self.op {
+            // compare
+            Operator::Eq => cmp(&l, &r, eq),
+            Operator::NotEq => cmp(&l, &r, neq),
+            Operator::Gt => cmp(&l, &r, gt),
+            Operator::GtEq => cmp(&l, &r, gt_eq),
+            Operator::Lt => cmp(&l, &r, lt),
+            Operator::LtEq => cmp(&l, &r, lt_eq),
+            // logic
+            Operator::And => and_kleene(l.as_boolean(), r.as_boolean())
+                .map(|a| Arc::new(a) as ArrayRef)
+                .map_err(|e| Error::ArrowError(e)),
+            Operator::Or => or_kleene(l.as_boolean(), r.as_boolean())
+                .map(|a| Arc::new(a) as ArrayRef)
+                .map_err(|e| Error::ArrowError(e)),
+            // arithmetic
+            Operator::Add => add_wrapping(&l, &r).map_err(|e| Error::ArrowError(e)),
+            Operator::Sub => sub_wrapping(&l, &r).map_err(|e| Error::ArrowError(e)),
+            Operator::Mul => mul_wrapping(&l, &r).map_err(|e| Error::ArrowError(e)),
+            Operator::Div => div(&l, &r).map_err(|e| Error::ArrowError(e)),
+            Operator::Mod => rem(&l, &r).map_err(|e| Error::ArrowError(e)),
         }
-
-        let (ColumnarValue::Scalar(ll), ColumnarValue::Scalar(rr)) = (&l, &r);
-
-        let scalar = match self.op {
-            // Comparison operators
-            Operator::Eq => ScalarValue::Boolean(Some(ll.eq(rr))),
-            Operator::NotEq => ScalarValue::Boolean(Some(!ll.eq(rr))),
-            Operator::Lt => ScalarValue::Boolean(Some(ll.lt(rr))),
-            Operator::LtEq => ScalarValue::Boolean(Some(ll.le(rr))),
-            Operator::Gt => ScalarValue::Boolean(Some(ll.gt(rr))),
-            Operator::GtEq => ScalarValue::Boolean(Some(ll.ge(rr))),
-            // Boolean operators
-            Operator::And => ScalarValue::and(ll, rr)?,
-            Operator::Or => ScalarValue::or(ll, rr)?,
-            // Arithmetic operators
-            Operator::Add => ScalarValue::add(ll, rr)?,
-            Operator::Sub => ScalarValue::sub(ll, rr)?,
-            Operator::Mul => ScalarValue::mul(ll, rr)?,
-            Operator::Div => ScalarValue::div(ll, rr)?,
-            Operator::Mod => ScalarValue::modulus(ll, rr)?,
-        };
-
-        Ok(ColumnarValue::Scalar(scalar))
     }
+}
+
+fn cmp(
+    l: &ArrayRef,
+    r: &ArrayRef,
+    f: impl Fn(&dyn Datum, &dyn Datum) -> Result<BooleanArray, ArrowError>,
+) -> Result<ArrayRef, Error> {
+    f(&l.as_ref(), &r.as_ref())
+        .map(|a| Arc::new(a) as ArrayRef)
+        .map_err(|e| Error::ArrowError(e))
 }
 
 impl Display for BinaryExpr {

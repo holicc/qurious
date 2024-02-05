@@ -1,8 +1,9 @@
 use std::{fmt::Display, sync::Arc};
 
 use super::{Accumulator, AggregateExpr};
+use crate::datatypes::scalar::ScalarValue;
 use crate::error::Result;
-use crate::{physical::expr::PhysicalExpr, types::scalar::ScalarValue};
+use crate::physical::expr::PhysicalExpr;
 
 #[derive(Debug)]
 pub struct MaxAggregateExpr {

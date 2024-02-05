@@ -5,11 +5,10 @@ pub mod literal;
 
 use std::fmt::{Debug, Display};
 
-use arrow::record_batch::RecordBatch;
+use arrow::{array::ArrayRef, record_batch::RecordBatch};
 
 use crate::error::Result;
-use crate::types::columnar::ColumnarValue;
 
 pub trait PhysicalExpr: Debug + Display {
-    fn evaluate(&self, input: &RecordBatch) -> Result<ColumnarValue>;
+    fn evaluate(&self, input: &RecordBatch) -> Result<ArrayRef>;
 }

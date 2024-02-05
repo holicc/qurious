@@ -1,12 +1,13 @@
-use arrow::datatypes::{Schema, SchemaRef};
+use arrow::datatypes::{FieldRef, Schema, SchemaRef};
 
 use crate::error::Result;
 use crate::{logical::expr::LogicalExpr, logical::plan::LogicalPlan};
 use std::fmt::Display;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct Projection {
-    schema: Schema,
+    schema: SchemaRef,
     input: Box<LogicalPlan>,
     exprs: Vec<LogicalExpr>,
 }
@@ -14,19 +15,18 @@ pub struct Projection {
 impl Projection {
     pub fn try_new(input: LogicalPlan, exprs: Vec<LogicalExpr>) -> Result<Self> {
         Ok(Self {
-            schema: Schema {
-                fields: exprs
-                    .iter()
-                    .map(|f| f.to_field(&input))
-                    .collect::<Result<Vec<Field>>>()?,
-            },
+            schema: exprs
+                .iter()
+                .map(|f| f.field(&input))
+                .collect::<Result<Vec<FieldRef>>>()
+                .map(|fields| Arc::new(Schema::new(fields)))?,
             input: Box::new(input),
             exprs,
         })
     }
 
     pub fn schema(&self) -> SchemaRef {
-        &self.schema
+        self.schema.clone()
     }
 
     pub fn children(&self) -> Option<Vec<&LogicalPlan>> {
