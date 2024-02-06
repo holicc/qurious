@@ -1,5 +1,3 @@
-use arrow::array::{ArrayAccessor, ArrayRef, AsArray};
-
 use crate::logical::plan::LogicalPlan;
 
 pub fn format(plan: &LogicalPlan, ident: usize) -> String {

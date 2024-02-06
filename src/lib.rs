@@ -6,3 +6,4 @@ pub mod logical;
 pub mod physical;
 pub mod utils;
 pub mod datatypes;
+pub mod planner;
