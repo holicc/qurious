@@ -1,3 +1,4 @@
+mod aggregate;
 mod filter;
 mod projection;
 mod scan;
