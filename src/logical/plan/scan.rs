@@ -8,9 +8,9 @@ use super::LogicalPlan;
 
 #[derive(Debug, Clone)]
 pub struct TableScan {
-    path: String,
-    source: Arc<dyn DataSource>,
-    projections: Option<Vec<String>>,
+   pub path: String,
+   pub source: Arc<dyn DataSource>,
+   pub projections: Option<Vec<String>>,
 }
 
 impl TableScan {

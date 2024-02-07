@@ -7,8 +7,8 @@ use crate::logical::plan::LogicalPlan;
 
 #[derive(Debug, Clone)]
 pub struct Filter {
-    input: Box<LogicalPlan>,
-    expr: LogicalExpr,
+    pub input: Box<LogicalPlan>,
+    pub expr: LogicalExpr,
 }
 
 impl Filter {

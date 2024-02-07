@@ -14,6 +14,12 @@ pub struct Filter {
     predicate: Arc<dyn PhysicalExpr>,
 }
 
+impl Filter {
+    pub fn new(input: Arc<dyn PhysicalPlan>, predicate: Arc<dyn PhysicalExpr>) -> Self {
+        Self { input, predicate }
+    }
+}
+
 impl PhysicalPlan for Filter {
     fn schema(&self) -> SchemaRef {
         self.input.schema()

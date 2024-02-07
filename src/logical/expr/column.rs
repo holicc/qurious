@@ -11,7 +11,7 @@ use super::LogicalExpr;
 
 #[derive(Debug, Clone)]
 pub struct Column {
-    name: String,
+    pub name: String,
 }
 
 impl Column {

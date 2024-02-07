@@ -1,7 +1,6 @@
 use std::fmt::Display;
 
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Operator {
     Eq,
     NotEq,

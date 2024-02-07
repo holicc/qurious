@@ -18,6 +18,12 @@ pub struct BinaryExpr {
     right: Arc<dyn PhysicalExpr>,
 }
 
+impl BinaryExpr {
+    pub fn new(left: Arc<dyn PhysicalExpr>, op: Operator, right: Arc<dyn PhysicalExpr>) -> Self {
+        Self { left, op, right }
+    }
+}
+
 impl PhysicalExpr for BinaryExpr {
     fn evaluate(&self, input: &RecordBatch) -> Result<ArrayRef> {
         let l = self.left.evaluate(input)?;

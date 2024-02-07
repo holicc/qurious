@@ -29,8 +29,8 @@ impl Display for AggregateOperator {
 
 #[derive(Debug, Clone)]
 pub struct AggregateExpr {
-    op: AggregateOperator,
-    expr: Box<LogicalExpr>,
+    pub op: AggregateOperator,
+    pub expr: Box<LogicalExpr>,
 }
 
 impl AggregateExpr {

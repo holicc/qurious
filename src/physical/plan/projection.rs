@@ -13,6 +13,20 @@ pub struct Projection {
     exprs: Vec<Arc<dyn PhysicalExpr>>,
 }
 
+impl Projection {
+    pub fn new(
+        schema: SchemaRef,
+        input: Arc<dyn PhysicalPlan>,
+        exprs: Vec<Arc<dyn PhysicalExpr>>,
+    ) -> Self {
+        Self {
+            input,
+            schema,
+            exprs,
+        }
+    }
+}
+
 impl PhysicalPlan for Projection {
     fn schema(&self) -> SchemaRef {
         self.schema.clone()

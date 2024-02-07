@@ -7,9 +7,9 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct Projection {
-    schema: SchemaRef,
-    input: Box<LogicalPlan>,
-    exprs: Vec<LogicalExpr>,
+    pub schema: SchemaRef,
+    pub input: Box<LogicalPlan>,
+    pub exprs: Vec<LogicalExpr>,
 }
 
 impl Projection {

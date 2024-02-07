@@ -10,6 +10,12 @@ pub struct Literal {
     value: ScalarValue,
 }
 
+impl Literal {
+    pub fn new(value: ScalarValue) -> Self {
+        Self { value }
+    }
+}
+
 impl PhysicalExpr for Literal {
     fn evaluate(&self, input: &RecordBatch) -> Result<ArrayRef> {
         Ok(self.value.to_array(input.num_rows()))

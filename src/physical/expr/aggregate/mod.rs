@@ -1,4 +1,4 @@
-mod max;
+pub mod max;
 
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::Result;

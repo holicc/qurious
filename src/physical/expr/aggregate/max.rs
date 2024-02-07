@@ -10,6 +10,16 @@ pub struct MaxAggregateExpr {
     expr: Arc<dyn PhysicalExpr>,
 }
 
+impl MaxAggregateExpr{
+    
+}
+
+impl MaxAggregateExpr {
+    pub fn new(expr: Arc<dyn PhysicalExpr>) -> Self {
+        Self { expr }
+    }
+}
+
 impl AggregateExpr for MaxAggregateExpr {
     fn expression(&self) -> &Arc<dyn PhysicalExpr> {
         &self.expr

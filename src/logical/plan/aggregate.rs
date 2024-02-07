@@ -9,10 +9,10 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct Aggregate {
     /// The schema description of the aggregate output
-    schema: SchemaRef,
-    input: Box<LogicalPlan>,
-    group_expr: Vec<LogicalExpr>,
-    aggr_expr: Vec<expr::AggregateExpr>,
+    pub schema: SchemaRef,
+    pub input: Box<LogicalPlan>,
+    pub group_expr: Vec<LogicalExpr>,
+    pub aggr_expr: Vec<expr::AggregateExpr>,
 }
 
 impl Aggregate {

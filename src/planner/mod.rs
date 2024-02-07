@@ -1,16 +1,149 @@
 use std::sync::Arc;
 
-use crate::{error::Result, logical::plan::LogicalPlan, physical::plan::PhysicalPlan};
+use arrow::datatypes::SchemaRef;
+
+use crate::{
+    datatypes::scalar::ScalarValue,
+    error::{Error, Result},
+    logical::{
+        expr::{AggregateOperator, BinaryExpr, Column, LogicalExpr},
+        plan::{Aggregate, Filter, LogicalPlan, Projection, TableScan},
+    },
+    physical::{
+        self,
+        expr::{AggregateExpr, PhysicalExpr},
+        plan::PhysicalPlan,
+    },
+};
 
 pub trait QueryPlanner {
     fn create_physical_plan(&self, logical_plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>>;
+
+    fn create_physical_expr(
+        &self,
+        schema: &SchemaRef,
+        expr: &LogicalExpr,
+    ) -> Result<Arc<dyn PhysicalExpr>>;
 }
 
 struct DefaultQueryPlanner;
 
-impl QueryPlanner for DefaultQueryPlanner {
-    fn create_physical_plan(&self, logical_plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>> {
-        unimplemented!()
+impl DefaultQueryPlanner {
+    fn physical_plan_projection(&self, projection: &Projection) -> Result<Arc<dyn PhysicalPlan>> {
+        let physical_plan = self.create_physical_plan(&projection.input)?;
+        let exprs = projection
+            .exprs
+            .iter()
+            .map(|e| self.create_physical_expr(&projection.schema, e))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Arc::new(physical::plan::Projection::new(
+            projection.schema.clone(),
+            physical_plan,
+            exprs,
+        )))
+    }
+
+    fn physical_plan_filter(&self, filter: &Filter) -> Result<Arc<dyn PhysicalPlan>> {
+        Ok(Arc::new(physical::plan::Filter::new(
+            self.create_physical_plan(&filter.input)?,
+            self.create_physical_expr(&filter.schema(), &filter.expr)?,
+        )))
+    }
+
+    fn physical_plan_aggregate(&self, aggregate: &Aggregate) -> Result<Arc<dyn PhysicalPlan>> {
+        let input = self.create_physical_plan(&aggregate.input)?;
+        let group_expr = aggregate
+            .group_expr
+            .iter()
+            .map(|e| self.create_physical_expr(&aggregate.schema, e))
+            .collect::<Result<Vec<_>>>()?;
+
+        let aggr_expr = aggregate
+            .aggr_expr
+            .iter()
+            .map(|e| {
+                self.create_physical_expr(&aggregate.schema, &e.expr)
+                    .map(|expr| match e.op {
+                        AggregateOperator::Sum => todo!(),
+                        AggregateOperator::Min => todo!(),
+                        AggregateOperator::Max => {
+                            Arc::new(physical::expr::MaxAggregateExpr::new(expr))
+                                as Arc<dyn AggregateExpr>
+                        }
+                        AggregateOperator::Avg => todo!(),
+                        AggregateOperator::Count => todo!(),
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Arc::new(physical::plan::HashAggregate::new(
+            aggregate.schema.clone(),
+            input,
+            group_expr,
+            aggr_expr,
+        )))
+    }
+
+    fn physical_plan_table_scan(&self, table_scan: &TableScan) -> Result<Arc<dyn PhysicalPlan>> {
+        Ok(Arc::new(physical::plan::Scan::new(
+            table_scan.schema(),
+            table_scan.source.clone(),
+            table_scan.projections.clone(),
+        )) as Arc<dyn PhysicalPlan>)
+    }
+
+    fn physical_expr_column(
+        &self,
+        schema: &SchemaRef,
+        column: &Column,
+    ) -> Result<Arc<dyn PhysicalExpr>> {
+        schema
+            .index_of(&column.name)
+            .map_err(|e| Error::ArrowError(e))
+            .map(|index| {
+                Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>
+            })
+    }
+
+    fn physical_expr_literal(&self, value: &ScalarValue) -> Result<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(physical::expr::Literal::new(value.clone())))
+    }
+
+    fn physical_expr_binary(
+        &self,
+        schema: &SchemaRef,
+        binary_expr: &BinaryExpr,
+    ) -> Result<Arc<dyn PhysicalExpr>> {
+        let left = self.create_physical_expr(schema, &binary_expr.left)?;
+        let right = self.create_physical_expr(schema, &binary_expr.right)?;
+        Ok(Arc::new(physical::expr::BinaryExpr::new(
+            left,
+            binary_expr.op.clone(),
+            right,
+        )) as Arc<dyn PhysicalExpr>)
     }
 }
 
+impl QueryPlanner for DefaultQueryPlanner {
+    fn create_physical_plan(&self, plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>> {
+        match plan {
+            LogicalPlan::Projection(p) => self.physical_plan_projection(p),
+            LogicalPlan::Filter(f) => self.physical_plan_filter(f),
+            LogicalPlan::Aggregate(a) => self.physical_plan_aggregate(a),
+            LogicalPlan::TableScan(t) => self.physical_plan_table_scan(t),
+        }
+    }
+
+    fn create_physical_expr(
+        &self,
+        input_schema: &SchemaRef,
+        expr: &LogicalExpr,
+    ) -> Result<Arc<dyn PhysicalExpr>> {
+        match expr {
+            LogicalExpr::Column(c) => self.physical_expr_column(input_schema, c),
+            LogicalExpr::Literal(v) => self.physical_expr_literal(v),
+            LogicalExpr::BinaryExpr(b) => self.physical_expr_binary(input_schema, b),
+            _ => unimplemented!("unsupported logical expression: {:?}", expr),
+        }
+    }
+}

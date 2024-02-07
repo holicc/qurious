@@ -1,22 +1,17 @@
 use crate::{
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
-    physical::expr::aggregate::Accumulator,
 };
-use std::{
-    collections::HashMap,
-    fmt::{Display, Pointer},
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use arrow::{
-    array::{ArrayAccessor, ArrayRef, AsArray, Datum},
+    array::{ArrayRef, AsArray},
     datatypes::{DataType, Int16Type, Int8Type, SchemaRef},
     record_batch::RecordBatch,
 };
 
 use crate::physical::{
-    expr::{aggregate::AggregateExpr, PhysicalExpr},
+    expr::{AggregateExpr, PhysicalExpr},
     plan::PhysicalPlan,
 };
 

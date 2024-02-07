@@ -10,9 +10,9 @@ use super::LogicalExpr;
 
 #[derive(Debug, Clone)]
 pub struct BinaryExpr {
-    left: Box<LogicalExpr>,
-    op: Operator,
-    right: Box<LogicalExpr>,
+    pub left: Box<LogicalExpr>,
+    pub op: Operator,
+    pub right: Box<LogicalExpr>,
 }
 
 impl BinaryExpr {

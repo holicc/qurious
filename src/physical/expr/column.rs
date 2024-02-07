@@ -7,7 +7,17 @@ use crate::error::Result;
 
 #[derive(Debug)]
 pub struct Column {
+    name: String,
     index: usize,
+}
+
+impl Column {
+    pub fn new(name: &str, index: usize) -> Self {
+        Self {
+            name: name.to_owned(),
+            index,
+        }
+    }
 }
 
 impl PhysicalExpr for Column {

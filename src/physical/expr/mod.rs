@@ -1,7 +1,15 @@
-pub mod aggregate;
-pub mod binary;
-pub mod column;
-pub mod literal;
+mod aggregate;
+mod binary;
+mod column;
+mod literal;
+
+pub use aggregate::{
+    max::{MaxAccumulator, MaxAggregateExpr},
+    Accumulator, AggregateExpr,
+};
+pub use binary::BinaryExpr;
+pub use column::Column;
+pub use literal::Literal;
 
 use std::fmt::{Debug, Display};
 

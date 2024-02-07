@@ -3,6 +3,11 @@ mod filter;
 mod projection;
 mod scan;
 
+pub use aggregate::HashAggregate;
+pub use filter::Filter;
+pub use projection::Projection;
+pub use scan::Scan;
+
 use std::sync::Arc;
 
 use arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
