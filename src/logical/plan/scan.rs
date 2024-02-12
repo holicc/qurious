@@ -8,15 +8,15 @@ use super::LogicalPlan;
 
 #[derive(Debug, Clone)]
 pub struct TableScan {
-   pub path: String,
-   pub source: Arc<dyn DataSource>,
-   pub projections: Option<Vec<String>>,
+    pub name: String,
+    pub source: Arc<dyn DataSource>,
+    pub projections: Option<Vec<String>>,
 }
 
 impl TableScan {
     pub fn new(path: &str, source: Arc<dyn DataSource>, projections: Option<Vec<String>>) -> Self {
         Self {
-            path: path.to_string(),
+            name: path.to_string(),
             source,
             projections,
         }
@@ -34,9 +34,9 @@ impl TableScan {
 impl Display for TableScan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.projections.is_some() {
-            write!(f, "Scan: {} projection: {:?}", self.path, self.projections)
+            write!(f, "Scan: {} projection: {:?}", self.name, self.projections)
         } else {
-            write!(f, "Scan: {}", self.path)
+            write!(f, "Scan: {}", self.name)
         }
     }
 }

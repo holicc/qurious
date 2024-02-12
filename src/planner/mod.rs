@@ -1,3 +1,5 @@
+pub mod sql;
+
 use std::sync::Arc;
 
 use arrow::datatypes::SchemaRef;
@@ -131,6 +133,7 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalPlan::Filter(f) => self.physical_plan_filter(f),
             LogicalPlan::Aggregate(a) => self.physical_plan_aggregate(a),
             LogicalPlan::TableScan(t) => self.physical_plan_table_scan(t),
+            LogicalPlan::EmptyRelation(_) => todo!(),
         }
     }
 

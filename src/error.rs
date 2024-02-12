@@ -8,4 +8,5 @@ pub enum Error {
     CompareError(String),
     ComputeError(String),
     ArrowError(ArrowError),
+    SQLParseError(sqlparser::error::Error),
 }

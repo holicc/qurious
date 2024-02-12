@@ -1,3 +1,5 @@
+pub mod registry;
+
 use std::sync::Arc;
 
 use arrow::datatypes::SchemaRef;

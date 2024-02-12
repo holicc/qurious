@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 arrow = "50.0.0"
+sqlparser = { git = "https://github.com/holicc/sqlparser.git" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
