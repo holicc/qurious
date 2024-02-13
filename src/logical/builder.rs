@@ -11,6 +11,16 @@ pub struct LogicalPlanBuilder {
 }
 
 impl LogicalPlanBuilder {
+    pub fn from(plan: LogicalPlan) -> Self {
+        LogicalPlanBuilder { plan }
+    }
+
+    pub fn alias(self, alias: String) -> Self {
+        LogicalPlanBuilder {
+            plan: LogicalPlan::Alias(Arc::new(alias), Arc::new(self.plan)),
+        }
+    }
+
     pub fn empty() -> Self {
         LogicalPlanBuilder {
             plan: LogicalPlan::EmptyRelation(EmptyRelation::new(Arc::new(Schema::empty()))),

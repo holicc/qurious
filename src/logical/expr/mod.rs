@@ -1,4 +1,5 @@
 mod aggregate;
+mod alias;
 mod binary;
 mod column;
 mod literal;
@@ -8,18 +9,21 @@ use std::sync::Arc;
 
 pub use aggregate::{AggregateExpr, AggregateOperator};
 
-use arrow::datatypes::FieldRef;
+use arrow::datatypes::{FieldRef, Schema};
 pub use binary::*;
 pub use column::*;
 pub use literal::*;
 
 use crate::datatypes::scalar::ScalarValue;
-use crate::error::Result;
+use crate::error::{Error, Result};
+
+use self::alias::Alias;
 
 use super::plan::LogicalPlan;
 
 #[derive(Debug, Clone)]
 pub enum LogicalExpr {
+    Alias(Alias),
     Column(Column),
     Literal(ScalarValue),
     BinaryExpr(BinaryExpr),
@@ -33,6 +37,10 @@ impl LogicalExpr {
             LogicalExpr::BinaryExpr(b) => b.field(plan),
             LogicalExpr::AggregateExpr(a) => a.field(plan),
             LogicalExpr::Literal(v) => Ok(Arc::new(v.to_field())),
+            LogicalExpr::Alias(a) => Err(Error::InternalError(format!(
+                "Alias expression should have been resolved: {}",
+                a
+            ))),
         }
     }
 }
@@ -44,6 +52,7 @@ impl Display for LogicalExpr {
             LogicalExpr::Literal(v) => write!(f, "{}", v),
             LogicalExpr::BinaryExpr(e) => write!(f, "{}", e),
             LogicalExpr::AggregateExpr(e) => write!(f, "{}", e),
+            LogicalExpr::Alias(a) => write!(f, "{}", a),
         }
     }
 }

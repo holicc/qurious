@@ -92,11 +92,16 @@ impl SqlQueryPlanner {
     fn table_scan_to_plan(&self, from: From) -> Result<LogicalPlan> {
         match from {
             From::Table { name, alias } => {
-                self.table_registry
+                let builder = self
+                    .table_registry
                     .get_table_source(&name)
-                    .map(|table_source| LogicalPlanBuilder::scan(&name, table_source).build())
+                    .map(|table_source| LogicalPlanBuilder::scan(&name, table_source))?;
 
-                // TODO process table alias
+                if let Some(alias) = alias {
+                    Ok(self.apply_table_alias(builder.build(), alias))
+                } else {
+                    Ok(builder.build())
+                }
             }
             From::TableFunction { name, args, alias } => todo!(),
             From::SubQuery { query, alias } => todo!(),
@@ -107,5 +112,9 @@ impl SqlQueryPlanner {
                 join_type,
             } => todo!(),
         }
+    }
+
+    fn apply_table_alias(&self, plan: LogicalPlan, alias: String) -> LogicalPlan {
+        LogicalPlanBuilder::from(plan).alias(alias).build()
     }
 }
