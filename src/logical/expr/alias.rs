@@ -1,8 +1,20 @@
 use std::fmt::Display;
 
-#[derive(Debug,Clone)]
+use super::LogicalExpr;
+
+#[derive(Debug, Clone)]
 pub struct Alias {
+    expr: Box<LogicalExpr>,
     name: String,
+}
+
+impl Alias {
+    pub fn new(name: String, expr: LogicalExpr) -> Self {
+        Alias {
+            expr: Box::new(expr),
+            name,
+        }
+    }
 }
 
 impl Display for Alias {

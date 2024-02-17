@@ -8,6 +8,7 @@ use crate::dataframe::DataFrame;
 use crate::datasource;
 use crate::error::Result;
 use crate::logical::plan::{LogicalPlan, TableScan};
+use crate::planner::DefaultQueryPlanner;
 
 pub struct ExecutionContext {}
 
@@ -15,7 +16,10 @@ impl ExecutionContext {
     pub fn memory(schame: SchemaRef) -> Result<DataFrame> {
         let source = datasource::memory::MemoryDataSource::new(schame, vec![]);
         let plan = TableScan::new("memory source", Arc::new(source), None);
-        Ok(DataFrame::new(LogicalPlan::TableScan(plan)))
+        Ok(DataFrame::new(
+            LogicalPlan::TableScan(plan),
+            Arc::new(DefaultQueryPlanner),
+        ))
     }
 }
 

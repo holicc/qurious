@@ -1,6 +1,6 @@
 pub mod sql;
 
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use arrow::datatypes::SchemaRef;
 
@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-pub trait QueryPlanner {
+pub trait QueryPlanner: Debug {
     fn create_physical_plan(&self, logical_plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>>;
 
     fn create_physical_expr(
@@ -28,7 +28,8 @@ pub trait QueryPlanner {
     ) -> Result<Arc<dyn PhysicalExpr>>;
 }
 
-struct DefaultQueryPlanner;
+#[derive(Debug)]
+pub struct DefaultQueryPlanner;
 
 impl DefaultQueryPlanner {
     fn physical_plan_projection(&self, projection: &Projection) -> Result<Arc<dyn PhysicalPlan>> {

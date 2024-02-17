@@ -1,5 +1,6 @@
+pub mod alias;
+
 mod aggregate;
-mod alias;
 mod binary;
 mod column;
 mod literal;

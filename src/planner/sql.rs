@@ -98,7 +98,7 @@ impl SqlQueryPlanner {
                     .map(|table_source| LogicalPlanBuilder::scan(&name, table_source))?;
 
                 if let Some(alias) = alias {
-                    Ok(self.apply_table_alias(builder.build(), alias))
+                    self.apply_table_alias(builder.build(), alias)
                 } else {
                     Ok(builder.build())
                 }
@@ -114,7 +114,7 @@ impl SqlQueryPlanner {
         }
     }
 
-    fn apply_table_alias(&self, plan: LogicalPlan, alias: String) -> LogicalPlan {
-        LogicalPlanBuilder::from(plan).alias(alias).build()
+    fn apply_table_alias(&self, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
+        todo!("apply_table_alias")
     }
 }

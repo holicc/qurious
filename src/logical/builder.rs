@@ -4,7 +4,10 @@ use arrow::datatypes::Schema;
 
 use crate::datasource::DataSource;
 
-use super::plan::{EmptyRelation, LogicalPlan, TableScan};
+use super::{
+    expr::LogicalExpr,
+    plan::{EmptyRelation, LogicalPlan, TableScan},
+};
 
 pub struct LogicalPlanBuilder {
     plan: LogicalPlan,
@@ -15,10 +18,8 @@ impl LogicalPlanBuilder {
         LogicalPlanBuilder { plan }
     }
 
-    pub fn alias(self, alias: String) -> Self {
-        LogicalPlanBuilder {
-            plan: LogicalPlan::Alias(Arc::new(alias), Arc::new(self.plan)),
-        }
+    pub fn project(self, fields: Vec<LogicalExpr>) -> Self {
+        todo!("project")
     }
 
     pub fn empty() -> Self {

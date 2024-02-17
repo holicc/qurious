@@ -10,4 +10,5 @@ pub enum Error {
     ComputeError(String),
     ArrowError(ArrowError),
     SQLParseError(sqlparser::error::Error),
+    PlanError(String),
 }
