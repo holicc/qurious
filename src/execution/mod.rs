@@ -10,7 +10,11 @@ use crate::error::Result;
 use crate::logical::plan::{LogicalPlan, TableScan};
 use crate::planner::DefaultQueryPlanner;
 
-pub struct ExecutionContext {}
+use self::registry::TableRegistry;
+
+pub struct ExecutionContext {
+    pub(crate) registry: Box<dyn TableRegistry>,
+}
 
 impl ExecutionContext {
     pub fn memory(schame: SchemaRef) -> Result<DataFrame> {
@@ -20,6 +24,18 @@ impl ExecutionContext {
             LogicalPlan::TableScan(plan),
             Arc::new(DefaultQueryPlanner),
         ))
+    }
+
+    pub fn sql(&self, sql: &str) -> Result<DataFrame> {
+        todo!()
+    }
+
+    pub fn register_table(
+        &mut self,
+        name: &str,
+        table: Arc<dyn datasource::DataSource>,
+    ) -> Result<()> {
+        self.registry.register_table(name, table)
     }
 }
 

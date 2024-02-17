@@ -1,4 +1,7 @@
+pub mod csv;
+pub mod json;
 pub mod memory;
+pub mod parquet;
 
 use std::fmt::Debug;
 
