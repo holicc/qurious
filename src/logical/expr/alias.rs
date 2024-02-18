@@ -4,8 +4,8 @@ use super::LogicalExpr;
 
 #[derive(Debug, Clone)]
 pub struct Alias {
-    expr: Box<LogicalExpr>,
-    name: String,
+   pub expr: Box<LogicalExpr>,
+   pub name: String,
 }
 
 impl Alias {

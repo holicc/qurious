@@ -1,13 +1,12 @@
+use arrow::datatypes::Schema;
 use std::sync::Arc;
 
-use arrow::datatypes::Schema;
-
-use crate::datasource::DataSource;
-
 use super::{
-    expr::LogicalExpr,
-    plan::{EmptyRelation, LogicalPlan, TableScan},
+    expr::{alias::Alias, LogicalExpr},
+    plan::{EmptyRelation, LogicalPlan, Projection, TableScan},
 };
+use crate::datasource::DataSource;
+use crate::error::Result;
 
 pub struct LogicalPlanBuilder {
     plan: LogicalPlan,
@@ -18,8 +17,23 @@ impl LogicalPlanBuilder {
         LogicalPlanBuilder { plan }
     }
 
-    pub fn project(self, fields: Vec<LogicalExpr>) -> Self {
-        todo!("project")
+    pub fn project(
+        input: LogicalPlan,
+        exprs: impl IntoIterator<Item = impl Into<LogicalExpr>>,
+    ) -> Result<LogicalPlan> {
+        let project_exprs = exprs
+            .into_iter()
+            .map(|exp| exp.into())
+            .map(|exp: LogicalExpr| match exp {
+                LogicalExpr::Alias(Alias { expr, name }) => {
+                    LogicalExpr::Alias(Alias::new(name, *expr))
+                }
+                LogicalExpr::Column(_) => exp,
+                _ => unimplemented!(),
+            })
+            .collect();
+
+        Projection::try_new(input, project_exprs).map(LogicalPlan::Projection)
     }
 
     pub fn empty() -> Self {
