@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use arrow::datatypes::FieldRef;
 
+use crate::common::TableRelation;
 use crate::error::{Error, Result};
 use crate::logical::plan::LogicalPlan;
 
@@ -12,9 +13,17 @@ use super::LogicalExpr;
 #[derive(Debug, Clone)]
 pub struct Column {
     pub name: String,
+    pub relation: Option<TableRelation>,
 }
 
 impl Column {
+    pub fn new(name: impl Into<String>, relation: Option<impl Into<TableRelation>>) -> Self {
+        Self {
+            name: name.into(),
+            relation: relation.map(|r| r.into()),
+        }
+    }
+
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
         plan.schema()
             .field_with_name(&self.name)
@@ -25,7 +34,11 @@ impl Column {
 
 impl Display for Column {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#{}", self.name)
+        if let Some(relation) = &self.relation {
+            write!(f, "#{}.{}", relation.to_quoted_string(), self.name)
+        } else {
+            write!(f, "#{}", self.name)
+        }
     }
 }
 
@@ -35,6 +48,7 @@ impl FromStr for Column {
     fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
         Ok(Self {
             name: s.to_string(),
+            relation: None,
         })
     }
 }
@@ -42,5 +56,6 @@ impl FromStr for Column {
 pub fn column(name: &str) -> LogicalExpr {
     LogicalExpr::Column(Column {
         name: name.to_string(),
+        relation: None,
     })
 }

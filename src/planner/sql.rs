@@ -68,10 +68,17 @@ impl SqlQueryPlanner {
                 let column_exprs = columns
                     .into_iter()
                     .map(|(col, alias)| match col {
-                        Expression::Literal(lit) => column(&lit.to_string()),
+                        Expression::Literal(lit) => {
+                            // normalize column name with table name
+                            let column_name = lit.to_string();
+                            plan.schema()
+                                .field_with_name(&column_name)
+                                .map_err(|e| Error::ArrowError(e))
+                                .and(Ok(LogicalExpr::Column(Column::new(column_name, Some("t")))))
+                        }
                         _ => todo!(),
                     })
-                    .collect::<Vec<_>>();
+                    .collect::<Result<Vec<_>>>()?;
                 // process the SELECT expressions
                 LogicalPlanBuilder::project(plan, column_exprs)
             }
@@ -135,6 +142,7 @@ impl SqlQueryPlanner {
         let fields = columns.into_iter().map(|(expr, alias)| {
             LogicalExpr::Column(Column {
                 name: expr.to_string(),
+                relation: None,
             })
         });
 
@@ -152,7 +160,8 @@ mod tests {
     use crate::{
         datasource::{memory::MemoryDataSource, DataSource},
         error::Result,
-        execution::registry::TableRegistry, utils,
+        execution::registry::TableRegistry,
+        utils,
     };
 
     use super::SqlQueryPlanner;

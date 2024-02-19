@@ -34,9 +34,9 @@ impl TableScan {
 impl Display for TableScan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.projections.is_some() {
-            write!(f, "Scan: {} projection: {:?}", self.name, self.projections)
+            write!(f, "TableScan: {} projection: {:?}", self.name, self.projections)
         } else {
-            write!(f, "Scan: {}", self.name)
+            write!(f, "TableScan: {}", self.name)
         }
     }
 }

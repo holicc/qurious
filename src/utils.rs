@@ -3,7 +3,7 @@ use crate::logical::plan::LogicalPlan;
 pub fn format(plan: &LogicalPlan, ident: usize) -> String {
     let mut sb = String::new();
 
-    (0..ident).for_each(|_| sb.push_str("\t"));
+    (0..ident).for_each(|_| sb.push_str("  "));
 
     sb.push_str(&format!("{}\n", plan));
 
