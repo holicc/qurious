@@ -28,7 +28,7 @@ impl LogicalPlanBuilder {
                 LogicalExpr::Alias(Alias { expr, name }) => {
                     LogicalExpr::Alias(Alias::new(name, *expr))
                 }
-                LogicalExpr::Column(_) => exp,
+                LogicalExpr::Column(_) | LogicalExpr::Literal(_) => exp,
                 _ => unimplemented!(),
             })
             .collect();

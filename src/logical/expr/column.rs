@@ -35,9 +35,9 @@ impl Column {
 impl Display for Column {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(relation) = &self.relation {
-            write!(f, "#{}.{}", relation.to_quoted_string(), self.name)
+            write!(f, "{}.{}", relation.to_quoted_string(), self.name)
         } else {
-            write!(f, "#{}", self.name)
+            write!(f, "{}", self.name)
         }
     }
 }

@@ -26,3 +26,13 @@ impl<'a> From<&'a str> for TableRelation {
         }
     }
 }
+
+impl From<String> for TableRelation {
+    fn from(value: String) -> Self {
+        Self {
+            table: Some(value.into()),
+            schema: None,
+            catalog: None,
+        }
+    }
+}

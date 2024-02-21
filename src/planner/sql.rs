@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use sqlparser::{
-    ast::{Expression, From, Statement},
+    ast::{Expression, From, Literal, Statement},
     parser::Parser,
 };
 
 use crate::{
+    common::TableRelation,
+    datatypes::scalar::ScalarValue,
     error::{Error, Result},
     execution::registry::TableRegistry,
     logical::{
@@ -59,23 +61,42 @@ impl SqlQueryPlanner {
                 offset,
             } => {
                 // process `from` clause
-                let plan = if let Some(f) = from {
+                let mut empty_from = false;
+                let (plan, relation) = if let Some(f) = from {
                     self.table_scan_to_plan(f)?
                 } else {
-                    LogicalPlanBuilder::empty().build()
+                    empty_from = true;
+                    (LogicalPlanBuilder::empty().build(), None)
                 };
 
                 let column_exprs = columns
                     .into_iter()
                     .map(|(col, alias)| match col {
-                        Expression::Literal(lit) => {
+                        Expression::Identifier(ident) => {
                             // normalize column name with table name
-                            let column_name = lit.to_string();
                             plan.schema()
-                                .field_with_name(&column_name)
+                                .field_with_name(&ident)
                                 .map_err(|e| Error::ArrowError(e))
-                                .and(Ok(LogicalExpr::Column(Column::new(column_name, Some("t")))))
+                                .and(Ok(LogicalExpr::Column(Column::new(
+                                    ident,
+                                    relation.clone(),
+                                ))))
                         }
+                        Expression::Literal(lit) => match lit {
+                            Literal::Int(i) => {
+                                Ok(LogicalExpr::Literal(ScalarValue::Int64(Some(i))))
+                            }
+                            Literal::Float(f) => {
+                                Ok(LogicalExpr::Literal(ScalarValue::Float64(Some(f))))
+                            }
+                            Literal::String(s) => {
+                                Ok(LogicalExpr::Literal(ScalarValue::Utf8(Some(s))))
+                            }
+                            Literal::Boolean(b) => {
+                                Ok(LogicalExpr::Literal(ScalarValue::Boolean(Some(b))))
+                            }
+                            Literal::Null => Ok(LogicalExpr::Literal(ScalarValue::Null)),
+                        },
                         _ => todo!(),
                     })
                     .collect::<Result<Vec<_>>>()?;
@@ -106,7 +127,7 @@ impl SqlQueryPlanner {
         todo!()
     }
 
-    fn table_scan_to_plan(&self, from: From) -> Result<LogicalPlan> {
+    fn table_scan_to_plan(&self, from: From) -> Result<(LogicalPlan, Option<TableRelation>)> {
         match from {
             From::Table { name, alias } => {
                 let builder = self
@@ -115,9 +136,9 @@ impl SqlQueryPlanner {
                     .map(|table_source| LogicalPlanBuilder::scan(&name, table_source))?;
 
                 if let Some(alias) = alias {
-                    self.apply_table_alias(builder.build(), alias)
+                    Ok((self.apply_table_alias(builder.build(), alias)?, None))
                 } else {
-                    Ok(builder.build())
+                    Ok((builder.build(), Some(name.into())))
                 }
             }
             From::TableFunction { name, args, alias } => todo!(),
@@ -197,12 +218,22 @@ mod tests {
     }
 
     #[test]
-    fn test_project_plan() -> Result<()> {
+    fn test_empty_relation() {
+        quick_test("SELECT 1", "");
+    }
+
+    #[test]
+    fn test_project_plan() {
+        quick_test(
+            "SELECT id,name FROM t",
+            "Projection: (t.id,t.name)\n  TableScan: t\n",
+        );
+    }
+
+    fn quick_test(sql: &str, expected: &str) {
         let planner = SqlQueryPlanner::new(Arc::new(TestTableRegistry::new()));
-        let plan = planner.create_logical_plan("SELECT id, name FROM t")?;
+        let plan = planner.create_logical_plan(sql).unwrap();
 
-        println!("{}", utils::format(&plan, 0));
-
-        Ok(())
+        assert_eq!(utils::format(&plan, 0), expected)
     }
 }
