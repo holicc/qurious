@@ -10,16 +10,22 @@ use crate::logical::plan::LogicalPlan;
 
 use super::LogicalExpr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Column {
     pub name: String,
+    pub alias: Option<String>,
     pub relation: Option<TableRelation>,
 }
 
 impl Column {
-    pub fn new(name: impl Into<String>, relation: Option<impl Into<TableRelation>>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        alias: Option<String>,
+        relation: Option<impl Into<TableRelation>>,
+    ) -> Self {
         Self {
             name: name.into(),
+            alias,
             relation: relation.map(|r| r.into()),
         }
     }
@@ -48,6 +54,7 @@ impl FromStr for Column {
     fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
         Ok(Self {
             name: s.to_string(),
+            alias: None,
             relation: None,
         })
     }
@@ -57,5 +64,6 @@ pub fn column(name: &str) -> LogicalExpr {
     LogicalExpr::Column(Column {
         name: name.to_string(),
         relation: None,
+        alias: None,
     })
 }

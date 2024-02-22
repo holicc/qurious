@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TableRelation {
     table: Option<Cow<'static, str>>,
     schema: Option<Cow<'static, str>>,
