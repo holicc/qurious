@@ -1,17 +1,17 @@
 use std::{collections::HashSet, sync::Arc};
 
 use sqlparser::{
-    ast::{Expression, From, Literal, Statement},
+    ast::{Expression, From, Literal, SelectItem, Statement},
     parser::Parser,
 };
 
 use crate::{
     common::TableRelation,
-    datatypes::scalar::ScalarValue,
+    datatypes::{operator::Operator, scalar::ScalarValue},
     error::{Error, Result},
     execution::registry::TableRegistry,
     logical::{
-        expr::{column, Column, LogicalExpr},
+        expr::{alias::Alias, column, BinaryExpr, Column, LogicalExpr},
         plan::{Filter, LogicalPlan},
         LogicalPlanBuilder,
     },
@@ -70,7 +70,7 @@ impl SqlQueryPlanner {
                 };
 
                 // process the WHERE clause
-                let plan = self.where_expre(plan, r#where)?;
+                let plan = self.where_expr(plan, r#where)?;
 
                 // process the SELECT expressions
                 let column_exprs = self.column_exprs(&plan, &relation, columns)?;
@@ -151,20 +151,22 @@ impl SqlQueryPlanner {
         &self,
         plan: &LogicalPlan,
         relation: &Option<TableRelation>,
-        columns: Vec<(Expression, Option<String>)>,
+        columns: Vec<SelectItem>,
     ) -> Result<Vec<LogicalExpr>> {
         let mut using_columns = HashSet::new();
         let mut exprs = vec![];
 
-        for (col, alias) in columns {
-            let expr = self.sql_to_expr(col)?;
-            if let LogicalExpr::Column(col) = &expr {
+        for col in columns {
+            let mut expr = self.sql_select_item_to_expr(col)?;
+            if let LogicalExpr::Column(col) = &mut expr {
                 // check does schema has the field
                 plan.schema()
                     .field_with_name(&col.name)
                     .map_err(|e| Error::ArrowError(e))?;
+                // set relation to column expression
+                col.relation = relation.clone();
                 // check for duplicate columns
-                if !using_columns.insert(col) {
+                if !using_columns.insert(col.clone()) {
                     return Err(Error::DuplicateColumn(col.to_string()));
                 }
             }
@@ -175,7 +177,7 @@ impl SqlQueryPlanner {
         Ok(exprs)
     }
 
-    fn where_expre(&self, plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {
+    fn where_expr(&self, plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {
         if let Some(filter) = expr {
             self.sql_to_expr(filter)
                 .map(|exp| LogicalPlan::Filter(Filter::new(plan, exp)))
@@ -187,7 +189,7 @@ impl SqlQueryPlanner {
     fn sql_to_expr(&self, expr: Expression) -> Result<LogicalExpr> {
         Ok(match expr {
             Expression::Identifier(ident) => {
-                LogicalExpr::Column(Column::new(ident, alias, relation.clone()))
+                LogicalExpr::Column(Column::new(ident, None, None::<TableRelation>))
             }
             Expression::Literal(lit) => match lit {
                 Literal::Int(i) => LogicalExpr::Literal(ScalarValue::Int64(Some(i))),
@@ -196,8 +198,40 @@ impl SqlQueryPlanner {
                 Literal::Boolean(b) => LogicalExpr::Literal(ScalarValue::Boolean(Some(b))),
                 Literal::Null => LogicalExpr::Literal(ScalarValue::Null),
             },
-            _ => todo!(),
+            Expression::Operator(op) => match op {
+                sqlparser::ast::Operator::Not(_) => todo!(),
+                sqlparser::ast::Operator::Eq(l, r) => LogicalExpr::BinaryExpr(BinaryExpr::new(
+                    self.sql_to_expr(*l)?,
+                    Operator::Eq,
+                    self.sql_to_expr(*r)?,
+                )),
+                sqlparser::ast::Operator::NotEq(_, _) => todo!(),
+                sqlparser::ast::Operator::And(_, _) => todo!(),
+                sqlparser::ast::Operator::Or(_, _) => todo!(),
+                sqlparser::ast::Operator::Gt(_, _) => todo!(),
+                sqlparser::ast::Operator::Gte(_, _) => todo!(),
+                sqlparser::ast::Operator::Lt(_, _) => todo!(),
+                sqlparser::ast::Operator::Lte(_, _) => todo!(),
+                sqlparser::ast::Operator::Add(_, _) => todo!(),
+                sqlparser::ast::Operator::Sub(_, _) => todo!(),
+                sqlparser::ast::Operator::Mul(_, _) => todo!(),
+                sqlparser::ast::Operator::Div(_, _) => todo!(),
+                sqlparser::ast::Operator::Neg(_) => todo!(),
+                sqlparser::ast::Operator::Pos(_) => todo!(),
+            },
+            _ => todo!("{:?}", expr),
         })
+    }
+
+    fn sql_select_item_to_expr(&self, item: SelectItem) -> Result<LogicalExpr> {
+        match item {
+            SelectItem::UnNamedExpr(expr) => self.sql_to_expr(expr),
+            SelectItem::ExprWithAlias(expr, alias) => self
+                .sql_to_expr(expr)
+                .map(|col| LogicalExpr::Alias(Alias::new(alias, col))),
+            SelectItem::Wildcard => todo!(),
+            SelectItem::QualifiedWildcard(_) => todo!(),
+        }
     }
 }
 
@@ -267,7 +301,10 @@ mod tests {
 
     #[test]
     fn test_where() {
-        quick_test("SELECT id,name FROM t WHERE id = 1", "")
+        quick_test(
+            "SELECT id,name FROM t WHERE id = 1",
+            "Projection: (t.id,t.name)\n  Filter: t.id == Int64(1)\n    TableScan: t\n",
+        )
     }
 
     fn quick_test(sql: &str, expected: &str) {

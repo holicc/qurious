@@ -16,6 +16,14 @@ pub struct BinaryExpr {
 }
 
 impl BinaryExpr {
+    pub fn new(left: LogicalExpr, op: Operator, right: LogicalExpr) -> Self {
+        Self {
+            left: Box::new(left),
+            op,
+            right: Box::new(right),
+        }
+    }
+
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
         Ok(Arc::new(Field::new(
             self.op.to_string(),
