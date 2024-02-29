@@ -14,6 +14,7 @@ pub enum Error {
     ArrowError(ArrowError),
     SQLParseError(sqlparser::error::Error),
     PlanError(String),
+    TableNotFound(String),
 }
 
 impl Display for Error {
@@ -27,6 +28,7 @@ impl Display for Error {
             Error::SQLParseError(e) => write!(f, "SQL Parse Error: {}", e),
             Error::PlanError(e) => write!(f, "Plan Error: {}", e),
             Error::DuplicateColumn(c) => write!(f, "Duplicate column: {}", c),
+            Error::TableNotFound(e) => write!(f, "Table Not Found: {}", e),
         }
     }
 }

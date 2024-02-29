@@ -1,79 +1,84 @@
 pub mod registry;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow::datatypes::SchemaRef;
+use arrow::array::RecordBatch;
 
-use crate::dataframe::DataFrame;
-use crate::datasource;
-use crate::error::Result;
-use crate::logical::plan::{LogicalPlan, TableScan};
-use crate::planner::DefaultQueryPlanner;
+use crate::datasource::DataSource;
+use crate::planner::sql::SqlQueryPlanner;
+use crate::planner::QueryPlanner;
+use crate::{error::Result, planner::DefaultQueryPlanner};
 
-use self::registry::TableRegistry;
+use self::registry::ImmutableHashMapTableRegistry;
 
-pub struct ExecutionContext {
-    pub(crate) registry: Box<dyn TableRegistry>,
+pub struct ExecuteSession {
+    tables: HashMap<String, Arc<dyn DataSource>>,
+    query_planner: Arc<dyn QueryPlanner>,
 }
 
-impl ExecutionContext {
-    pub fn memory(schame: SchemaRef) -> Result<DataFrame> {
-        let source = datasource::memory::MemoryDataSource::new(schame, vec![]);
-        let plan = TableScan::new("memory source", Arc::new(source), None);
-        Ok(DataFrame::new(
-            LogicalPlan::TableScan(plan),
-            Arc::new(DefaultQueryPlanner),
-        ))
+impl Default for ExecuteSession {
+    fn default() -> Self {
+        Self {
+            tables: HashMap::new(),
+            query_planner: Arc::new(DefaultQueryPlanner),
+        }
+    }
+}
+
+impl ExecuteSession {
+    pub fn sql(&self, sql: &str) -> Result<Vec<RecordBatch>> {
+        let sql_planner = SqlQueryPlanner::new(Box::new(ImmutableHashMapTableRegistry::new(
+            self.tables.clone(),
+        )));
+        let plan = sql_planner.create_logical_plan(sql)?;
+        let plan = self.query_planner.create_physical_plan(&plan)?;
+
+        plan.execute()
     }
 
-    pub fn sql(&self, sql: &str) -> Result<DataFrame> {
-        todo!()
-    }
-
-    pub fn register_table(
-        &mut self,
-        name: &str,
-        table: Arc<dyn datasource::DataSource>,
-    ) -> Result<()> {
-        self.registry.register_table(name, table)
+    pub fn register_table(&mut self, name: &str, table: Arc<dyn DataSource>) -> Result<()> {
+        self.tables.insert(name.to_string(), table);
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-
-    use arrow::datatypes::{DataType, Field, Fields, Schema};
-
-    use crate::{
-        logical::expr::{column, eq, literal},
-        utils,
+    use arrow::{
+        array::{Int32Array, StringArray},
+        datatypes::{Field, Fields, Schema},
     };
+
+    use crate::datasource::memory::MemoryDataSource;
 
     use super::*;
 
     #[test]
-    pub fn test_simple_df() -> Result<()> {
-        let schema = Arc::new(Schema::new(Fields::from(vec![
-            Field::new("id", DataType::Int32, true),
-            Field::new("first_name", DataType::Utf8, true),
-            Field::new("last_name", DataType::Utf8, true),
-            Field::new("state", DataType::Utf8, true),
-            Field::new("salary", DataType::Float64, true),
+    fn test_execute_sql() -> Result<()> {
+        let mut session = ExecuteSession::default();
+
+        let schema = Arc::new(Schema::new(Fields::from_iter(vec![
+            Field::new("id", arrow::datatypes::DataType::Int32, false),
+            Field::new("name", arrow::datatypes::DataType::Utf8, false),
         ])));
 
-        let df = ExecutionContext::memory(schema)?;
+        let data = vec![RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5])),
+                Arc::new(StringArray::from(vec!["a", "b", "c", "d", "e"])),
+            ],
+        )
+        .unwrap()];
 
-        let plan = df
-            .filter(eq(column("state"), literal("CO")))?
-            .project(vec![
-                column("id"),
-                column("first_name"),
-                column("last_name"),
-                column("state"),
-                column("salary"),
-            ])?;
+        let datasource = MemoryDataSource::new(schema, data.clone());
 
-        println!("Plan: {}", utils::format(&plan.plan(), 0));
+        session.register_table("t", Arc::new(datasource))?;
+
+        let batch = session.sql("SELECT * FROM t")?;
+
+        assert_eq!(data, batch);
 
         Ok(())
     }

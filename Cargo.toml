@@ -8,3 +8,7 @@ arrow = "50.0.0"
 sqlparser = { git = "https://github.com/holicc/sqlparser.git" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+
+[dev-dependencies]
+arrow = { version = "50.0.0", features = ["prettyprint", "test_utils"] }

@@ -67,7 +67,7 @@ impl std::fmt::Display for LogicalPlan {
             LogicalPlan::Filter(a) => write!(f, "{}", a),
             LogicalPlan::Aggregate(a) => write!(f, "{}", a),
             LogicalPlan::TableScan(t) => write!(f, "{}", t),
-            LogicalPlan::EmptyRelation(e) => write!(f, "Empty Relation"),
+            LogicalPlan::EmptyRelation(_) => write!(f, "Empty Relation"),
         }
     }
 }
