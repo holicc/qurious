@@ -1,5 +1,8 @@
 {
     "rust-analyzer.linkedProjects": [
         "./Cargo.toml"
+    ],
+    "rust-analyzer.cargo.features": [
+        "postgres"
     ]
 }

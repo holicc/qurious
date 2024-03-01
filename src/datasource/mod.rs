@@ -1,13 +1,10 @@
-pub mod csv;
-pub mod json;
+pub mod db;
+pub mod file;
 pub mod memory;
-pub mod parquet;
-
-use std::fmt::Debug;
-
-use arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
 
 use crate::error::Result;
+use arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
+use std::fmt::Debug;
 
 pub trait DataSource: Debug {
     fn schema(&self) -> SchemaRef;

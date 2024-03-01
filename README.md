@@ -1,6 +1,10 @@
 # Qurious
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Build Status][actions-badge]][actions-url]
+
+[actions-badge]: https://github.com/holicc/qurious/actions/workflows/rust.yml/badge.svg
+[actions-url]: https://github.com/holicc/qurious/actions?query=branch%3Amain
 
 ## Description
 
