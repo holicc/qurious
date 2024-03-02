@@ -167,13 +167,18 @@ impl DataSource for PostgresTableSource {
 
 #[cfg(test)]
 mod tests {
-    use crate::datasource::db::postgres::{PostgresSource, PostgresSourceOptions};
-    use std::vec;
+    use arrow::datatypes::{Field, Fields, Schema};
+
+    use crate::datasource::{
+        db::postgres::{PostgresSource, PostgresSourceOptions},
+        DataSource,
+    };
+    use std::{sync::Arc, vec};
 
     #[test]
     fn test_postgres_source() {
         let sources = PostgresSource::try_new_with_config(
-            "postgres://localhost:5432/atlas",
+            "postgres://root:root@localhost:5433/qurious",
             PostgresSourceOptions {
                 filter_schemas: Some(vec!["public".to_string()]),
             },
@@ -181,5 +186,13 @@ mod tests {
         .unwrap();
 
         assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].table_name(), "public.schools".to_string());
+        assert_eq!(
+            sources[0].schema(),
+            Arc::new(Schema::new(Fields::from_iter(vec![
+                Field::new("id", arrow::datatypes::DataType::Int32, false),
+                Field::new("name", arrow::datatypes::DataType::Utf8, true),
+            ])))
+        );
     }
 }
