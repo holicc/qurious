@@ -63,6 +63,8 @@ impl SqlQueryPlanner {
                 limit,
                 offset,
             } => {
+                // TODO we should parse filter first and then apply it to the table scan
+
                 // process `from` clause
                 let (plan, relation) = if let Some(f) = from {
                     self.table_scan_to_plan(f)?

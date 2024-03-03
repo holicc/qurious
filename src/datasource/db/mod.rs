@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::error::{Error, Result};
+use crate::{
+    error::{Error, Result},
+    logical::expr::LogicalExpr,
+};
 use arrow::{
     array::RecordBatch,
     datatypes::{Schema, SchemaRef},
@@ -30,4 +33,8 @@ pub(crate) fn get_record_batch(
     }
 
     Ok(batch.remove(0))
+}
+
+pub(crate) fn expr_to_sql<'a>(_expr: &LogicalExpr) -> &'a str {
+    todo!()
 }

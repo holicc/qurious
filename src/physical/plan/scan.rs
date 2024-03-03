@@ -34,7 +34,7 @@ impl PhysicalPlan for Scan {
     }
 
     fn execute(&self) -> Result<Vec<RecordBatch>> {
-        self.datasource.scan(self.projections.clone())
+        self.datasource.scan(self.projections.clone(), &vec![])
     }
 
     /// Scan is a leaf node and has no child plans

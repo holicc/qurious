@@ -3,9 +3,12 @@ use std::sync::Arc;
 use crate::datasource::db::get_record_batch;
 use crate::datasource::DataSource;
 use crate::error::{Error, Result};
+use crate::logical::expr::LogicalExpr;
 use arrow::array::{as_string_array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Fields, Schema, SchemaRef, TimeUnit};
 use connectorx::prelude::*;
+
+use super::expr_to_sql;
 
 pub struct PostgresSourceOptions {
     pub filter_schemas: Option<Vec<String>>,
@@ -155,11 +158,26 @@ impl DataSource for PostgresTableSource {
         self.schema.clone()
     }
 
-    fn scan(&self, projection: Option<Vec<String>>) -> Result<Vec<RecordBatch>> {
-        let sql = match projection {
+    fn scan(
+        &self,
+        projection: Option<Vec<String>>,
+        filters: &[LogicalExpr],
+    ) -> Result<Vec<RecordBatch>> {
+        let mut sql = match projection {
             Some(p) => format!("SELECT {} FROM {}", p.join(","), self.table_name()),
             None => format!("SELECT * FROM {}", self.table_name()),
         };
+
+        //  filter
+        if !filters.is_empty() {
+            let filter = filters
+                .iter()
+                .map(|f| expr_to_sql(f))
+                .collect::<Vec<&str>>()
+                .join(" AND ");
+            sql = format!("{} WHERE {}", sql, filter);
+        }
+
         let batch = get_record_batch(&self.conn, Some(self.schema()), &sql)?;
         Ok(vec![batch])
     }
