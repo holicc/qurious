@@ -85,6 +85,7 @@ impl ProjectionPushDownRule {
                 &s.name,
                 s.source.clone(),
                 Some(columns.into_iter().collect()),
+                None,
             ))),
             LogicalPlan::EmptyRelation(_) => todo!(),
         }

@@ -81,6 +81,44 @@ impl ScalarValue {
             }
         }
     }
+
+    pub fn is_null(&self) -> bool {
+        match self {
+            ScalarValue::Null => true,
+            _ => false,
+        }
+    }
+
+    pub fn to_value_string(&self)->String{
+        match self {
+            ScalarValue::Null => "null".to_string(),
+            ScalarValue::Boolean(Some(v)) => v.to_string(),
+            ScalarValue::Boolean(None) => "null".to_string(),
+            ScalarValue::Int64(Some(v)) => v.to_string(),
+            ScalarValue::Int64(None) => "null".to_string(),
+            ScalarValue::Int32(Some(v)) => v.to_string(),
+            ScalarValue::Int32(None) => "null".to_string(),
+            ScalarValue::Int16(Some(v)) => v.to_string(),
+            ScalarValue::Int16(None) => "null".to_string(),
+            ScalarValue::Int8(Some(v)) => v.to_string(),
+            ScalarValue::Int8(None) => "null".to_string(),
+            ScalarValue::UInt64(Some(v)) => v.to_string(),
+            ScalarValue::UInt64(None) => "null".to_string(),
+            ScalarValue::UInt32(Some(v)) => v.to_string(),
+            ScalarValue::UInt32(None) => "null".to_string(),
+            ScalarValue::UInt16(Some(v)) => v.to_string(),
+            ScalarValue::UInt16(None) => "null".to_string(),
+            ScalarValue::UInt8(Some(v)) => v.to_string(),
+            ScalarValue::UInt8(None) => "null".to_string(),
+            ScalarValue::Float64(Some(v)) => v.to_string(),
+            ScalarValue::Float64(None) => "null".to_string(),
+            ScalarValue::Float32(Some(v)) => v.to_string(),
+            ScalarValue::Float32(None) => "null".to_string(),
+            ScalarValue::Utf8(Some(v)) => v.to_string(),
+            ScalarValue::Utf8(None) => "null".to_string(),
+        }
+    
+    }
 }
 
 impl From<ScalarValue> for Field {

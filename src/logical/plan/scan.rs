@@ -2,7 +2,7 @@ use std::{fmt::Display, sync::Arc};
 
 use arrow::datatypes::SchemaRef;
 
-use crate::datasource::DataSource;
+use crate::{datasource::DataSource, logical::expr::LogicalExpr};
 
 use super::LogicalPlan;
 
@@ -11,14 +11,21 @@ pub struct TableScan {
     pub name: String,
     pub source: Arc<dyn DataSource>,
     pub projections: Option<Vec<String>>,
+    pub filter: Option<LogicalExpr>,
 }
 
 impl TableScan {
-    pub fn new(path: &str, source: Arc<dyn DataSource>, projections: Option<Vec<String>>) -> Self {
+    pub fn new(
+        path: &str,
+        source: Arc<dyn DataSource>,
+        projections: Option<Vec<String>>,
+        filter: Option<LogicalExpr>,
+    ) -> Self {
         Self {
             name: path.to_string(),
             source,
             projections,
+            filter,
         }
     }
 

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     error::{Error, Result},
-    logical::expr::LogicalExpr,
+    logical::expr::{BinaryExpr, LogicalExpr},
 };
 use arrow::{
     array::RecordBatch,
@@ -35,6 +35,14 @@ pub(crate) fn get_record_batch(
     Ok(batch.remove(0))
 }
 
-pub(crate) fn expr_to_sql<'a>(_expr: &LogicalExpr) -> &'a str {
-    todo!()
+pub(crate) fn expr_to_sql(expr: &LogicalExpr) -> String {
+    match expr {
+        LogicalExpr::Alias(_) => todo!(),
+        LogicalExpr::Column(c) => c.name.clone(),
+        LogicalExpr::Literal(v) => v.to_value_string(),
+        LogicalExpr::BinaryExpr(BinaryExpr { left, op, right }) => {
+            format!("{} {} {}", expr_to_sql(left), op, expr_to_sql(right))
+        }
+        LogicalExpr::AggregateExpr(_) => todo!(),
+    }
 }

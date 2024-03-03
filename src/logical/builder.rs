@@ -46,7 +46,13 @@ impl LogicalPlanBuilder {
         self.plan
     }
 
-    pub fn scan(table_name: &str, table_source: Arc<dyn DataSource>) -> Self {
-        Self::scan_with_filters(table_name, table_source, vec![])
+    pub fn scan(
+        table_name: &str,
+        table_source: Arc<dyn DataSource>,
+        filter: Option<LogicalExpr>,
+    ) -> Self {
+        LogicalPlanBuilder {
+            plan: LogicalPlan::TableScan(TableScan::new(table_name, table_source, None, filter)),
+        }
     }
 }

@@ -63,15 +63,12 @@ impl SqlQueryPlanner {
                 limit,
                 offset,
             } => {
-                // TODO we should parse filter first and then apply it to the table scan
-
                 // process `from` clause
                 let (plan, relation) = if let Some(f) = from {
                     self.table_scan_to_plan(f)?
                 } else {
                     (LogicalPlanBuilder::empty().build(), None)
                 };
-
                 // process the WHERE clause
                 let plan = self.filter_expr(plan, r#where, &relation)?;
 
@@ -110,7 +107,7 @@ impl SqlQueryPlanner {
                 let builder = self
                     .table_registry
                     .get_table_source(&name)
-                    .map(|table_source| LogicalPlanBuilder::scan(&name, table_source))?;
+                    .map(|table_source| LogicalPlanBuilder::scan(&name, table_source, None))?;
 
                 if let Some(alias) = alias {
                     Ok((self.apply_table_alias(builder.build(), alias)?, None))
@@ -179,13 +176,20 @@ impl SqlQueryPlanner {
 
     fn filter_expr(
         &self,
-        plan: LogicalPlan,
+        mut plan: LogicalPlan,
         expr: Option<Expression>,
         relation: &Option<TableRelation>,
     ) -> Result<LogicalPlan> {
         if let Some(filter) = expr {
-            self.sql_to_expr(filter, relation)
-                .map(|exp| LogicalPlan::Filter(Filter::new(plan, exp)))
+            let filter_expr = self.sql_to_expr(filter, relation)?;
+            // we should parse filter first and then apply it to the table scan
+            match &mut plan {
+                LogicalPlan::TableScan(table) => {
+                    table.filter = Some(filter_expr.clone());
+                }
+                _ => {}
+            }
+            Ok(LogicalPlan::Filter(Filter::new(plan, filter_expr)))
         } else {
             Ok(plan)
         }
@@ -384,7 +388,7 @@ mod tests {
     fn test_where() {
         quick_test(
             "SELECT id,name FROM t WHERE id = 1",
-            "Projection: (t.id,t.name)\n  Filter: t.id == Int64(1)\n    TableScan: t\n",
+            "Projection: (t.id,t.name)\n  Filter: t.id = Int64(1)\n    TableScan: t\n",
         )
     }
 

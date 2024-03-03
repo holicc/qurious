@@ -173,7 +173,7 @@ impl DataSource for PostgresTableSource {
             let filter = filters
                 .iter()
                 .map(|f| expr_to_sql(f))
-                .collect::<Vec<&str>>()
+                .collect::<Vec<String>>()
                 .join(" AND ");
             sql = format!("{} WHERE {}", sql, filter);
         }
@@ -187,14 +187,18 @@ impl DataSource for PostgresTableSource {
 mod tests {
     use arrow::datatypes::{Field, Fields, Schema};
 
-    use crate::datasource::{
-        db::postgres::{PostgresSource, PostgresSourceOptions},
-        DataSource,
+    use crate::{
+        datasource::{
+            db::postgres::{PostgresSource, PostgresSourceOptions},
+            DataSource,
+        },
+        datatypes::scalar::ScalarValue,
+        logical::expr::{column, eq, BinaryExpr, LogicalExpr},
     };
     use std::{sync::Arc, vec};
 
     #[test]
-    fn test_postgres_source() {
+    fn test_init_source() {
         let sources = PostgresSource::try_new_with_config(
             "postgres://root:root@localhost:5433/qurious",
             PostgresSourceOptions {
@@ -212,5 +216,30 @@ mod tests {
                 Field::new("name", arrow::datatypes::DataType::Utf8, true),
             ])))
         );
+    }
+
+    #[test]
+    fn test_scan() {
+        let sources = PostgresSource::try_new_with_config(
+            "postgres://root:root@localhost:5433/qurious",
+            PostgresSourceOptions {
+                filter_schemas: Some(vec!["public".to_string()]),
+            },
+        )
+        .unwrap();
+
+        let batch = sources[0]
+            .scan(
+                Some(vec!["id".to_string(), "name".to_string()]),
+                &[eq(
+                    column("id"),
+                    LogicalExpr::Literal(ScalarValue::Int32(Some(1))),
+                )],
+            )
+            .unwrap();
+
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].num_columns(), 2);
+        assert_eq!(batch[0].num_rows(), 1);
     }
 }
