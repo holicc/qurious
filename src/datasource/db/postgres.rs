@@ -193,7 +193,7 @@ mod tests {
             DataSource,
         },
         datatypes::scalar::ScalarValue,
-        logical::expr::{column, eq, BinaryExpr, LogicalExpr},
+        logical::expr::{column, eq, LogicalExpr},
     };
     use std::{sync::Arc, vec};
 

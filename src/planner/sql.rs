@@ -8,6 +8,7 @@ use sqlparser::{
 
 use crate::{
     common::TableRelation,
+    datasource::file::csv::{self, CsvReadOptions},
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
     execution::registry::{ImmutableHashMapTableRegistry, TableRegistry},
@@ -115,7 +116,7 @@ impl SqlQueryPlanner {
                     Ok((builder.build(), Some(name.into())))
                 }
             }
-            From::TableFunction { name, args, alias } => todo!(),
+            From::TableFunction { name, args, alias } => self.table_func_to_plan(name, args, alias),
             From::SubQuery { query, alias } => todo!(),
             From::Join {
                 left,
@@ -124,6 +125,31 @@ impl SqlQueryPlanner {
                 join_type,
             } => todo!(),
         }
+    }
+
+    fn table_func_to_plan(
+        &self,
+        name: String,
+        args: Vec<Expression>,
+        alias: Option<String>,
+    ) -> Result<(LogicalPlan, Option<TableRelation>)> {
+        match name.to_lowercase().as_str() {
+            "read_csv" => {
+                let (path, options) = self.parse_csv_options(args)?;
+                let table_name = "tmp_csv_table";
+                let table_srouce = csv::read_csv(path, options)?;
+                let plan = LogicalPlanBuilder::scan(table_name, table_srouce, None).build();
+
+                Ok((plan, Some(table_name.into())))
+            }
+            "read_json" => todo!(),
+
+            _ => todo!(),
+        }
+    }
+
+    fn parse_csv_options(&self, args: Vec<Expression>) -> Result<(String, CsvReadOptions)> {
+        todo!()
     }
 
     fn apply_table_alias(&self, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
@@ -352,6 +378,14 @@ mod tests {
                 vec![],
             )))
         }
+    }
+
+    #[test]
+    fn test_table_function() {
+        quick_test(
+            "SELECT * FROM read_csv('./test.csv')",
+            "Projection: (Int64(1))\n  Empty Relation\n",
+        );
     }
 
     #[test]

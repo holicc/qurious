@@ -15,6 +15,7 @@ connectorx = { version = "0.3.3-alpha.1", default-features = false, features = [
     "dst_arrow",
 ] }
 sqlparser = { git = "https://github.com/holicc/sqlparser.git" }
+url = "2.5.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
