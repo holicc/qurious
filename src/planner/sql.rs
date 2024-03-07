@@ -1,8 +1,6 @@
-use std::{rc::Rc, sync::Arc};
-
 use arrow::datatypes::SchemaRef;
 use sqlparser::{
-    ast::{BinaryOperator, Expression, From, Literal, SelectItem, Statement},
+    ast::{Assignment, BinaryOperator, Expression, From, Literal, SelectItem, Statement},
     parser::Parser,
 };
 
@@ -11,7 +9,7 @@ use crate::{
     datasource::file::csv::{self, CsvReadOptions},
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
-    execution::registry::{ImmutableHashMapTableRegistry, TableRegistry},
+    execution::registry::TableRegistry,
     logical::{
         expr::*,
         plan::{Filter, LogicalPlan},
@@ -130,7 +128,7 @@ impl SqlQueryPlanner {
     fn table_func_to_plan(
         &self,
         name: String,
-        args: Vec<Expression>,
+        args: Vec<Assignment>,
         alias: Option<String>,
     ) -> Result<(LogicalPlan, Option<TableRelation>)> {
         match name.to_lowercase().as_str() {
@@ -148,8 +146,79 @@ impl SqlQueryPlanner {
         }
     }
 
-    fn parse_csv_options(&self, args: Vec<Expression>) -> Result<(String, CsvReadOptions)> {
-        todo!()
+    fn parse_csv_options(&self, mut args: Vec<Assignment>) -> Result<(String, CsvReadOptions)> {
+        if args.len() == 0 {
+            return Err(Error::InternalError(
+                "read_csv function requires at least one argument".to_owned(),
+            ));
+        }
+
+        // first argument is the path
+        let path = match args.remove(0).value {
+            Expression::Literal(Literal::String(s)) => s,
+            _ => {
+                return Err(Error::InternalError(
+                    "read_csv function requires the first argument to be a string".to_owned(),
+                ))
+            }
+        };
+
+        let mut options = CsvReadOptions::default();
+
+        let extract_literal = |expr: Expression| -> Result<u8> {
+            match expr {
+                Expression::Literal(Literal::String(s)) => {
+                    if s.len() != 1 {
+                        return Err(Error::InternalError(
+                            "Expected a single character".to_owned(),
+                        ));
+                    }
+                    Ok(s.as_bytes()[0])
+                }
+                _ => Err(Error::InternalError("Expected a string literal".to_owned())),
+            }
+        };
+        let extract_value = |expr: Expression| -> Result<Literal> {
+            match expr {
+                Expression::Literal(lit) => Ok(lit),
+                _ => Err(Error::InternalError(
+                    "Expected a boolean literal".to_owned(),
+                )),
+            }
+        };
+
+        while let Some(arg) = args.pop() {
+            let opt_name = &arg
+                .id
+                .ok_or(Error::InternalError(format!(
+                    "Parse CsvOptions error, expected identifier, but it's empty"
+                )))?
+                .value
+                .to_lowercase();
+            let value = arg.value;
+
+            match opt_name.as_str() {
+                "delim" => options.delimiter = extract_literal(value)?,
+                "escape" => options.escape = extract_literal(value).ok(),
+                "quote" => options.quote = extract_literal(value).ok(),
+                "header" => {
+                    options.has_header = extract_value(value).and_then(|a| {
+                        a.try_into().map_err(|e| {
+                            Error::InternalError(format!("Parse CsvOptions error, {}", e))
+                        })
+                    })?
+                }
+                "columns" => todo!(),
+                _ => {
+                    return Err(Error::InternalError(format!(
+                        "Unknown option {} for read_csv function",
+                        opt_name
+                    )))
+                }
+            }
+        }
+
+        Ok((path, options))
     }
 
     fn apply_table_alias(&self, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
@@ -344,7 +413,6 @@ mod tests {
         datasource::{memory::MemoryDataSource, DataSource},
         error::Result,
         execution::registry::TableRegistry,
-        logical::plan,
         utils,
     };
 
@@ -383,8 +451,8 @@ mod tests {
     #[test]
     fn test_table_function() {
         quick_test(
-            "SELECT * FROM read_csv('./test.csv')",
-            "Projection: (Int64(1))\n  Empty Relation\n",
+            "SELECT * FROM read_csv('tests/testdata/file/case1.csv')",
+            "Projection: (tmp_csv_table.id,tmp_csv_table.name,tmp_csv_table.localtion)\n  TableScan: tmp_csv_table\n",
         );
     }
 

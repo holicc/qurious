@@ -15,10 +15,10 @@ use crate::logical::expr::LogicalExpr;
 use super::DataFilePath;
 
 pub struct CsvReadOptions {
-    has_header: bool,
-    delimiter: u8,
-    quote: Option<u8>,
-    escape: Option<u8>,
+    pub has_header: bool,
+    pub delimiter: u8,
+    pub quote: Option<u8>,
+    pub escape: Option<u8>,
 }
 
 impl Default for CsvReadOptions {
