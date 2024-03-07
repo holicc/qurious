@@ -21,16 +21,16 @@ use crate::{
 
 use self::alias::Alias;
 
-pub struct SqlQueryPlanner {
-    table_registry: Rc<dyn TableRegistry>,
+pub struct SqlQueryPlanner<'a> {
+    table_registry: &'a mut dyn TableRegistry,
 }
 
-impl SqlQueryPlanner {
-    pub fn new(table_registry: Rc<dyn TableRegistry>) -> Self {
+impl<'a> SqlQueryPlanner<'a> {
+    pub fn new(table_registry: &'a mut dyn TableRegistry) -> Self {
         SqlQueryPlanner { table_registry }
     }
 
-    pub fn create_logical_plan(&self, sql: &str) -> Result<LogicalPlan> {
+    pub fn create_logical_plan(&mut self, sql: &str) -> Result<LogicalPlan> {
         let stmts = Parser::new(sql)
             .parse()
             .map_err(|e| Error::SQLParseError(e))?;
@@ -102,7 +102,7 @@ impl SqlQueryPlanner {
         todo!()
     }
 
-    fn table_scan_to_plan(&self, from: From) -> Result<(LogicalPlan, Option<TableRelation>)> {
+    fn table_scan_to_plan(&mut self, from: From) -> Result<(LogicalPlan, Option<TableRelation>)> {
         match from {
             From::Table { name, alias } => {
                 let builder = self
@@ -128,7 +128,7 @@ impl SqlQueryPlanner {
     }
 
     fn table_func_to_plan(
-        &self,
+        &mut self,
         name: String,
         args: Vec<Assignment>,
         alias: Option<String>,
@@ -140,7 +140,9 @@ impl SqlQueryPlanner {
                 let table_srouce = csv::read_csv(path, options)?;
                 let plan = LogicalPlanBuilder::scan(table_name, table_srouce.clone(), None).build();
                 // register the table to the table registry
-                self.table_registry.register_table(table_name, table_srouce);
+                // TODO: we should use a unique name for the table and apply the alias
+                self.table_registry
+                    .register_table(table_name, table_srouce)?;
 
                 Ok((plan, Some(table_name.into())))
             }
@@ -245,7 +247,7 @@ impl SqlQueryPlanner {
     }
 }
 
-impl SqlQueryPlanner {
+impl<'a> SqlQueryPlanner<'a> {
     fn column_exprs(
         &self,
         plan: &LogicalPlan,
@@ -409,7 +411,7 @@ impl SqlQueryPlanner {
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, rc::Rc, sync::Arc};
+    use std::{collections::HashMap, sync::Arc};
 
     use arrow::datatypes::{DataType, Field, SchemaBuilder};
 
@@ -435,7 +437,7 @@ mod tests {
     }
 
     impl TableRegistry for TestTableRegistry {
-        fn register_table(&self, _name: &str, _table: Arc<dyn DataSource>) -> Result<()> {
+        fn register_table(&mut self, _name: &str, _table: Arc<dyn DataSource>) -> Result<()> {
             Ok(())
         }
 
@@ -499,8 +501,8 @@ mod tests {
     }
 
     fn quick_test(sql: &str, expected: &str) {
-        let registry = TestTableRegistry::new();
-        let planner = SqlQueryPlanner::new(Rc::new(registry));
+        let mut registry = TestTableRegistry::new();
+        let mut planner = SqlQueryPlanner::new(&mut registry);
         match planner.create_logical_plan(sql) {
             Ok(plan) => assert_eq!(utils::format(&plan, 0), expected),
             Err(err) => assert_eq!(err.to_string(), expected),

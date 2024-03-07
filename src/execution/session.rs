@@ -13,22 +13,22 @@ use crate::execution::registry::HashMapTableRegistry;
 use super::registry::TableRegistry;
 
 pub struct ExecuteSession {
-    tables: Rc<dyn TableRegistry>,
+    tables: Box<dyn TableRegistry>,
     query_planner: Box<dyn QueryPlanner>,
 }
 
 impl Default for ExecuteSession {
     fn default() -> Self {
         Self {
-            tables: Rc::new(HashMapTableRegistry::default()),
+            tables: Box::new(HashMapTableRegistry::default()),
             query_planner: Box::new(DefaultQueryPlanner),
         }
     }
 }
 
 impl ExecuteSession {
-    pub fn sql(&self, sql: &str) -> Result<Vec<RecordBatch>> {
-        let sql_planner = SqlQueryPlanner::new(self.tables.clone());
+    pub fn sql(&mut self, sql: &str) -> Result<Vec<RecordBatch>> {
+        let mut sql_planner = SqlQueryPlanner::new(&mut *self.tables);
         let plan = sql_planner.create_logical_plan(sql)?;
         let plan = self.query_planner.create_physical_plan(&plan)?;
 
