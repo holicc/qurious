@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 pub use aggregate::{AggregateExpr, AggregateOperator};
 
-use arrow::datatypes::{FieldRef, Schema};
+use arrow::datatypes::FieldRef;
 pub use binary::*;
 pub use column::*;
 pub use literal::*;

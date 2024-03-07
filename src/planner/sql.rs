@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use arrow::datatypes::SchemaRef;
 use sqlparser::{
     ast::{Assignment, BinaryOperator, Expression, From, Literal, SelectItem, Statement},
@@ -20,11 +22,11 @@ use crate::{
 use self::alias::Alias;
 
 pub struct SqlQueryPlanner {
-    table_registry: Box<dyn TableRegistry>,
+    table_registry: Rc<dyn TableRegistry>,
 }
 
 impl SqlQueryPlanner {
-    pub fn new(table_registry: Box<dyn TableRegistry>) -> Self {
+    pub fn new(table_registry: Rc<dyn TableRegistry>) -> Self {
         SqlQueryPlanner { table_registry }
     }
 
@@ -136,7 +138,9 @@ impl SqlQueryPlanner {
                 let (path, options) = self.parse_csv_options(args)?;
                 let table_name = "tmp_csv_table";
                 let table_srouce = csv::read_csv(path, options)?;
-                let plan = LogicalPlanBuilder::scan(table_name, table_srouce, None).build();
+                let plan = LogicalPlanBuilder::scan(table_name, table_srouce.clone(), None).build();
+                // register the table to the table registry
+                self.table_registry.register_table(table_name, table_srouce);
 
                 Ok((plan, Some(table_name.into())))
             }
@@ -405,7 +409,7 @@ impl SqlQueryPlanner {
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, sync::Arc};
+    use std::{collections::HashMap, rc::Rc, sync::Arc};
 
     use arrow::datatypes::{DataType, Field, SchemaBuilder};
 
@@ -431,7 +435,7 @@ mod tests {
     }
 
     impl TableRegistry for TestTableRegistry {
-        fn register_table(&mut self, _name: &str, _table: Arc<dyn DataSource>) -> Result<()> {
+        fn register_table(&self, _name: &str, _table: Arc<dyn DataSource>) -> Result<()> {
             Ok(())
         }
 
@@ -495,7 +499,8 @@ mod tests {
     }
 
     fn quick_test(sql: &str, expected: &str) {
-        let planner = SqlQueryPlanner::new(Box::new(TestTableRegistry::new()));
+        let registry = TestTableRegistry::new();
+        let planner = SqlQueryPlanner::new(Rc::new(registry));
         match planner.create_logical_plan(sql) {
             Ok(plan) => assert_eq!(utils::format(&plan, 0), expected),
             Err(err) => assert_eq!(err.to_string(), expected),
