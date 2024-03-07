@@ -4,13 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 
-[patch.crates-io]
-connectorx = { git = "https://github.com/holicc/connector-x.git" }
-
-
 [dependencies]
 arrow = "50.0.0"
-connectorx = { version = "0.3.3-alpha.1", default-features = false, features = [
+connectorx = { git = "https://github.com/holicc/connector-x.git", branch = "main", default-features = false, features = [
     "branch",
     "dst_arrow",
 ] }
