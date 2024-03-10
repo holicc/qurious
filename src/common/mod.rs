@@ -1,3 +1,3 @@
 mod table_relation;
 
-pub use table_relation::TableRelation;
+pub use table_relation::{OwnedTableRelation, TableRelation};

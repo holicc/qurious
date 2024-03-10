@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 pub use aggregate::{AggregateExpr, AggregateOperator};
 
-use arrow::datatypes::FieldRef;
+use arrow::datatypes::{Field, FieldRef};
 pub use binary::*;
 pub use column::*;
 pub use literal::*;
@@ -38,10 +38,14 @@ impl LogicalExpr {
             LogicalExpr::BinaryExpr(b) => b.field(plan),
             LogicalExpr::AggregateExpr(a) => a.field(plan),
             LogicalExpr::Literal(v) => Ok(Arc::new(v.to_field())),
-            LogicalExpr::Alias(a) => Err(Error::InternalError(format!(
-                "Alias expression should have been resolved: {}",
-                a
-            ))),
+            LogicalExpr::Alias(a) => {
+                let field = a.expr.field(plan)?;
+                Ok(Arc::new(Field::new(
+                    a.name.clone(),
+                    field.data_type().clone(),
+                    field.is_nullable(),
+                )))
+            }
         }
     }
 }

@@ -2,13 +2,13 @@ use std::{fmt::Display, sync::Arc};
 
 use arrow::datatypes::SchemaRef;
 
-use crate::{datasource::DataSource, logical::expr::LogicalExpr};
+use crate::{common::OwnedTableRelation, datasource::DataSource, logical::expr::LogicalExpr};
 
 use super::LogicalPlan;
 
 #[derive(Debug, Clone)]
 pub struct TableScan {
-    pub name: String,
+    pub relation: OwnedTableRelation,
     pub source: Arc<dyn DataSource>,
     pub projections: Option<Vec<String>>,
     pub filter: Option<LogicalExpr>,
@@ -16,13 +16,13 @@ pub struct TableScan {
 
 impl TableScan {
     pub fn new(
-        path: &str,
+        relation: impl Into<OwnedTableRelation>,
         source: Arc<dyn DataSource>,
         projections: Option<Vec<String>>,
         filter: Option<LogicalExpr>,
     ) -> Self {
         Self {
-            name: path.to_string(),
+            relation: relation.into(),
             source,
             projections,
             filter,
@@ -43,11 +43,12 @@ impl Display for TableScan {
         if self.projections.is_some() {
             write!(
                 f,
-                "TableScan: {} projection: {:?}",
-                self.name, self.projections
+                "TableScan: {} Projection: {:?}",
+                self.relation.to_quanlify_name(),
+                self.projections
             )
         } else {
-            write!(f, "TableScan: {}", self.name)
+            write!(f, "TableScan: {}", self.relation.to_quanlify_name())
         }
     }
 }

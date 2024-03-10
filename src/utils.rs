@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::logical::plan::LogicalPlan;
 
 pub fn format(plan: &LogicalPlan, ident: usize) -> String {

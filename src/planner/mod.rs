@@ -151,3 +151,7 @@ impl QueryPlanner for DefaultQueryPlanner {
         }
     }
 }
+
+pub(crate) fn normalize_col_with_schemas_and_ambiguity_check() -> Result<LogicalExpr> {
+    todo!()
+}

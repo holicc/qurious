@@ -1,7 +1,5 @@
 mod push_down_projections;
 
-use std::fmt::Display;
-
 use crate::{error::Result, logical::plan::LogicalPlan};
 
 pub trait OptimizerRule {

@@ -82,7 +82,7 @@ impl ProjectionPushDownRule {
                 })
             }
             LogicalPlan::TableScan(s) => Ok(LogicalPlan::TableScan(TableScan::new(
-                &s.name,
+                s.relation.clone(),
                 s.source.clone(),
                 Some(columns.into_iter().collect()),
                 None,
