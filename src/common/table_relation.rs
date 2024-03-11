@@ -99,6 +99,12 @@ impl<'a> From<&'a str> for TableRelation<'a> {
     }
 }
 
+impl From<&String> for OwnedTableRelation {
+    fn from(value: &String) -> Self {
+        TableRelation::parse_str(&value).to_owned()
+    }
+}
+
 impl From<String> for OwnedTableRelation {
     fn from(value: String) -> Self {
         TableRelation::parse_str(&value).to_owned()

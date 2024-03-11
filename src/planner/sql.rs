@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use arrow::datatypes::SchemaRef;
 use sqlparser::{
     ast::{Assignment, BinaryOperator, Expression, From, Literal, SelectItem, Statement},
@@ -19,7 +21,7 @@ use crate::{
 
 use self::alias::Alias;
 
-use super::normalize_col_with_schemas_and_ambiguity_check;
+use super::{normalize_col_with_schemas_and_ambiguity_check, TableSchemaInfo};
 
 pub struct SqlQueryPlanner<'a> {
     table_registry: &'a mut dyn TableRegistry,
@@ -35,24 +37,9 @@ impl<'a> SqlQueryPlanner<'a> {
             .parse()
             .map_err(|e| Error::SQLParseError(e))?;
 
+        let mut context = PlannerContext::default();
+
         match stmts {
-            Statement::CreateTable {
-                table,
-                check_exists,
-                columns,
-            } => todo!(),
-            Statement::CreateSchema {
-                schema,
-                check_exists,
-            } => todo!(),
-            Statement::DropTable {
-                table,
-                check_exists,
-            } => todo!(),
-            Statement::DropSchema {
-                schema,
-                check_exists,
-            } => todo!(),
             Statement::Select {
                 distinct,
                 columns,
@@ -67,31 +54,19 @@ impl<'a> SqlQueryPlanner<'a> {
                 // process `from` clause
                 let mut empty_from = false;
                 let plan = if let Some(f) = from {
-                    self.table_scan_to_plan(f)?
+                    self.table_scan_to_plan(f, &mut context)?
                 } else {
                     empty_from = true;
                     LogicalPlanBuilder::empty().build()
                 };
                 // process the WHERE clause
-                let plan = self.filter_expr(plan, r#where)?;
+                let plan = self.filter_expr(plan, r#where, &mut context)?;
                 // process the SELECT expressions
-                let column_exprs = self.column_exprs(&plan, empty_from, columns)?;
+                let column_exprs = self.column_exprs(&plan, empty_from, columns, &context)?;
 
                 LogicalPlanBuilder::project(plan, column_exprs)
             }
-            Statement::Insert {
-                table,
-                columns,
-                values,
-                on_conflict,
-                returning,
-            } => todo!(),
-            Statement::Update {
-                table,
-                assignments,
-                r#where,
-            } => todo!(),
-            Statement::Delete { table, r#where } => todo!(),
+            _ => todo!(),
         }
     }
 
@@ -103,18 +78,24 @@ impl<'a> SqlQueryPlanner<'a> {
         todo!()
     }
 
-    fn table_scan_to_plan(&mut self, from: From) -> Result<LogicalPlan> {
+    fn table_scan_to_plan(&mut self, from: From, ctx: &mut PlannerContext) -> Result<LogicalPlan> {
         let (plan, alias) = match from {
             From::Table { name, alias } => {
                 let relation: TableRelation = name.clone().into();
-                (
-                    self.table_registry
-                        .get_table_source(&name)
-                        .map(|table_source| {
-                            LogicalPlanBuilder::scan(relation, table_source, None).build()
-                        })?,
-                    alias,
-                )
+                let scan = self
+                    .table_registry
+                    .get_table_source(&name)
+                    .map(|table_source| {
+                        LogicalPlanBuilder::scan(relation.clone(), table_source, None).build()
+                    })?;
+
+                ctx.relations.push(TableSchemaInfo {
+                    relation,
+                    schema: scan.schema(),
+                    alias: alias.clone(),
+                });
+
+                (scan, alias)
             }
             From::TableFunction { name, args, alias } => {
                 (self.table_func_to_plan(name, args)?, alias)
@@ -228,11 +209,10 @@ impl<'a> SqlQueryPlanner<'a> {
 impl<'a> SqlQueryPlanner<'a> {
     fn apply_expr_alias(&self, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
         let fields = plan.schema().fields().clone();
-
         let exprs = fields.into_iter().map(|field| {
             LogicalExpr::Alias(Alias::new(
-                format!("{}.{}", alias, field.name()),
-                LogicalExpr::Column(Column::new(field.name(), None, None::<OwnedTableRelation>)),
+                alias.clone(),
+                LogicalExpr::Column(Column::new(field.name(), None::<OwnedTableRelation>)),
             ))
         });
 
@@ -244,12 +224,13 @@ impl<'a> SqlQueryPlanner<'a> {
         plan: &LogicalPlan,
         empty_from: bool,
         columns: Vec<SelectItem>,
+        ctx: &PlannerContext,
     ) -> Result<Vec<LogicalExpr>> {
         let schema = plan.schema();
         columns
             .into_iter()
             .flat_map(
-                |col| match self.sql_select_item_to_expr(col, empty_from, &schema) {
+                |col| match self.sql_select_item_to_expr(col, empty_from, &schema, ctx) {
                     Ok(vec) => vec.into_iter().map(Ok).collect(),
                     Err(err) => vec![Err(err)],
                 },
@@ -257,10 +238,14 @@ impl<'a> SqlQueryPlanner<'a> {
             .collect::<Result<Vec<LogicalExpr>>>()
     }
 
-    fn filter_expr(&self, mut plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {
+    fn filter_expr(
+        &self,
+        mut plan: LogicalPlan,
+        expr: Option<Expression>,
+        ctx: &PlannerContext,
+    ) -> Result<LogicalPlan> {
         if let Some(filter) = expr {
-            let filter_expr =
-                normalize_col_with_schemas_and_ambiguity_check(self.sql_to_expr(filter)?)?;
+            let filter_expr = self.sql_to_expr(filter, ctx)?;
 
             // we should parse filter first and then apply it to the table scan
             match &mut plan {
@@ -276,40 +261,28 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn sql_to_expr(&self, expr: Expression) -> Result<LogicalExpr> {
-        Ok(match expr {
-            Expression::Identifier(ident) => {
-                LogicalExpr::Column(Column::new(ident, None, None::<OwnedTableRelation>))
-            }
+    fn sql_to_expr(&self, expr: Expression, ctx: &PlannerContext) -> Result<LogicalExpr> {
+        match expr {
+            Expression::Identifier(ident) => normalize_col_with_schemas_and_ambiguity_check(
+                LogicalExpr::Column(Column::new(ident, None::<OwnedTableRelation>)),
+                &ctx.relations,
+            ),
             Expression::Literal(lit) => match lit {
-                Literal::Int(i) => LogicalExpr::Literal(ScalarValue::Int64(Some(i))),
-                Literal::Float(f) => LogicalExpr::Literal(ScalarValue::Float64(Some(f))),
-                Literal::String(s) => LogicalExpr::Literal(ScalarValue::Utf8(Some(s))),
-                Literal::Boolean(b) => LogicalExpr::Literal(ScalarValue::Boolean(Some(b))),
-                Literal::Null => LogicalExpr::Literal(ScalarValue::Null),
+                Literal::Int(i) => Ok(LogicalExpr::Literal(ScalarValue::Int64(Some(i)))),
+                Literal::Float(f) => Ok(LogicalExpr::Literal(ScalarValue::Float64(Some(f)))),
+                Literal::String(s) => Ok(LogicalExpr::Literal(ScalarValue::Utf8(Some(s)))),
+                Literal::Boolean(b) => Ok(LogicalExpr::Literal(ScalarValue::Boolean(Some(b)))),
+                Literal::Null => Ok(LogicalExpr::Literal(ScalarValue::Null)),
             },
-            Expression::BinaryOperator(op) => self.parse_binary_op(op)?,
+            Expression::BinaryOperator(op) => self.parse_binary_op(op, ctx),
             _ => todo!("{:?}", expr),
-        })
+        }
     }
 
-    fn parse_binary_op(&self, op: BinaryOperator) -> Result<LogicalExpr> {
+    fn parse_binary_op(&self, op: BinaryOperator, ctx: &PlannerContext) -> Result<LogicalExpr> {
         Ok(match op {
-            BinaryOperator::Eq(l, r) => eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::NotEq(l, r) => not_eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::And(l, r) => and(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::Or(l, r) => or(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::Gt(l, r) => gt(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::Gte(l, r) => gt_eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::Lt(l, r) => lt(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::Lte(l, r) => lt_eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::Add(l, r) => add(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::Sub(l, r) => sub(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::Mul(l, r) => mul(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::Div(l, r) => div(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            BinaryOperator::Neg(_) => todo!(),
-            BinaryOperator::Pos(_) => todo!(),
-            BinaryOperator::Not(l) => todo!(),
+            BinaryOperator::Eq(l, r) => eq(self.sql_to_expr(*l, ctx)?, self.sql_to_expr(*r, ctx)?),
+            _ => todo!(),
         })
     }
 
@@ -318,14 +291,17 @@ impl<'a> SqlQueryPlanner<'a> {
         item: SelectItem,
         empty_relation: bool,
         schema: &SchemaRef,
+        ctx: &PlannerContext,
     ) -> Result<Vec<LogicalExpr>> {
         match item {
             SelectItem::UnNamedExpr(expr) => self
-                .sql_to_expr(expr)
-                .and_then(|expr| normalize_col_with_schemas_and_ambiguity_check(expr))
+                .sql_to_expr(expr, ctx)
+                .and_then(|expr| {
+                    normalize_col_with_schemas_and_ambiguity_check(expr, &ctx.relations)
+                })
                 .map(|v| vec![v]),
             SelectItem::ExprWithAlias(expr, alias) => self
-                .sql_to_expr(expr)
+                .sql_to_expr(expr, ctx)
                 .map(|col| vec![LogicalExpr::Alias(Alias::new(alias, col))]),
             SelectItem::Wildcard => {
                 if empty_relation {
@@ -334,17 +310,27 @@ impl<'a> SqlQueryPlanner<'a> {
                     ));
                 }
                 // expand schema
-                Ok(schema
+                schema
                     .all_fields()
                     .into_iter()
-                    .map(|field| column(field.name()))
-                    .collect())
+                    .map(|field| {
+                        normalize_col_with_schemas_and_ambiguity_check(
+                            column(field.name()),
+                            &ctx.relations,
+                        )
+                    })
+                    .collect()
             }
             SelectItem::QualifiedWildcard(_) => {
                 todo!()
             }
         }
     }
+}
+
+#[derive(Debug, Default)]
+struct PlannerContext<'a> {
+    relations: Vec<TableSchemaInfo<'a>>,
 }
 
 #[cfg(test)]
@@ -413,7 +399,10 @@ mod tests {
             "Projection: (t.id,t.name)\n  TableScan: t\n",
         );
 
-        quick_test("SELECT age FROM t", "Arrow Error: Schema error: Unable to get field named \"age\". Valid fields: [\"id\", \"name\"]");
+        quick_test(
+            "SELECT age FROM t",
+            "Internal Error: Column \"age\" not found in any table",
+        );
 
         quick_test(
             "SELECT id,id FROM t",

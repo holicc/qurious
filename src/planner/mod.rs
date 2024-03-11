@@ -1,10 +1,11 @@
 pub mod sql;
 
-use std::{fmt::Debug, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use arrow::datatypes::SchemaRef;
 
 use crate::{
+    common::{OwnedTableRelation, TableRelation},
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
     logical::{
@@ -152,6 +153,64 @@ impl QueryPlanner for DefaultQueryPlanner {
     }
 }
 
-pub(crate) fn normalize_col_with_schemas_and_ambiguity_check() -> Result<LogicalExpr> {
-    todo!()
+#[derive(Debug)]
+pub(crate) struct TableSchemaInfo<'a> {
+    pub(crate) relation: TableRelation<'a>,
+    pub(crate) schema: SchemaRef,
+    pub(crate) alias: Option<String>,
+}
+
+/// Normalize the columns in the expression using the provided schemas and check for ambiguity
+pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
+    expr: LogicalExpr,
+    schemas: &Vec<TableSchemaInfo>,
+) -> Result<LogicalExpr> {
+    match expr {
+        LogicalExpr::Column(mut col) => {
+            if col.relation.is_some() {
+                return Ok(LogicalExpr::Column(col));
+            }
+
+            // nomalize the column name
+            let mut idents: Vec<String> = col.name.split('.').map(|a| a.to_string()).collect();
+            // is compound table name
+            match idents.len() {
+                1 => {
+                    // find the first schema that has the column
+                    for info in schemas {
+                        if info.schema.field_with_name(&col.name).is_ok() {
+                            col.relation = Some(info.relation.clone().to_owned());
+                            return Ok(LogicalExpr::Column(col));
+                        }
+                    }
+                }
+                2 => {
+                    let table = idents.remove(0);
+                    let column_name = idents.remove(0);
+
+                    for info in schemas {
+                        let except_relation = if let Some(alias) = &info.alias {
+                            alias.into()
+                        } else {
+                            info.relation.clone().to_owned()
+                        };
+                        if table == except_relation.to_quanlify_name() {
+                            if info.schema.field_with_name(&column_name).is_ok() {
+                                col.relation = Some(except_relation);
+                                col.name = column_name;
+                                return Ok(LogicalExpr::Column(col));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            Err(Error::InternalError(format!(
+                "Column \"{}\" not found in any table",
+                col.name
+            )))
+        }
+        _ => Ok(expr),
+    }
 }

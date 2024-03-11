@@ -13,26 +13,26 @@ use super::LogicalExpr;
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Column {
     pub name: String,
-    pub alias: Option<String>,
     pub relation: Option<OwnedTableRelation>,
 }
 
 impl Column {
-    pub fn new(
-        name: impl Into<String>,
-        alias: Option<String>,
-        relation: Option<impl Into<OwnedTableRelation>>,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, relation: Option<impl Into<OwnedTableRelation>>) -> Self {
         Self {
             name: name.into(),
-            alias,
             relation: relation.map(|r| r.into()),
         }
     }
 
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
+        let quanlified_name = if let Some(relation) = &self.relation {
+            format!("{}.{}", relation, self.name)
+        } else {
+            self.name.clone()
+        };
+
         plan.schema()
-            .field_with_name(&self.name)
+            .field_with_name(&quanlified_name)
             .map(|f| Arc::new(f.clone()))
             .map_err(|e| Error::ArrowError(e))
     }
@@ -54,7 +54,6 @@ impl FromStr for Column {
     fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
         Ok(Self {
             name: s.to_string(),
-            alias: None,
             relation: None,
         })
     }
@@ -64,6 +63,5 @@ pub fn column(name: &str) -> LogicalExpr {
     LogicalExpr::Column(Column {
         name: name.to_string(),
         relation: None,
-        alias: None,
     })
 }

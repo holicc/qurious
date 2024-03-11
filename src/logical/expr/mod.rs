@@ -41,7 +41,7 @@ impl LogicalExpr {
             LogicalExpr::Alias(a) => {
                 let field = a.expr.field(plan)?;
                 Ok(Arc::new(Field::new(
-                    a.name.clone(),
+                    format!("{}.{}", a.name, field.name()),
                     field.data_type().clone(),
                     field.is_nullable(),
                 )))
