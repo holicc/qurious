@@ -87,6 +87,7 @@ impl<'a> TableRelation<'a> {
     }
 }
 
+
 impl Display for TableRelation<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.to_quanlify_name().fmt(f)

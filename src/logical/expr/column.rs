@@ -25,16 +25,18 @@ impl Column {
     }
 
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
-        let quanlified_name = if let Some(relation) = &self.relation {
+        plan.schema()
+            .field_with_name(&self.quanlified_name())
+            .map(|f| Arc::new(f.clone()))
+            .map_err(|e| Error::ArrowError(e))
+    }
+
+    pub fn quanlified_name(&self) -> String {
+        if let Some(relation) = &self.relation {
             format!("{}.{}", relation, self.name)
         } else {
             self.name.clone()
-        };
-
-        plan.schema()
-            .field_with_name(&quanlified_name)
-            .map(|f| Arc::new(f.clone()))
-            .map_err(|e| Error::ArrowError(e))
+        }
     }
 }
 

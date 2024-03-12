@@ -31,7 +31,6 @@ impl ExecuteSession {
         let mut sql_planner = SqlQueryPlanner::new(&mut *self.tables);
         let plan = sql_planner.create_logical_plan(sql)?;
         let plan = self.query_planner.create_physical_plan(&plan)?;
-
         plan.execute()
     }
 
@@ -61,7 +60,10 @@ mod tests {
         ])));
 
         let data = vec![RecordBatch::try_new(
-            schema.clone(),
+            Arc::new(Schema::new(Fields::from_iter(vec![
+                Field::new("t.id", arrow::datatypes::DataType::Int32, false),
+                Field::new("t.name", arrow::datatypes::DataType::Utf8, false),
+            ]))),
             vec![
                 Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5])),
                 Arc::new(StringArray::from(vec!["a", "b", "c", "d", "e"])),

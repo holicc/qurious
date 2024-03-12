@@ -81,12 +81,13 @@ impl ProjectionPushDownRule {
                         .map(|a| LogicalPlan::Aggregate(a))
                 })
             }
-            LogicalPlan::TableScan(s) => Ok(LogicalPlan::TableScan(TableScan::new(
+            LogicalPlan::TableScan(s) => TableScan::try_new(
                 s.relation.clone(),
                 s.source.clone(),
                 Some(columns.into_iter().collect()),
                 None,
-            ))),
+            )
+            .map(LogicalPlan::TableScan),
             LogicalPlan::EmptyRelation(_) => todo!(),
         }
     }

@@ -4,8 +4,8 @@ use super::LogicalExpr;
 
 #[derive(Debug, Clone)]
 pub struct Alias {
-   pub expr: Box<LogicalExpr>,
-   pub name: String,
+    pub expr: Box<LogicalExpr>,
+    pub name: String,
 }
 
 impl Alias {
@@ -19,6 +19,6 @@ impl Alias {
 
 impl Display for Alias {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Alias: {}", self.name)
+        write!(f, "{}", self.expr)
     }
 }

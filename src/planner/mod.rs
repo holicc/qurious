@@ -2,7 +2,7 @@ pub mod sql;
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use arrow::datatypes::SchemaRef;
+use arrow::datatypes::{Field, SchemaRef};
 
 use crate::{
     common::{OwnedTableRelation, TableRelation},
@@ -102,7 +102,7 @@ impl DefaultQueryPlanner {
         column: &Column,
     ) -> Result<Arc<dyn PhysicalExpr>> {
         schema
-            .index_of(&column.name)
+            .index_of(&column.quanlified_name())
             .map_err(|e| Error::ArrowError(e))
             .map(|index| {
                 Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>
@@ -177,29 +177,35 @@ pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
             match idents.len() {
                 1 => {
                     // find the first schema that has the column
+                    // should match without relation
+                    let mut matched = vec![];
                     for info in schemas {
-                        if info.schema.field_with_name(&col.name).is_ok() {
-                            col.relation = Some(info.relation.clone().to_owned());
-                            return Ok(LogicalExpr::Column(col));
+                        if let Some(_) = info
+                            .schema
+                            .all_fields()
+                            .iter()
+                            .find(|field| field.name().ends_with(&format!(".{}", col.name)))
+                        {
+                            matched.push(info.relation.clone().to_owned());
                         }
+                    }
+                    if matched.len() == 1 {
+                        col.relation = Some(matched.pop().unwrap());
+                        return Ok(LogicalExpr::Column(col));
+                    } else if matched.len() > 1 {
+                        return Err(Error::InternalError(format!(
+                            "Column \"{}\" is ambiguous",
+                            col.name
+                        )));
                     }
                 }
                 2 => {
-                    let table = idents.remove(0);
-                    let column_name = idents.remove(0);
-
                     for info in schemas {
-                        let except_relation = if let Some(alias) = &info.alias {
-                            alias.into()
-                        } else {
-                            info.relation.clone().to_owned()
-                        };
-                        if table == except_relation.to_quanlify_name() {
-                            if info.schema.field_with_name(&column_name).is_ok() {
-                                col.relation = Some(except_relation);
-                                col.name = column_name;
-                                return Ok(LogicalExpr::Column(col));
-                            }
+                        if info.schema.field_with_name(&col.name).is_ok() {
+                            col.relation = Some(info.relation.clone().to_owned());
+                            // nomarlize the column name
+                            col.name = idents.pop().unwrap();
+                            return Ok(LogicalExpr::Column(col));
                         }
                     }
                 }

@@ -38,14 +38,7 @@ impl LogicalExpr {
             LogicalExpr::BinaryExpr(b) => b.field(plan),
             LogicalExpr::AggregateExpr(a) => a.field(plan),
             LogicalExpr::Literal(v) => Ok(Arc::new(v.to_field())),
-            LogicalExpr::Alias(a) => {
-                let field = a.expr.field(plan)?;
-                Ok(Arc::new(Field::new(
-                    format!("{}.{}", a.name, field.name()),
-                    field.data_type().clone(),
-                    field.is_nullable(),
-                )))
-            }
+            LogicalExpr::Alias(a) => a.expr.field(plan),
         }
     }
 }

@@ -81,13 +81,18 @@ impl<'a> SqlQueryPlanner<'a> {
     fn table_scan_to_plan(&mut self, from: From, ctx: &mut PlannerContext) -> Result<LogicalPlan> {
         let (plan, alias) = match from {
             From::Table { name, alias } => {
-                let relation: TableRelation = name.clone().into();
+                let relation: TableRelation = if let Some(alias) = &alias {
+                    alias.clone().into()
+                } else {
+                    name.clone().into()
+                };
                 let scan = self
                     .table_registry
                     .get_table_source(&name)
-                    .map(|table_source| {
-                        LogicalPlanBuilder::scan(relation.clone(), table_source, None).build()
-                    })?;
+                    .and_then(|table_source| {
+                        LogicalPlanBuilder::scan(relation.clone(), table_source, None)
+                    })?
+                    .build();
 
                 ctx.relations.push(TableSchemaInfo {
                     relation,
@@ -98,7 +103,7 @@ impl<'a> SqlQueryPlanner<'a> {
                 (scan, alias)
             }
             From::TableFunction { name, args, alias } => {
-                (self.table_func_to_plan(name, args)?, alias)
+                (self.table_func_to_plan(ctx, name, args)?, alias)
             }
             _ => todo!(),
         };
@@ -110,17 +115,29 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn table_func_to_plan(&mut self, name: String, args: Vec<Assignment>) -> Result<LogicalPlan> {
+    fn table_func_to_plan(
+        &mut self,
+        ctx: &mut PlannerContext,
+        name: String,
+        args: Vec<Assignment>,
+    ) -> Result<LogicalPlan> {
         match name.to_lowercase().as_str() {
             "read_csv" => {
                 let (path, options) = self.parse_csv_options(args)?;
                 let table_name = "tmp_csv_table";
                 let table_srouce = csv::read_csv(path, options)?;
-                let plan = LogicalPlanBuilder::scan(table_name, table_srouce.clone(), None).build();
+                let plan =
+                    LogicalPlanBuilder::scan(table_name, table_srouce.clone(), None)?.build();
                 // register the table to the table registry
                 // TODO: we should use a unique name for the table and apply the alias
                 self.table_registry
                     .register_table(table_name, table_srouce)?;
+
+                ctx.relations.push(TableSchemaInfo {
+                    relation: table_name.into(),
+                    schema: plan.schema(),
+                    alias: None,
+                });
 
                 Ok(plan)
             }
@@ -419,7 +436,10 @@ mod tests {
             "Projection: (person.id,person.name,person.id)\n  TableScan: person\n",
         );
 
-        quick_test("SELECT t.id FROM person as t", "Projection: (t.id)\n  Projection: (Alias: t.id,Alias: t.name)\n    TableScan: person\n");
+        quick_test(
+            "SELECT t.id FROM person as t",
+            "Projection: (t.id)\n  Projection: (t.id,t.name)\n    TableScan: t\n",
+        );
     }
 
     #[test]

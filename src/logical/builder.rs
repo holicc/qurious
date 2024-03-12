@@ -41,14 +41,8 @@ impl LogicalPlanBuilder {
         relation: impl Into<OwnedTableRelation>,
         table_source: Arc<dyn DataSource>,
         filter: Option<LogicalExpr>,
-    ) -> Self {
-        LogicalPlanBuilder {
-            plan: LogicalPlan::TableScan(TableScan::new(
-                relation.into(),
-                table_source,
-                None,
-                filter,
-            )),
-        }
+    ) -> Result<Self> {
+        TableScan::try_new(relation.into(), table_source, None, filter)
+            .map(|s| LogicalPlanBuilder::from(LogicalPlan::TableScan(s)))
     }
 }
