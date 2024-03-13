@@ -338,8 +338,29 @@ impl<'a> SqlQueryPlanner<'a> {
                     })
                     .collect()
             }
-            SelectItem::QualifiedWildcard(_) => {
-                todo!()
+            SelectItem::QualifiedWildcard(idents) => {
+                // expand schema
+                let quanlified_prefix = idents.join(",").into();
+                for info in &ctx.relations {
+                    if info.relation == quanlified_prefix {
+                        return // expand schema
+                        schema
+                            .all_fields()
+                            .into_iter()
+                            .map(|field| {
+                                normalize_col_with_schemas_and_ambiguity_check(
+                                    column(field.name()),
+                                    &ctx.relations,
+                                )
+                            })
+                            .collect();
+                    }
+                }
+
+                Err(Error::InternalError(format!(
+                    "Invalid qualified wildcard: {}",
+                    quanlified_prefix
+                )))
             }
         }
     }
@@ -440,6 +461,11 @@ mod tests {
             "SELECT t.id FROM person as t",
             "Projection: (t.id)\n  Projection: (t.id,t.name)\n    TableScan: t\n",
         );
+
+        quick_test(
+            "SELECT t.* FROM person as t",
+            "Projection: (t.id,t.name)\n  Projection: (t.id,t.name)\n    TableScan: t\n",
+        );
     }
 
     #[test]
@@ -447,7 +473,17 @@ mod tests {
         quick_test(
             "SELECT id,name FROM t WHERE id = 1",
             "Projection: (t.id,t.name)\n  Filter: t.id = Int64(1)\n    TableScan: t\n",
-        )
+        );
+
+        quick_test(
+            "SELECT * FROM person WHERE id = 2",
+            "Projection: (person.id,person.name)\n  Filter: person.id = Int64(2)\n    TableScan: person\n",
+        );
+
+        quick_test(
+            "SELECT * FROM person as t WHERE t.id = 2",
+            "Projection: (person.id,person.name)\n  Filter: person.id = Int64(2)\n    TableScan: person\n",
+        );
     }
 
     fn quick_test(sql: &str, expected: &str) {

@@ -1,8 +1,7 @@
 use crate::datasource::DataSource;
 use crate::error::{Error, Result};
 use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub trait TableRegistry {
     fn register_table(&mut self, name: &str, table: Arc<dyn DataSource>) -> Result<()>;
