@@ -438,6 +438,11 @@ mod tests {
         );
 
         quick_test(
+            "SELECT id as a,name as b FROM t",
+            "Projection: (t.id,t.name)\n  TableScan: t\n",
+        );
+
+        quick_test(
             "SELECT age FROM t",
             "Internal Error: Column \"age\" not found in any table",
         );
@@ -459,12 +464,12 @@ mod tests {
 
         quick_test(
             "SELECT t.id FROM person as t",
-            "Projection: (t.id)\n  Projection: (t.id,t.name)\n    TableScan: t\n",
+            "Projection: (t.id)\n     TableScan: t\n",
         );
 
         quick_test(
             "SELECT t.* FROM person as t",
-            "Projection: (t.id,t.name)\n  Projection: (t.id,t.name)\n    TableScan: t\n",
+            "Projection: (t.id,t.name)\n     TableScan: t\n",
         );
     }
 
