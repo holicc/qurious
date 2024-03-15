@@ -19,6 +19,6 @@ impl Alias {
 
 impl Display for Alias {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.expr)
+        write!(f, "{} AS {}", self.expr, self.name)
     }
 }

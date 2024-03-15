@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
-use arrow::datatypes::SchemaRef;
+use arrow::datatypes::{Schema, SchemaRef};
 use sqlparser::{
     ast::{Assignment, BinaryOperator, Expression, From, Literal, SelectItem, Statement},
     parser::Parser,
@@ -109,7 +109,7 @@ impl<'a> SqlQueryPlanner<'a> {
         };
 
         if let Some(alias) = alias {
-            self.apply_expr_alias(plan, alias)
+            self.apply_table_alias(plan, alias)
         } else {
             Ok(plan)
         }
@@ -224,16 +224,24 @@ impl<'a> SqlQueryPlanner<'a> {
 }
 
 impl<'a> SqlQueryPlanner<'a> {
-    fn apply_expr_alias(&self, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
-        let fields = plan.schema().fields().clone();
-        let exprs = fields.into_iter().map(|field| {
-            LogicalExpr::Alias(Alias::new(
-                alias.clone(),
-                LogicalExpr::Column(Column::new(field.name(), None::<OwnedTableRelation>)),
-            ))
-        });
+    fn apply_table_alias(&self, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
+        match plan {
+            LogicalPlan::TableScan(mut table) => {
+                // let fields = plan.schema().fields().clone();
+                // let exprs = fields.into_iter().map(|field| {
+                //     LogicalExpr::Alias(Alias::new(
+                //         alias.clone(),
+                //         LogicalExpr::Column(Column::new(field.name(), None::<OwnedTableRelation>)),
+                //     ))
+                // });
 
-        LogicalPlanBuilder::project(plan, exprs)
+                // rewrite table with alias
+                table.relation = alias.into();
+
+                Ok(LogicalPlan::TableScan(table))
+            }
+            _ => Ok(plan),
+        }
     }
 
     fn column_exprs(
@@ -439,7 +447,7 @@ mod tests {
 
         quick_test(
             "SELECT id as a,name as b FROM t",
-            "Projection: (t.id,t.name)\n  TableScan: t\n",
+            "Projection: (t.id AS a,t.name AS b)\n  TableScan: t\n",
         );
 
         quick_test(
@@ -464,12 +472,12 @@ mod tests {
 
         quick_test(
             "SELECT t.id FROM person as t",
-            "Projection: (t.id)\n     TableScan: t\n",
+            "Projection: (t.id)\n  TableScan: t\n",
         );
 
         quick_test(
             "SELECT t.* FROM person as t",
-            "Projection: (t.id,t.name)\n     TableScan: t\n",
+            "Projection: (t.id,t.name)\n  TableScan: t\n",
         );
     }
 
@@ -487,7 +495,7 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person as t WHERE t.id = 2",
-            "Projection: (person.id,person.name)\n  Filter: person.id = Int64(2)\n    TableScan: person\n",
+            "Projection: (t.id,t.name)\n  Filter: t.id = Int64(2)\n    TableScan: t\n",
         );
     }
 
