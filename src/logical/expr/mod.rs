@@ -10,13 +10,13 @@ use std::sync::Arc;
 
 pub use aggregate::{AggregateExpr, AggregateOperator};
 
-use arrow::datatypes::{Field, FieldRef};
+use arrow::datatypes::FieldRef;
 pub use binary::*;
 pub use column::*;
 pub use literal::*;
 
 use crate::datatypes::scalar::ScalarValue;
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 use self::alias::Alias;
 

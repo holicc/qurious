@@ -1,16 +1,18 @@
 mod aggregate;
 mod filter;
+mod join;
 mod projection;
 mod scan;
 
 pub use aggregate::Aggregate;
 pub use filter::Filter;
+pub use join::*;
 pub use projection::Projection;
 pub use scan::TableScan;
 
 use arrow::datatypes::SchemaRef;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmptyRelation {
     schema: SchemaRef,
 }
@@ -31,6 +33,8 @@ impl EmptyRelation {
 
 #[derive(Debug, Clone)]
 pub enum LogicalPlan {
+    /// Apply Cross Join to two logical plans.
+    CrossJoin(CrossJoin),
     Projection(Projection),
     Filter(Filter),
     Aggregate(Aggregate),
@@ -46,6 +50,7 @@ impl LogicalPlan {
             LogicalPlan::Aggregate(a) => a.schema(),
             LogicalPlan::TableScan(t) => t.schema(),
             LogicalPlan::EmptyRelation(e) => e.schema(),
+            LogicalPlan::CrossJoin(s) => s.schema(),
         }
     }
 
@@ -56,6 +61,7 @@ impl LogicalPlan {
             LogicalPlan::Aggregate(a) => a.children(),
             LogicalPlan::TableScan(t) => t.children(),
             LogicalPlan::EmptyRelation(e) => e.children(),
+            LogicalPlan::CrossJoin(s) => s.children(),
         }
     }
 }
@@ -68,6 +74,7 @@ impl std::fmt::Display for LogicalPlan {
             LogicalPlan::Aggregate(a) => write!(f, "{}", a),
             LogicalPlan::TableScan(t) => write!(f, "{}", t),
             LogicalPlan::EmptyRelation(_) => write!(f, "Empty Relation"),
+            LogicalPlan::CrossJoin(s) => write!(f, "{}", s),
         }
     }
 }

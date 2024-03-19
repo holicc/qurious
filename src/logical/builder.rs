@@ -2,11 +2,11 @@ use arrow::datatypes::Schema;
 use std::sync::Arc;
 
 use super::{
-    expr::{alias::Alias, LogicalExpr},
-    plan::{EmptyRelation, LogicalPlan, Projection, TableScan},
+    expr::LogicalExpr,
+    plan::{CrossJoin, EmptyRelation, LogicalPlan, Projection, TableScan},
 };
+use crate::error::Result;
 use crate::{common::OwnedTableRelation, datasource::DataSource};
-use crate::{common::TableRelation, error::Result};
 
 pub struct LogicalPlanBuilder {
     plan: LogicalPlan,
@@ -44,5 +44,27 @@ impl LogicalPlanBuilder {
     ) -> Result<Self> {
         TableScan::try_new(relation.into(), table_source, None, filter)
             .map(|s| LogicalPlanBuilder::from(LogicalPlan::TableScan(s)))
+    }
+
+    pub fn cross_join(self, right: LogicalPlan) -> Result<Self> {
+        let left_fields = self.plan.schema().fields.clone();
+        let right_fields = right.schema().fields.clone();
+
+        // left then right
+        let schema = Schema::new(
+            left_fields
+                .iter()
+                .chain(right_fields.iter())
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+
+        Ok(LogicalPlanBuilder {
+            plan: LogicalPlan::CrossJoin(CrossJoin::new(
+                Arc::new(self.plan),
+                Arc::new(right),
+                Arc::new(schema),
+            )),
+        })
     }
 }

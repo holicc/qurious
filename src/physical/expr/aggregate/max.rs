@@ -10,9 +10,7 @@ pub struct MaxAggregateExpr {
     expr: Arc<dyn PhysicalExpr>,
 }
 
-impl MaxAggregateExpr{
-    
-}
+impl MaxAggregateExpr {}
 
 impl MaxAggregateExpr {
     pub fn new(expr: Arc<dyn PhysicalExpr>) -> Self {

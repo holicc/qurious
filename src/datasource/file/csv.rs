@@ -2,15 +2,12 @@ use std::fs::File;
 use std::io::Seek;
 use std::sync::Arc;
 
-use arrow::array::RecordBatch;
 use arrow::csv::reader::Format;
-use arrow::csv::{Reader, ReaderBuilder};
-use arrow::datatypes::SchemaRef;
+use arrow::csv::ReaderBuilder;
 
 use crate::datasource::memory::MemoryDataSource;
 use crate::datasource::DataSource;
 use crate::error::{Error, Result};
-use crate::logical::expr::LogicalExpr;
 
 use super::DataFilePath;
 

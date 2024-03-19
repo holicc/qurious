@@ -88,7 +88,7 @@ impl ProjectionPushDownRule {
                 None,
             )
             .map(LogicalPlan::TableScan),
-            LogicalPlan::EmptyRelation(_) => todo!(),
+            _ => todo!(),
         }
     }
 }

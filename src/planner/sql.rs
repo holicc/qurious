@@ -1,6 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
-
-use arrow::datatypes::{Schema, SchemaRef};
+use arrow::datatypes::SchemaRef;
 use sqlparser::{
     ast::{Assignment, BinaryOperator, Expression, From, Literal, SelectItem, Statement},
     parser::Parser,
@@ -41,23 +39,21 @@ impl<'a> SqlQueryPlanner<'a> {
 
         match stmts {
             Statement::Select {
-                distinct,
+                distinct: _,
                 columns,
                 from,
                 r#where,
-                group_by,
-                having,
-                order_by,
-                limit,
-                offset,
+                group_by: _,
+                having: _,
+                order_by: _,
+                limit: _,
+                offset: _,
             } => {
                 // process `from` clause
-                let mut empty_from = false;
-                let plan = if let Some(f) = from {
-                    self.table_scan_to_plan(f, &mut context)?
-                } else {
-                    empty_from = true;
-                    LogicalPlanBuilder::empty().build()
+                let plan = self.table_scan_to_plan(from, &mut context)?;
+                let empty_from = match plan {
+                    LogicalPlan::EmptyRelation(_) => true,
+                    _ => false,
                 };
                 // process the WHERE clause
                 let plan = self.filter_expr(plan, r#where, &mut context)?;
@@ -78,40 +74,63 @@ impl<'a> SqlQueryPlanner<'a> {
         todo!()
     }
 
-    fn table_scan_to_plan(&mut self, from: From, ctx: &mut PlannerContext) -> Result<LogicalPlan> {
-        let (plan, alias) = match from {
-            From::Table { name, alias } => {
-                let relation: TableRelation = if let Some(alias) = &alias {
-                    alias.clone().into()
-                } else {
-                    name.clone().into()
+    fn table_scan_to_plan(
+        &mut self,
+        mut froms: Vec<From>,
+        ctx: &mut PlannerContext,
+    ) -> Result<LogicalPlan> {
+        match froms.len() {
+            0 => Ok(LogicalPlanBuilder::empty().build()),
+            1 => {
+                let (plan, alias) = match froms.remove(0) {
+                    From::Table { name, alias } => {
+                        let relation: TableRelation = if let Some(alias) = &alias {
+                            alias.clone().into()
+                        } else {
+                            name.clone().into()
+                        };
+                        let scan = self
+                            .table_registry
+                            .get_table_source(&name)
+                            .and_then(|table_source| {
+                                LogicalPlanBuilder::scan(relation.clone(), table_source, None)
+                            })?
+                            .build();
+
+                        ctx.relations.push(TableSchemaInfo {
+                            relation,
+                            schema: scan.schema(),
+                            alias: alias.clone(),
+                        });
+
+                        (scan, alias)
+                    }
+                    From::TableFunction { name, args, alias } => {
+                        (self.table_func_to_plan(ctx, name, args)?, alias)
+                    }
+                    _ => todo!(),
                 };
-                let scan = self
-                    .table_registry
-                    .get_table_source(&name)
-                    .and_then(|table_source| {
-                        LogicalPlanBuilder::scan(relation.clone(), table_source, None)
-                    })?
-                    .build();
 
-                ctx.relations.push(TableSchemaInfo {
-                    relation,
-                    schema: scan.schema(),
-                    alias: alias.clone(),
-                });
-
-                (scan, alias)
+                if let Some(alias) = alias {
+                    self.apply_table_alias(plan, alias)
+                } else {
+                    Ok(plan)
+                }
             }
-            From::TableFunction { name, args, alias } => {
-                (self.table_func_to_plan(ctx, name, args)?, alias)
-            }
-            _ => todo!(),
-        };
+            _ => {
+                // handle cross join
+                let mut plans = froms
+                    .into_iter()
+                    .map(|f| self.table_scan_to_plan(vec![f], ctx));
 
-        if let Some(alias) = alias {
-            self.apply_table_alias(plan, alias)
-        } else {
-            Ok(plan)
+                let mut left = LogicalPlanBuilder::from(plans.next().unwrap()?);
+
+                for right in plans {
+                    left = left.cross_join(right?)?;
+                }
+
+                Ok(left.build())
+            }
         }
     }
 
@@ -227,14 +246,6 @@ impl<'a> SqlQueryPlanner<'a> {
     fn apply_table_alias(&self, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
         match plan {
             LogicalPlan::TableScan(mut table) => {
-                // let fields = plan.schema().fields().clone();
-                // let exprs = fields.into_iter().map(|field| {
-                //     LogicalExpr::Alias(Alias::new(
-                //         alias.clone(),
-                //         LogicalExpr::Column(Column::new(field.name(), None::<OwnedTableRelation>)),
-                //     ))
-                // });
-
                 // rewrite table with alias
                 table.relation = alias.into();
 
@@ -348,7 +359,7 @@ impl<'a> SqlQueryPlanner<'a> {
             }
             SelectItem::QualifiedWildcard(idents) => {
                 // expand schema
-                let quanlified_prefix = idents.join(",").into();
+                let quanlified_prefix = idents.join(".").into();
                 for info in &ctx.relations {
                     if info.relation == quanlified_prefix {
                         return // expand schema
@@ -496,6 +507,14 @@ mod tests {
         quick_test(
             "SELECT * FROM person as t WHERE t.id = 2",
             "Projection: (t.id,t.name)\n  Filter: t.id = Int64(2)\n    TableScan: t\n",
+        );
+    }
+
+    #[test]
+    fn test_join() {
+        quick_test(
+            "SELECT p.id FROM person as p,address as a,test",
+            "Projection: (p.id)\n  CrossJoin: CrossJoin: TableScan: p TableScan: a\n TableScan: test\n\n",
         );
     }
 

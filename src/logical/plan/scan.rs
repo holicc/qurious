@@ -1,6 +1,6 @@
 use std::{fmt::Display, sync::Arc};
 
-use arrow::datatypes::{Field, FieldRef, Fields, Schema, SchemaRef};
+use arrow::datatypes::{Field, Fields, Schema, SchemaRef};
 
 use crate::error::{Error, Result};
 use crate::{common::OwnedTableRelation, datasource::DataSource, logical::expr::LogicalExpr};

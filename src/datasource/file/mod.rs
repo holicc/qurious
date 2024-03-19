@@ -1,20 +1,11 @@
 pub mod csv;
 
-use std::{
-    fs::{self, File},
-    vec,
-};
+use std::fs::{self, File};
 
-use arrow::{
-    csv::{reader::BufReader, Reader},
-    datatypes::SchemaRef,
-};
+use arrow::{csv::reader::BufReader, datatypes::SchemaRef};
 use url::Url;
 
-use crate::{
-    error::{Error, Result},
-    logical::expr::LogicalExpr,
-};
+use crate::error::{Error, Result};
 
 use super::DataSource;
 

@@ -89,7 +89,7 @@ impl ScalarValue {
         }
     }
 
-    pub fn to_value_string(&self)->String{
+    pub fn to_value_string(&self) -> String {
         match self {
             ScalarValue::Null => "null".to_string(),
             ScalarValue::Boolean(Some(v)) => v.to_string(),
@@ -117,7 +117,6 @@ impl ScalarValue {
             ScalarValue::Utf8(Some(v)) => v.to_string(),
             ScalarValue::Utf8(None) => "null".to_string(),
         }
-    
     }
 }
 

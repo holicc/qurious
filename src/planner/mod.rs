@@ -1,11 +1,11 @@
 pub mod sql;
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
-use arrow::datatypes::{Field, SchemaRef};
+use arrow::datatypes::SchemaRef;
 
 use crate::{
-    common::{OwnedTableRelation, TableRelation},
+    common::TableRelation,
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
     logical::{
@@ -136,6 +136,7 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalPlan::Aggregate(a) => self.physical_plan_aggregate(a),
             LogicalPlan::TableScan(t) => self.physical_plan_table_scan(t),
             LogicalPlan::EmptyRelation(_) => todo!(),
+            LogicalPlan::CrossJoin(_) => todo!(),
         }
     }
 
