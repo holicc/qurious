@@ -23,16 +23,12 @@ impl CrossJoin {
     }
 
     pub fn children(&self) -> Option<Vec<&LogicalPlan>> {
-        self.left.children().map(|left| {
-            let mut children = left.clone();
-            children.extend(self.right.children().unwrap());
-            children
-        })
+        Some(vec![&self.left, &self.right])
     }
 }
 
 impl Display for CrossJoin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CrossJoin: {} {}\n", self.left, self.right)
+        write!(f, "CrossJoin")
     }
 }

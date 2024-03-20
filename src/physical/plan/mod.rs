@@ -1,5 +1,6 @@
 mod aggregate;
 mod filter;
+mod join;
 mod projection;
 mod scan;
 

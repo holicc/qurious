@@ -10,7 +10,7 @@ use crate::logical::expr::LogicalExpr;
 
 use super::DataSource;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MemoryDataSource {
     schema: SchemaRef,
     data: Vec<RecordBatch>,

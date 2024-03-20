@@ -514,7 +514,30 @@ mod tests {
     fn test_join() {
         quick_test(
             "SELECT p.id FROM person as p,address as a,test",
-            "Projection: (p.id)\n  CrossJoin: CrossJoin: TableScan: p TableScan: a\n TableScan: test\n\n",
+            "Projection: (p.id)\n  CrossJoin\n    CrossJoin\n      TableScan: p\n      TableScan: a\n    TableScan: test\n",
+        );
+
+        quick_test(
+            "SELECT p.id,a.id FROM person as p,address as a,test",
+            "Projection: (p.id,a.id)\n  CrossJoin\n    CrossJoin\n      TableScan: p\n      TableScan: a\n    TableScan: test\n",
+        );
+
+        quick_test("SELECT * FROM person,address", 
+        "Projection: (person.id,person.name,address.id,address.name)\n  CrossJoin\n    TableScan: person\n    TableScan: address\n");
+
+        quick_test(
+            "SELECT id FROM person,address",
+            "Internal Error: Column \"id\" is ambiguous",
+        );
+
+        quick_test(
+            "SELECT * FROM person,address WHERE id = 1",
+            "Internal Error: Column \"id\" is ambiguous",
+        );
+
+        quick_test(
+            "SELECT * FROM person as p,address WHERE p.id = 1",
+            "Projection: (p.id,p.name,address.id,address.name)\n  Filter: p.id = Int64(1)\n    CrossJoin\n      TableScan: p\n      TableScan: address\n",
         );
     }
 
