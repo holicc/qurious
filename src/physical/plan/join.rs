@@ -1,6 +1,10 @@
 use super::PhysicalPlan;
 use crate::error::{Error, Result};
-use arrow::{array::RecordBatch, compute::concat_batches, datatypes::SchemaRef};
+use arrow::{
+    array::{RecordBatch, RecordBatchOptions},
+    compute::concat_batches,
+    datatypes::{Schema, SchemaRef},
+};
 use std::sync::Arc;
 
 pub struct CrossJoin {
@@ -10,15 +14,19 @@ pub struct CrossJoin {
 }
 
 impl CrossJoin {
-    pub fn new(
-        left: Arc<dyn PhysicalPlan>,
-        right: Arc<dyn PhysicalPlan>,
-        schema: SchemaRef,
-    ) -> Self {
+    pub fn new(left: Arc<dyn PhysicalPlan>, right: Arc<dyn PhysicalPlan>) -> Self {
+        let schema = Schema::new(
+            left.schema()
+                .fields()
+                .iter()
+                .chain(right.schema().fields().iter())
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
         Self {
             left,
             right,
-            schema,
+            schema: Arc::new(schema),
         }
     }
 }
@@ -32,14 +40,23 @@ impl PhysicalPlan for CrossJoin {
     /// A cross join is a cartesian product of the left and right input plans
     /// It is implemented by creating a new RecordBatch for each combination of left and right
     fn execute(&self) -> Result<Vec<RecordBatch>> {
-        let lr = self.left.execute()?;
-        let rr = self.right.execute()?;
-
-        let results = lr.iter().chain(rr.iter());
-
-        concat_batches(&self.schema, results)
-            .map(|v| vec![v])
-            .map_err(|e| Error::ArrowError(e))
+        self.left
+            .execute()?
+            .into_iter()
+            .zip(self.right.execute()?.into_iter())
+            .map(|(l, r)| {
+                RecordBatch::try_new_with_options(
+                    self.schema(),
+                    l.columns()
+                        .into_iter()
+                        .chain(r.columns().into_iter())
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    &RecordBatchOptions::new().with_row_count(Some(l.num_rows())),
+                )
+                .map_err(|e| Error::ArrowError(e))
+            })
+            .collect()
     }
 
     fn children(&self) -> Option<Vec<Arc<dyn PhysicalPlan>>> {
@@ -49,41 +66,28 @@ impl PhysicalPlan for CrossJoin {
 
 #[cfg(test)]
 mod tests {
-    use crate::{datasource, physical::plan::Scan};
+    use crate::physical::plan::tests::build_table_scan_i32;
 
     use super::*;
-    use arrow::{
-        array::Int32Array,
-        datatypes::{DataType, Field, Schema},
-    };
-    use std::{sync::Arc, vec};
+    use arrow::util;
 
     #[test]
     fn test_cross_join() {
-        let sa = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
-        let da = RecordBatch::try_new(sa.clone(), vec![Arc::new(Int32Array::from(vec![1, 2, 3]))])
-            .unwrap();
-        let daa = datasource::memory::MemoryDataSource::new(sa.clone(), vec![da]);
+        let left = build_table_scan_i32(vec![
+            ("a1", vec![1, 2, 3]),
+            ("b1", vec![4, 5, 6]),
+            ("c1", vec![7, 8, 9]),
+        ]);
 
-        let ba = Arc::new(Schema::new(vec![Field::new("b", DataType::Int32, false)]));
-        let bba = RecordBatch::try_new(sa.clone(), vec![Arc::new(Int32Array::from(vec![1, 2, 3]))])
-            .unwrap();
-        let baa = datasource::memory::MemoryDataSource::new(sa.clone(), vec![bba]);
+        let right = build_table_scan_i32(vec![
+            ("a2", vec![10, 11, 0]),
+            ("b2", vec![12, 13, 0]),
+            ("c2", vec![14, 15, 0]),
+        ]);
 
-        let left = Arc::new(Scan::new(sa.clone(), Arc::new(daa), None));
-        let right = Arc::new(Scan::new(ba.clone(), Arc::new(baa), None));
-
-        let join = CrossJoin::new(
-            left,
-            right,
-            Arc::new(Schema::new(vec![
-                Field::new("a", DataType::Int32, false),
-                Field::new("b", DataType::Int32, false),
-            ])),
-        );
-
+        let join = CrossJoin::new(left, right);
         let result = join.execute().unwrap();
 
-        println!("{:?}",result)
+        println!("{}", util::pretty::pretty_format_batches(&result).unwrap());
     }
 }
