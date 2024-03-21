@@ -1,9 +1,9 @@
 use super::PhysicalPlan;
 use crate::error::{Error, Result};
 use arrow::{
-    array::{RecordBatch, RecordBatchOptions},
+    array::{Int32Array, Int32BufferBuilder, NullArray, RecordBatch, RecordBatchOptions},
     compute::concat_batches,
-    datatypes::{Schema, SchemaRef},
+    datatypes::{DataType, Schema, SchemaRef},
 };
 use std::sync::Arc;
 
@@ -44,7 +44,14 @@ impl PhysicalPlan for CrossJoin {
             .execute()?
             .into_iter()
             .zip(self.right.execute()?.into_iter())
-            .map(|(l, r)| {
+            .map(|(mut l, mut r)| {
+                if l.num_rows() < r.num_rows() {
+                    l = append_null_to_record_batch(&l, r.num_rows() - l.num_rows())?;
+                }
+                if l.num_rows() > r.num_rows() {
+                    r = append_null_to_record_batch(&r, l.num_rows() - r.num_rows())?;
+                }
+
                 RecordBatch::try_new_with_options(
                     self.schema(),
                     l.columns()
@@ -64,6 +71,26 @@ impl PhysicalPlan for CrossJoin {
     }
 }
 
+fn append_null_to_record_batch(r: &RecordBatch, size: usize) -> Result<RecordBatch> {
+    let schema = r.schema();
+    let null_batch = RecordBatch::try_new(
+        schema.clone(),
+        schema
+            .fields()
+            .iter()
+            .map(|f| match f.data_type() {
+                DataType::Int32 => {
+                    Arc::new(Int32Array::new_null(size)) as Arc<dyn arrow::array::Array>
+                }
+                _ => todo!(),
+            })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    concat_batches(&schema, [r, &null_batch]).map_err(|e| Error::ArrowError(e))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::physical::plan::tests::build_table_scan_i32;
@@ -79,11 +106,8 @@ mod tests {
             ("c1", vec![7, 8, 9]),
         ]);
 
-        let right = build_table_scan_i32(vec![
-            ("a2", vec![10, 11, 0]),
-            ("b2", vec![12, 13, 0]),
-            ("c2", vec![14, 15, 0]),
-        ]);
+        let right =
+            build_table_scan_i32(vec![("a2", vec![10, 11, 2, 2]), ("b2", vec![12, 13, 2, 2])]);
 
         let join = CrossJoin::new(left, right);
         let result = join.execute().unwrap();
