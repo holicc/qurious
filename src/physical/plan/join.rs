@@ -93,10 +93,15 @@ fn append_null_to_record_batch(r: &RecordBatch, size: usize) -> Result<RecordBat
 
 #[cfg(test)]
 mod tests {
-    use crate::physical::plan::tests::build_table_scan_i32;
+    use std::vec;
+
+    use crate::physical::plan::tests::{build_record_i32, build_table_scan_i32};
 
     use super::*;
-    use arrow::util;
+    use arrow::{
+        datatypes::{Field, Fields},
+        util,
+    };
 
     #[test]
     fn test_cross_join() {
@@ -111,7 +116,33 @@ mod tests {
 
         let join = CrossJoin::new(left, right);
         let result = join.execute().unwrap();
+        let schema = Arc::new(Schema::new(Fields::from(vec![
+            Field::new("a1", DataType::Int32, true),
+            Field::new("b1", DataType::Int32, true),
+            Field::new("c1", DataType::Int32, true),
+            Field::new("a2", DataType::Int32, true),
+            Field::new("b2", DataType::Int32, true),
+        ])));
+        assert_eq!(result.len(), 1);
 
-        println!("{}", util::pretty::pretty_format_batches(&result).unwrap());
+        let str = util::pretty::pretty_format_batches(&result)
+            .unwrap()
+            .to_string();
+
+        let actual = str.split('\n').collect::<Vec<&str>>();
+
+        assert_eq!(
+            actual,
+            vec![
+                "+----+----+----+----+----+",
+                "| a1 | b1 | c1 | a2 | b2 |",
+                "+----+----+----+----+----+",
+                "| 1  | 4  | 7  | 10 | 12 |",
+                "| 2  | 5  | 8  | 11 | 13 |",
+                "| 3  | 6  | 9  | 2  | 2  |",
+                "|    |    |    | 2  | 2  |",
+                "+----+----+----+----+----+",
+            ]
+        );
     }
 }

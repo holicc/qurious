@@ -27,7 +27,7 @@ mod tests {
     use crate::{datasource::memory::MemoryDataSource, error::Result};
     use arrow::{
         array::{Array, Int32Array, RecordBatch},
-        datatypes::{DataType, Field, Schema},
+        datatypes::{DataType, Field, Schema, SchemaRef},
     };
     use std::sync::Arc;
 
@@ -48,10 +48,18 @@ mod tests {
 
         let datasource = MemoryDataSource::new(Arc::new(schema.clone()), vec![record_batch]);
 
-        Arc::new(Scan::new(
-            Arc::new(schema),
-            Arc::new(datasource),
-            None,
-        ))
+        Arc::new(Scan::new(Arc::new(schema), Arc::new(datasource), None))
+    }
+
+    pub fn build_record_i32(schema: SchemaRef, ary: Vec<Vec<i32>>) -> Vec<RecordBatch> {
+        ary.into_iter()
+            .map(|v| {
+                let columns = v
+                    .into_iter()
+                    .map(|v| Arc::new(Int32Array::from(vec![v])) as Arc<dyn Array>)
+                    .collect::<Vec<_>>();
+                RecordBatch::try_new(schema.clone(), columns).unwrap()
+            })
+            .collect()
     }
 }
