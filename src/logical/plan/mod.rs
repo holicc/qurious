@@ -3,12 +3,15 @@ mod filter;
 mod join;
 mod projection;
 mod scan;
+mod sub_query;
 
 pub use aggregate::Aggregate;
 pub use filter::Filter;
 pub use join::*;
 pub use projection::Projection;
 pub use scan::TableScan;
+use sqlparser::ast::Column;
+pub use sub_query::SubqueryAlias;
 
 use arrow::datatypes::SchemaRef;
 
@@ -40,6 +43,8 @@ pub enum LogicalPlan {
     Aggregate(Aggregate),
     TableScan(TableScan),
     EmptyRelation(EmptyRelation),
+    /// Aliased relation provides, or changes, the name of a relation.
+    SubqueryAlias(SubqueryAlias),
 }
 
 impl LogicalPlan {
@@ -51,6 +56,7 @@ impl LogicalPlan {
             LogicalPlan::TableScan(t) => t.schema(),
             LogicalPlan::EmptyRelation(e) => e.schema(),
             LogicalPlan::CrossJoin(s) => s.schema(),
+            LogicalPlan::SubqueryAlias(s) => s.schema(),
         }
     }
 
@@ -62,6 +68,7 @@ impl LogicalPlan {
             LogicalPlan::TableScan(t) => t.children(),
             LogicalPlan::EmptyRelation(e) => e.children(),
             LogicalPlan::CrossJoin(s) => s.children(),
+            LogicalPlan::SubqueryAlias(s) => s.children(),
         }
     }
 }
@@ -75,6 +82,7 @@ impl std::fmt::Display for LogicalPlan {
             LogicalPlan::TableScan(t) => write!(f, "{}", t),
             LogicalPlan::EmptyRelation(_) => write!(f, "Empty Relation"),
             LogicalPlan::CrossJoin(s) => write!(f, "{}", s),
+            LogicalPlan::SubqueryAlias(s) => write!(f, "{}", s),
         }
     }
 }

@@ -60,8 +60,8 @@ mod tests {
 
         let data = vec![RecordBatch::try_new(
             Arc::new(Schema::new(Fields::from_iter(vec![
-                Field::new("t.id", arrow::datatypes::DataType::Int32, false),
-                Field::new("t.name", arrow::datatypes::DataType::Utf8, false),
+                Field::new("id", arrow::datatypes::DataType::Int32, false),
+                Field::new("name", arrow::datatypes::DataType::Utf8, false),
             ]))),
             vec![
                 Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5])),

@@ -10,7 +10,7 @@ use crate::logical::plan::LogicalPlan;
 
 use super::LogicalExpr;
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct Column {
     pub name: String,
     pub relation: Option<OwnedTableRelation>,
@@ -26,7 +26,7 @@ impl Column {
 
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
         plan.schema()
-            .field_with_name(&self.quanlified_name())
+            .field_with_name(&self.name)
             .map(|f| Arc::new(f.clone()))
             .map_err(|e| Error::ArrowError(e))
     }

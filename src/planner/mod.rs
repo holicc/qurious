@@ -1,6 +1,6 @@
 pub mod sql;
 
-use std::{fmt::Debug, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use arrow::datatypes::SchemaRef;
 
@@ -102,7 +102,7 @@ impl DefaultQueryPlanner {
         column: &Column,
     ) -> Result<Arc<dyn PhysicalExpr>> {
         schema
-            .index_of(&column.quanlified_name())
+            .index_of(&column.name)
             .map_err(|e| Error::ArrowError(e))
             .map(|index| {
                 Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>
@@ -137,6 +137,7 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalPlan::TableScan(t) => self.physical_plan_table_scan(t),
             LogicalPlan::EmptyRelation(_) => todo!(),
             LogicalPlan::CrossJoin(_) => todo!(),
+            LogicalPlan::SubqueryAlias(_) => todo!(),
         }
     }
 
@@ -154,9 +155,8 @@ impl QueryPlanner for DefaultQueryPlanner {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct TableSchemaInfo<'a> {
-    pub(crate) relation: TableRelation<'a>,
+#[derive(Debug, Clone)]
+pub(crate) struct TableSchemaInfo {
     pub(crate) schema: SchemaRef,
     pub(crate) alias: Option<String>,
 }
@@ -164,7 +164,7 @@ pub(crate) struct TableSchemaInfo<'a> {
 /// Normalize the columns in the expression using the provided schemas and check for ambiguity
 pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
     expr: LogicalExpr,
-    schemas: &Vec<TableSchemaInfo>,
+    schemas: &HashMap<TableRelation<'_>, TableSchemaInfo>,
 ) -> Result<LogicalExpr> {
     match expr {
         LogicalExpr::Column(mut col) => {
@@ -173,25 +173,22 @@ pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
             }
 
             // nomalize the column name
-            let mut idents: Vec<String> = col.name.split('.').map(|a| a.to_string()).collect();
+            let idents: Vec<String> = col.name.split('.').map(|a| a.to_string()).collect();
             // is compound table name
             match idents.len() {
                 1 => {
                     // find the first schema that has the column
                     // should match without relation
                     let mut matched = vec![];
-                    for info in schemas {
-                        if let Some(_) = info
-                            .schema
-                            .all_fields()
-                            .iter()
-                            .find(|field| field.name().ends_with(&format!(".{}", col.name)))
-                        {
-                            matched.push(info.relation.clone().to_owned());
+
+                    for (relation, table_info) in schemas {
+                        if table_info.schema.field_with_name(&col.name).is_ok() {
+                            matched.push(relation);
                         }
                     }
+
                     if matched.len() == 1 {
-                        col.relation = Some(matched.pop().unwrap());
+                        col.relation = Some(matched.pop().unwrap().clone().to_owned());
                         return Ok(LogicalExpr::Column(col));
                     } else if matched.len() > 1 {
                         return Err(Error::InternalError(format!(
@@ -201,11 +198,13 @@ pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
                     }
                 }
                 2 => {
-                    for info in schemas {
-                        if info.schema.field_with_name(&col.name).is_ok() {
-                            col.relation = Some(info.relation.clone().to_owned());
+                    let relation = idents[0].as_str().into();
+                    let col_name = idents[1].clone();
+                    if let Some(table_info) = schemas.get(&relation) {
+                        if table_info.schema.field_with_name(&col_name).is_ok() {
+                            col.relation = Some(relation.to_owned());
                             // nomarlize the column name
-                            col.name = idents.pop().unwrap();
+                            col.name = col_name;
                             return Ok(LogicalExpr::Column(col));
                         }
                     }

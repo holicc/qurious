@@ -1,6 +1,6 @@
 use std::{fmt::Display, sync::Arc};
 
-use arrow::datatypes::{Field, Fields, Schema, SchemaRef};
+use arrow::datatypes::{Schema, SchemaRef};
 
 use crate::error::{Error, Result};
 use crate::{common::OwnedTableRelation, datasource::DataSource, logical::expr::LogicalExpr};
@@ -24,11 +24,11 @@ impl TableScan {
         filter: Option<LogicalExpr>,
     ) -> Result<Self> {
         let relation = relation.into();
+
         let projected_schema = projections
             .as_ref()
             .map(|pj| {
-                let fields = pj
-                    .iter()
+                pj.iter()
                     .map(|name| {
                         source
                             .schema()
@@ -36,25 +36,15 @@ impl TableScan {
                             .map_err(|err| Error::ArrowError(err))
                             .cloned()
                     })
-                    .collect::<Result<Vec<_>>>()?;
-                Ok(Arc::new(Schema::new(Fields::from(fields))))
+                    .collect::<Result<Vec<_>>>()
             })
-            .unwrap_or_else(|| {
-                let quanlified_fields = source
-                    .schema()
-                    .fields()
-                    .iter()
-                    .map(|f| {
-                        Field::new(
-                            format!("{}.{}", relation.to_quanlify_name(), f.name()),
-                            f.data_type().clone(),
-                            f.is_nullable(),
-                        )
-                    })
-                    .collect::<Vec<Field>>();
-
-                Ok(Arc::new(Schema::new(Fields::from(quanlified_fields))))
-            })?;
+            .unwrap_or(Ok(source
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| f.as_ref().clone())
+                .collect()))
+            .map(|fields| Arc::new(Schema::new(fields)))?;
 
         Ok(Self {
             relation,
@@ -71,6 +61,14 @@ impl TableScan {
 
     pub fn children(&self) -> Option<Vec<&LogicalPlan>> {
         None
+    }
+
+    pub fn set_metadata(&mut self, k: &str, v: &str) {
+        let schema = self.projected_schema.as_ref().clone();
+        let mut metadata = schema.metadata;
+        metadata.insert(k.to_owned(), v.to_owned());
+
+        self.projected_schema = Arc::new(Schema::new_with_metadata(schema.fields, metadata));
     }
 }
 
