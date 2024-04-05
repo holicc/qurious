@@ -74,7 +74,7 @@ mod tests {
 
         session.register_table("t", Arc::new(datasource))?;
 
-        let batch = session.sql("SELECT * FROM t")?;
+        let batch = session.sql("SELECT a.* FROM t as a")?;
 
         assert_eq!(data, batch);
 
