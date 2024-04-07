@@ -652,6 +652,46 @@ mod tests {
             "SELECT * FROM person as p,a WHERE p.id = 1",
             "Projection: (a.id,p.id,a.name,p.name)\n  Filter: p.id = Int64(1)\n    CrossJoin\n      TableScan: p\n      TableScan: a\n",
         );
+        // TODO left join
+        quick_test(
+            "SELECT person.id, person.first_name \
+        FROM person LEFT JOIN orders \
+        ON person.age > 10",
+            "Projection: person.id, person.first_name\
+        \n  Left Join:  Filter: person.age > Int64(10)\
+        \n    TableScan: person\
+        \n    TableScan: orders",
+        );
+        // TODO right join
+        quick_test(
+            "SELECT person.id, person.first_name \
+        FROM person RIGHT JOIN orders \
+        ON person.age > 10",
+            "Projection: person.id, person.first_name\
+        \n  Right Join:  Filter: person.age > Int64(10)\
+        \n    TableScan: person\
+        \n    TableScan: orders",
+        );
+        // TODO inner join
+        quick_test(
+            "SELECT person.id, person.first_name \
+        FROM person INNER JOIN orders \
+        ON person.age > 10",
+            "Projection: person.id, person.first_name\
+        \n  Inner Join:  Filter: person.age > Int64(10)\
+        \n    TableScan: person\
+        \n    TableScan: orders",
+        );
+        // TODO full join
+        quick_test(
+            "SELECT person.id, person.first_name \
+        FROM person FULL JOIN orders \
+        ON person.age > 10",
+            "Projection: person.id, person.first_name\
+        \n  Full Join:  Filter: person.age > Int64(10)\
+        \n    TableScan: person\
+        \n    TableScan: orders",
+        );
     }
 
     #[test]
