@@ -504,20 +504,54 @@ mod tests {
         datasource::{memory::MemoryDataSource, DataSource},
         error::{Error, Result},
         execution::registry::TableRegistry,
+        test_utils::build_mem_datasource,
         utils,
     };
 
     use super::SqlQueryPlanner;
 
     struct TestTableRegistry {
-        _tables: HashMap<String, Box<dyn DataSource>>,
+        tables: HashMap<String, Arc<dyn DataSource>>,
     }
 
     impl TestTableRegistry {
         fn new() -> Self {
-            TestTableRegistry {
-                _tables: HashMap::new(),
-            }
+            let mut tables = HashMap::new();
+
+            tables.insert(
+                "person".to_owned(),
+                build_mem_datasource(
+                    vec![
+                        Field::new("id", DataType::Int32, false),
+                        Field::new("name", DataType::Utf8, false),
+                    ],
+                    vec![],
+                ),
+            );
+
+            tables.insert(
+                "a".to_owned(),
+                build_mem_datasource(
+                    vec![
+                        Field::new("id", DataType::Int32, false),
+                        Field::new("name", DataType::Utf8, false),
+                    ],
+                    vec![],
+                ),
+            );
+
+            tables.insert(
+                "b".to_owned(),
+                build_mem_datasource(
+                    vec![
+                        Field::new("id", DataType::Int32, false),
+                        Field::new("name", DataType::Utf8, false),
+                    ],
+                    vec![],
+                ),
+            );
+
+            TestTableRegistry { tables }
         }
     }
 
@@ -527,18 +561,10 @@ mod tests {
         }
 
         fn get_table_source(&self, name: &str) -> Result<Arc<dyn DataSource>> {
-            if name != "person" && name != "a" && name != "b" {
-                return Err(Error::TableNotFound(format!("{}", name)));
-            }
-            let mut schema = SchemaBuilder::default();
-
-            schema.push(Field::new("id", DataType::Int32, false));
-            schema.push(Field::new("name", DataType::Utf8, false));
-
-            Ok(Arc::new(MemoryDataSource::new(
-                Arc::new(schema.finish()),
-                vec![],
-            )))
+            self.tables
+                .get(name)
+                .cloned()
+                .ok_or(Error::TableNotFound(name.to_owned()))
         }
     }
 
