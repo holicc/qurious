@@ -10,7 +10,6 @@ pub use filter::Filter;
 pub use join::*;
 pub use projection::Projection;
 pub use scan::TableScan;
-use sqlparser::ast::Column;
 pub use sub_query::SubqueryAlias;
 
 use arrow::datatypes::SchemaRef;
@@ -38,6 +37,7 @@ impl EmptyRelation {
 pub enum LogicalPlan {
     /// Apply Cross Join to two logical plans.
     CrossJoin(CrossJoin),
+    Join(Join),
     Projection(Projection),
     Filter(Filter),
     Aggregate(Aggregate),
@@ -57,6 +57,7 @@ impl LogicalPlan {
             LogicalPlan::EmptyRelation(e) => e.schema(),
             LogicalPlan::CrossJoin(s) => s.schema(),
             LogicalPlan::SubqueryAlias(s) => s.schema(),
+            LogicalPlan::Join(j) => j.schema(),
         }
     }
 
@@ -69,6 +70,7 @@ impl LogicalPlan {
             LogicalPlan::EmptyRelation(e) => e.children(),
             LogicalPlan::CrossJoin(s) => s.children(),
             LogicalPlan::SubqueryAlias(s) => s.children(),
+            LogicalPlan::Join(j) => j.children(),
         }
     }
 }
@@ -83,6 +85,7 @@ impl std::fmt::Display for LogicalPlan {
             LogicalPlan::EmptyRelation(_) => write!(f, "Empty Relation"),
             LogicalPlan::CrossJoin(s) => write!(f, "{}", s),
             LogicalPlan::SubqueryAlias(s) => write!(f, "{}", s),
+            LogicalPlan::Join(j) => write!(f, "{}", j),
         }
     }
 }

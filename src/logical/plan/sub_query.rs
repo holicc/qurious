@@ -1,4 +1,4 @@
-use arrow::datatypes::{Schema, SchemaRef};
+use arrow::datatypes::SchemaRef;
 
 use super::LogicalPlan;
 use std::{

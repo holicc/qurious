@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+
 use sqlparser::{
     ast::{
         Assignment, BinaryOperator, Cte, Expression, From, Literal, Select, SelectItem, Statement,
@@ -11,7 +12,7 @@ use sqlparser::{
 };
 
 use crate::{
-    common::{OwnedTableRelation, TableRelation},
+    common::{JoinType, OwnedTableRelation, TableRelation},
     datasource::file::csv::{self, CsvReadOptions},
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
@@ -69,7 +70,7 @@ impl<'a> SqlQueryPlanner<'a> {
         }
 
         // process `from` clause
-        let plan = self.table_scan_to_plan(select.from, &mut context)?;
+        let plan = self.table_scan_to_plan(&mut context, select.from)?;
         let empty_from = match plan {
             LogicalPlan::EmptyRelation(_) => true,
             _ => false,
@@ -84,8 +85,8 @@ impl<'a> SqlQueryPlanner<'a> {
 
     fn table_scan_to_plan(
         &mut self,
-        mut froms: Vec<From>,
         ctx: &mut PlannerContext,
+        mut froms: Vec<From>,
     ) -> Result<LogicalPlan> {
         match froms.len() {
             0 => Ok(LogicalPlanBuilder::empty().build()),
@@ -125,6 +126,28 @@ impl<'a> SqlQueryPlanner<'a> {
                     From::TableFunction { name, args, alias } => {
                         (self.table_func_to_plan(ctx, name, args)?, alias)
                     }
+                    From::Join {
+                        left,
+                        right,
+                        on,
+                        join_type,
+                    } => {
+                        let left = self.table_scan_to_plan(ctx, vec![*left])?;
+                        let right = self.table_scan_to_plan(ctx, vec![*right])?;
+
+                        let filter_expr = on
+                            .ok_or(Error::InternalError(
+                                "Join clause requires an ON clause".to_owned(),
+                            ))
+                            .and_then(|expr| self.sql_to_expr(ctx, expr))?;
+
+                        (
+                            LogicalPlanBuilder::from(left)
+                                .join_on(right, JoinType::from(join_type), filter_expr)?
+                                .build(),
+                            None,
+                        )
+                    }
                     _ => todo!(),
                 };
 
@@ -138,7 +161,7 @@ impl<'a> SqlQueryPlanner<'a> {
                 // handle cross join
                 let mut plans = froms
                     .into_iter()
-                    .map(|f| self.table_scan_to_plan(vec![f], ctx));
+                    .map(|f| self.table_scan_to_plan(ctx, vec![f]));
 
                 let mut left = LogicalPlanBuilder::from(plans.next().unwrap()?);
 
@@ -344,7 +367,7 @@ impl<'a> SqlQueryPlanner<'a> {
         ctx: &PlannerContext,
     ) -> Result<LogicalPlan> {
         if let Some(filter) = expr {
-            let filter_expr = self.sql_to_expr(filter, ctx)?;
+            let filter_expr = self.sql_to_expr(ctx, filter)?;
 
             // we should parse filter first and then apply it to the table scan
             match &mut plan {
@@ -360,7 +383,7 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn sql_to_expr(&self, expr: Expression, ctx: &PlannerContext) -> Result<LogicalExpr> {
+    fn sql_to_expr(&self, ctx: &PlannerContext, expr: Expression) -> Result<LogicalExpr> {
         match expr {
             Expression::Identifier(ident) => normalize_col_with_schemas_and_ambiguity_check(
                 LogicalExpr::Column(Column::new(ident, None::<OwnedTableRelation>)),
@@ -380,7 +403,8 @@ impl<'a> SqlQueryPlanner<'a> {
 
     fn parse_binary_op(&self, op: BinaryOperator, ctx: &PlannerContext) -> Result<LogicalExpr> {
         Ok(match op {
-            BinaryOperator::Eq(l, r) => eq(self.sql_to_expr(*l, ctx)?, self.sql_to_expr(*r, ctx)?),
+            BinaryOperator::Eq(l, r) => eq(self.sql_to_expr(ctx, *l)?, self.sql_to_expr(ctx, *r)?),
+            BinaryOperator::Gt(l, r) => gt(self.sql_to_expr(ctx, *l)?, self.sql_to_expr(ctx, *r)?),
             _ => todo!(),
         })
     }
@@ -394,13 +418,13 @@ impl<'a> SqlQueryPlanner<'a> {
     ) -> Result<Vec<LogicalExpr>> {
         match item {
             SelectItem::UnNamedExpr(expr) => self
-                .sql_to_expr(expr, ctx)
+                .sql_to_expr(ctx, expr)
                 .and_then(|expr| {
                     normalize_col_with_schemas_and_ambiguity_check(expr, &ctx.relations)
                 })
                 .map(|v| vec![v]),
             SelectItem::ExprWithAlias(expr, alias) => self
-                .sql_to_expr(expr, ctx)
+                .sql_to_expr(ctx, expr)
                 .map(|col| vec![LogicalExpr::Alias(Alias::new(alias, col))]),
             SelectItem::Wildcard => {
                 if empty_relation {
@@ -498,10 +522,10 @@ mod tests {
 
     use std::{collections::HashMap, sync::Arc};
 
-    use arrow::datatypes::{DataType, Field, SchemaBuilder};
+    use arrow::datatypes::{DataType, Field};
 
     use crate::{
-        datasource::{memory::MemoryDataSource, DataSource},
+        datasource::DataSource,
         error::{Error, Result},
         execution::registry::TableRegistry,
         test_utils::build_mem_datasource,
@@ -524,6 +548,8 @@ mod tests {
                     vec![
                         Field::new("id", DataType::Int32, false),
                         Field::new("name", DataType::Utf8, false),
+                        Field::new("first_name", DataType::Utf8, false),
+                        Field::new("age", DataType::Int32, false),
                     ],
                     vec![],
                 ),
@@ -542,6 +568,17 @@ mod tests {
 
             tables.insert(
                 "b".to_owned(),
+                build_mem_datasource(
+                    vec![
+                        Field::new("id", DataType::Int32, false),
+                        Field::new("name", DataType::Utf8, false),
+                    ],
+                    vec![],
+                ),
+            );
+
+            tables.insert(
+                "orders".to_owned(),
                 build_mem_datasource(
                     vec![
                         Field::new("id", DataType::Int32, false),
@@ -599,8 +636,8 @@ mod tests {
         );
 
         quick_test(
-            "SELECT age FROM person",
-            "Internal Error: Column \"age\" not found in any table",
+            "SELECT address FROM person",
+            "Internal Error: Column \"address\" not found in any table",
         );
 
         quick_test(
@@ -610,12 +647,12 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person",
-            "Projection: (person.id,person.name)\n  TableScan: person\n",
+            "Projection: (person.age,person.first_name,person.id,person.name)\n  TableScan: person\n",
         );
 
         quick_test(
             "SELECT *,id FROM person",
-            "Projection: (person.id,person.name,person.id)\n  TableScan: person\n",
+            "Projection: (person.age,person.first_name,person.id,person.name,person.id)\n  TableScan: person\n",
         );
 
         quick_test(
@@ -625,7 +662,7 @@ mod tests {
 
         quick_test(
             "SELECT t.* FROM person as t",
-            "Projection: (t.id,t.name)\n  TableScan: t\n",
+            "Projection: (t.id,t.name,t.first_name,t.age)\n  TableScan: t\n",
         );
     }
 
@@ -638,12 +675,12 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person WHERE id = 2",
-            "Projection: (person.id,person.name)\n  Filter: person.id = Int64(2)\n    TableScan: person\n",
+            "Projection: (person.age,person.first_name,person.id,person.name)\n  Filter: person.id = Int64(2)\n    TableScan: person\n",
         );
 
         quick_test(
             "SELECT * FROM person as t WHERE t.id = 2",
-            "Projection: (t.id,t.name)\n  Filter: t.id = Int64(2)\n    TableScan: t\n",
+            "Projection: (t.age,t.first_name,t.id,t.name)\n  Filter: t.id = Int64(2)\n    TableScan: t\n",
         );
     }
 
@@ -661,7 +698,7 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person,b,a",
-            "Projection: (a.id,b.id,person.id,a.name,b.name,person.name)\n  CrossJoin\n    CrossJoin\n      TableScan: person\n      TableScan: b\n    TableScan: a\n",
+            "Projection: (person.age,person.first_name,a.id,b.id,person.id,a.name,b.name,person.name)\n  CrossJoin\n    CrossJoin\n      TableScan: person\n      TableScan: b\n    TableScan: a\n",
         );
 
         quick_test(
@@ -676,47 +713,35 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person as p,a WHERE p.id = 1",
-            "Projection: (a.id,p.id,a.name,p.name)\n  Filter: p.id = Int64(1)\n    CrossJoin\n      TableScan: p\n      TableScan: a\n",
+            "Projection: (p.age,p.first_name,a.id,p.id,a.name,p.name)\n  Filter: p.id = Int64(1)\n    CrossJoin\n      TableScan: p\n      TableScan: a\n",
         );
-        // TODO left join
+
         quick_test(
             "SELECT person.id, person.first_name \
         FROM person LEFT JOIN orders \
         ON person.age > 10",
-            "Projection: person.id, person.first_name\
-        \n  Left Join:  Filter: person.age > Int64(10)\
-        \n    TableScan: person\
-        \n    TableScan: orders",
+            "Projection: (person.id,person.first_name)\n  Left Join: Filter: person.age > Int64(10)\n    TableScan: person\n    TableScan: orders\n",
         );
-        // TODO right join
+
         quick_test(
             "SELECT person.id, person.first_name \
         FROM person RIGHT JOIN orders \
         ON person.age > 10",
-            "Projection: person.id, person.first_name\
-        \n  Right Join:  Filter: person.age > Int64(10)\
-        \n    TableScan: person\
-        \n    TableScan: orders",
+            "Projection: (person.id,person.first_name)\n  Right Join: Filter: person.age > Int64(10)\n    TableScan: person\n    TableScan: orders\n",
         );
-        // TODO inner join
+
         quick_test(
             "SELECT person.id, person.first_name \
         FROM person INNER JOIN orders \
         ON person.age > 10",
-            "Projection: person.id, person.first_name\
-        \n  Inner Join:  Filter: person.age > Int64(10)\
-        \n    TableScan: person\
-        \n    TableScan: orders",
+            "Projection: (person.id,person.first_name)\n  Inner Join: Filter: person.age > Int64(10)\n    TableScan: person\n    TableScan: orders\n",
         );
-        // TODO full join
+
         quick_test(
             "SELECT person.id, person.first_name \
         FROM person FULL JOIN orders \
         ON person.age > 10",
-            "Projection: person.id, person.first_name\
-        \n  Full Join:  Filter: person.age > Int64(10)\
-        \n    TableScan: person\
-        \n    TableScan: orders",
+            "Projection: (person.id,person.first_name)\n  Full Join: Filter: person.age > Int64(10)\n    TableScan: person\n    TableScan: orders\n",
         );
     }
 
@@ -724,7 +749,7 @@ mod tests {
     fn test_with() {
         quick_test(
             "WITH t1 AS (SELECT * FROM person) SELECT * FROM t1",
-            "Projection: (t1.id,t1.name)\n  SubqueryAlias: t1\n    Projection: (person.id,person.name)\n      TableScan: person\n",
+            "Projection: (t1.age,t1.first_name,t1.id,t1.name)\n  SubqueryAlias: t1\n    Projection: (person.age,person.first_name,person.id,person.name)\n      TableScan: person\n",
         );
     }
 

@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use super::{
     expr::LogicalExpr,
-    plan::{CrossJoin, EmptyRelation, LogicalPlan, Projection, TableScan},
+    plan::{CrossJoin, EmptyRelation, Join, LogicalPlan, Projection, TableScan},
 };
-use crate::error::Result;
+use crate::{common::JoinType, error::Result};
 use crate::{common::OwnedTableRelation, datasource::DataSource};
 
 pub struct LogicalPlanBuilder {
@@ -65,6 +65,30 @@ impl LogicalPlanBuilder {
                 Arc::new(right),
                 Arc::new(schema),
             )),
+        })
+    }
+
+    pub fn join_on(self, right: LogicalPlan, join_type: JoinType, on: LogicalExpr) -> Result<Self> {
+        let left_fields = self.plan.schema().fields.clone();
+        let right_fields = right.schema().fields.clone();
+
+        // left then right
+        let schema = Schema::new(
+            left_fields
+                .iter()
+                .chain(right_fields.iter())
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+
+        Ok(LogicalPlanBuilder {
+            plan: LogicalPlan::Join(Join {
+                left: Arc::new(self.plan),
+                right: Arc::new(right),
+                join_type,
+                filter: on,
+                schema: Arc::new(schema),
+            }),
         })
     }
 }

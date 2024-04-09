@@ -138,6 +138,7 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalPlan::EmptyRelation(_) => todo!(),
             LogicalPlan::CrossJoin(_) => todo!(),
             LogicalPlan::SubqueryAlias(_) => todo!(),
+            LogicalPlan::Join(_) => todo!(),
         }
     }
 

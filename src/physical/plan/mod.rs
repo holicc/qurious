@@ -24,7 +24,7 @@ pub trait PhysicalPlan {
 #[cfg(test)]
 mod tests {
     use super::{PhysicalPlan, Scan};
-    use crate::{datasource::memory::MemoryDataSource, error::Result};
+    use crate::{datasource::memory::MemoryDataSource};
     use arrow::{
         array::{Array, Int32Array, RecordBatch},
         datatypes::{DataType, Field, Schema, SchemaRef},

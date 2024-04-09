@@ -1,7 +1,7 @@
 use super::PhysicalPlan;
 use crate::error::{Error, Result};
 use arrow::{
-    array::{Int32Array, Int32BufferBuilder, NullArray, RecordBatch, RecordBatchOptions},
+    array::{Int32Array, RecordBatch, RecordBatchOptions},
     compute::concat_batches,
     datatypes::{DataType, Schema, SchemaRef},
 };
@@ -95,7 +95,7 @@ fn append_null_to_record_batch(r: &RecordBatch, size: usize) -> Result<RecordBat
 mod tests {
     use std::vec;
 
-    use crate::physical::plan::tests::{build_record_i32, build_table_scan_i32};
+    use crate::physical::plan::tests::{build_table_scan_i32};
 
     use super::*;
     use arrow::{
@@ -116,7 +116,7 @@ mod tests {
 
         let join = CrossJoin::new(left, right);
         let result = join.execute().unwrap();
-        let schema = Arc::new(Schema::new(Fields::from(vec![
+        let _schema = Arc::new(Schema::new(Fields::from(vec![
             Field::new("a1", DataType::Int32, true),
             Field::new("b1", DataType::Int32, true),
             Field::new("c1", DataType::Int32, true),
