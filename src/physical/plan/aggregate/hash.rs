@@ -42,9 +42,7 @@ impl HashAggregate {
             DataType::Null => ScalarValue::Null,
             DataType::Boolean => ScalarValue::Boolean(Some(ary.as_boolean().value(index))),
             DataType::Int8 => ScalarValue::Int8(Some(ary.as_primitive::<Int8Type>().value(index))),
-            DataType::Int16 => {
-                ScalarValue::Int16(Some(ary.as_primitive::<Int16Type>().value(index)))
-            }
+            DataType::Int16 => ScalarValue::Int16(Some(ary.as_primitive::<Int16Type>().value(index))),
             _ => unimplemented!(),
         }
     }

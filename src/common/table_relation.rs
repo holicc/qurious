@@ -37,11 +37,7 @@ impl<'a> TableRelation<'a> {
                 schema: schema.to_string().into(),
                 table: table.to_string().into(),
             },
-            TableRelation::Full {
-                catalog,
-                schema,
-                table,
-            } => OwnedTableRelation::Full {
+            TableRelation::Full { catalog, schema, table } => OwnedTableRelation::Full {
                 catalog: catalog.to_string().into(),
                 schema: schema.to_string().into(),
                 table: table.to_string().into(),
@@ -76,11 +72,7 @@ impl<'a> TableRelation<'a> {
             TableRelation::Partial { schema, table } => {
                 format!("{}.{}", schema, table)
             }
-            TableRelation::Full {
-                catalog,
-                schema,
-                table,
-            } => {
+            TableRelation::Full { catalog, schema, table } => {
                 format!("{}.{}.{}", catalog, schema, table)
             }
         }

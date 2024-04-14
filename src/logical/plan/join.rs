@@ -14,11 +14,7 @@ pub struct CrossJoin {
 
 impl CrossJoin {
     pub fn new(left: Arc<LogicalPlan>, right: Arc<LogicalPlan>, schema: SchemaRef) -> Self {
-        Self {
-            left,
-            right,
-            schema,
-        }
+        Self { left, right, schema }
     }
 
     pub fn schema(&self) -> SchemaRef {

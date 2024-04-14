@@ -18,12 +18,7 @@ impl OptimizerRule for ProjectionPushDownRule {
 }
 
 impl ProjectionPushDownRule {
-    fn extract_columns(
-        &self,
-        exprs: &Vec<LogicalExpr>,
-        input: &LogicalPlan,
-        accum: &mut HashSet<String>,
-    ) {
+    fn extract_columns(&self, exprs: &Vec<LogicalExpr>, input: &LogicalPlan, accum: &mut HashSet<String>) {
         for expr in exprs {
             self.extract_column(expr, input, accum);
         }
@@ -50,9 +45,8 @@ impl ProjectionPushDownRule {
             LogicalPlan::Projection(p) => {
                 self.extract_columns(&p.exprs, plan, &mut columns);
 
-                self.push_down(plan, columns).and_then(|input| {
-                    Projection::try_new(input, p.exprs.clone()).map(|p| LogicalPlan::Projection(p))
-                })
+                self.push_down(plan, columns)
+                    .and_then(|input| Projection::try_new(input, p.exprs.clone()).map(|p| LogicalPlan::Projection(p)))
             }
             LogicalPlan::Filter(f) => {
                 self.extract_column(&f.expr, plan, &mut columns);
@@ -77,8 +71,7 @@ impl ProjectionPushDownRule {
                     let group_expr = a.group_expr.clone();
                     let aggr_expr = a.aggr_expr.clone();
 
-                    Aggregate::try_new(input, group_expr, aggr_expr)
-                        .map(|a| LogicalPlan::Aggregate(a))
+                    Aggregate::try_new(input, group_expr, aggr_expr).map(|a| LogicalPlan::Aggregate(a))
                 })
             }
             LogicalPlan::TableScan(s) => TableScan::try_new(

@@ -15,9 +15,7 @@ pub struct HashMapTableRegistry {
 
 impl Default for HashMapTableRegistry {
     fn default() -> Self {
-        Self {
-            tables: HashMap::new(),
-        }
+        Self { tables: HashMap::new() }
     }
 }
 

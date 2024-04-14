@@ -10,7 +10,7 @@ use crate::{
     error::{Error, Result},
     logical::{
         expr::{AggregateOperator, BinaryExpr, Column, LogicalExpr},
-        plan::{Aggregate, Filter, LogicalPlan, Projection, TableScan},
+        plan::{Aggregate, Filter, Join, LogicalPlan, Projection, TableScan},
     },
     physical::{
         self,
@@ -22,11 +22,7 @@ use crate::{
 pub trait QueryPlanner: Debug {
     fn create_physical_plan(&self, logical_plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>>;
 
-    fn create_physical_expr(
-        &self,
-        schema: &SchemaRef,
-        expr: &LogicalExpr,
-    ) -> Result<Arc<dyn PhysicalExpr>>;
+    fn create_physical_expr(&self, schema: &SchemaRef, expr: &LogicalExpr) -> Result<Arc<dyn PhysicalExpr>>;
 }
 
 #[derive(Debug)]
@@ -71,8 +67,7 @@ impl DefaultQueryPlanner {
                         AggregateOperator::Sum => todo!(),
                         AggregateOperator::Min => todo!(),
                         AggregateOperator::Max => {
-                            Arc::new(physical::expr::MaxAggregateExpr::new(expr))
-                                as Arc<dyn AggregateExpr>
+                            Arc::new(physical::expr::MaxAggregateExpr::new(expr)) as Arc<dyn AggregateExpr>
                         }
                         AggregateOperator::Avg => todo!(),
                         AggregateOperator::Count => todo!(),
@@ -96,35 +91,25 @@ impl DefaultQueryPlanner {
         )) as Arc<dyn PhysicalPlan>)
     }
 
-    fn physical_expr_column(
-        &self,
-        schema: &SchemaRef,
-        column: &Column,
-    ) -> Result<Arc<dyn PhysicalExpr>> {
+    fn physical_expr_column(&self, schema: &SchemaRef, column: &Column) -> Result<Arc<dyn PhysicalExpr>> {
         schema
             .index_of(&column.name)
             .map_err(|e| Error::ArrowError(e))
-            .map(|index| {
-                Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>
-            })
+            .map(|index| Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>)
     }
 
     fn physical_expr_literal(&self, value: &ScalarValue) -> Result<Arc<dyn PhysicalExpr>> {
         Ok(Arc::new(physical::expr::Literal::new(value.clone())))
     }
 
-    fn physical_expr_binary(
-        &self,
-        schema: &SchemaRef,
-        binary_expr: &BinaryExpr,
-    ) -> Result<Arc<dyn PhysicalExpr>> {
+    fn physical_expr_binary(&self, schema: &SchemaRef, binary_expr: &BinaryExpr) -> Result<Arc<dyn PhysicalExpr>> {
         let left = self.create_physical_expr(schema, &binary_expr.left)?;
         let right = self.create_physical_expr(schema, &binary_expr.right)?;
-        Ok(Arc::new(physical::expr::BinaryExpr::new(
-            left,
-            binary_expr.op.clone(),
-            right,
-        )) as Arc<dyn PhysicalExpr>)
+        Ok(Arc::new(physical::expr::BinaryExpr::new(left, binary_expr.op.clone(), right)) as Arc<dyn PhysicalExpr>)
+    }
+
+    fn physical_plan_join(&self, join: &Join) -> Result<Arc<dyn PhysicalPlan>> {
+        todo!()
     }
 }
 
@@ -138,15 +123,11 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalPlan::EmptyRelation(_) => todo!(),
             LogicalPlan::CrossJoin(_) => todo!(),
             LogicalPlan::SubqueryAlias(_) => todo!(),
-            LogicalPlan::Join(_) => todo!(),
+            LogicalPlan::Join(join) => self.physical_plan_join(join),
         }
     }
 
-    fn create_physical_expr(
-        &self,
-        input_schema: &SchemaRef,
-        expr: &LogicalExpr,
-    ) -> Result<Arc<dyn PhysicalExpr>> {
+    fn create_physical_expr(&self, input_schema: &SchemaRef, expr: &LogicalExpr) -> Result<Arc<dyn PhysicalExpr>> {
         match expr {
             LogicalExpr::Column(c) => self.physical_expr_column(input_schema, c),
             LogicalExpr::Literal(v) => self.physical_expr_literal(v),
@@ -192,10 +173,7 @@ pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
                         col.relation = Some(matched.pop().unwrap().clone().to_owned());
                         return Ok(LogicalExpr::Column(col));
                     } else if matched.len() > 1 {
-                        return Err(Error::InternalError(format!(
-                            "Column \"{}\" is ambiguous",
-                            col.name
-                        )));
+                        return Err(Error::InternalError(format!("Column \"{}\" is ambiguous", col.name)));
                     }
                 }
                 2 => {

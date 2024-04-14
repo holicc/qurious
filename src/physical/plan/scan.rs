@@ -15,11 +15,7 @@ pub struct Scan {
 }
 
 impl Scan {
-    pub fn new(
-        schema: SchemaRef,
-        datasource: Arc<dyn DataSource>,
-        projections: Option<Vec<String>>,
-    ) -> Self {
+    pub fn new(schema: SchemaRef, datasource: Arc<dyn DataSource>, projections: Option<Vec<String>>) -> Self {
         Self {
             schema,
             datasource,

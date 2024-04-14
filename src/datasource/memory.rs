@@ -36,11 +36,7 @@ impl DataSource for MemoryDataSource {
         self.schema.clone()
     }
 
-    fn scan(
-        &self,
-        projection: Option<Vec<String>>,
-        _filters: &[LogicalExpr],
-    ) -> Result<Vec<RecordBatch>> {
+    fn scan(&self, projection: Option<Vec<String>>, _filters: &[LogicalExpr]) -> Result<Vec<RecordBatch>> {
         if let Some(projection) = projection {
             let mut r = vec![];
             for p in projection {

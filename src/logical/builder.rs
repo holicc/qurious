@@ -23,12 +23,8 @@ impl LogicalPlanBuilder {
         LogicalPlanBuilder { plan }
     }
 
-    pub fn project(
-        input: LogicalPlan,
-        exprs: impl IntoIterator<Item = impl Into<LogicalExpr>>,
-    ) -> Result<LogicalPlan> {
-        Projection::try_new(input, exprs.into_iter().map(|exp| exp.into()).collect())
-            .map(LogicalPlan::Projection)
+    pub fn project(input: LogicalPlan, exprs: impl IntoIterator<Item = impl Into<LogicalExpr>>) -> Result<LogicalPlan> {
+        Projection::try_new(input, exprs.into_iter().map(|exp| exp.into()).collect()).map(LogicalPlan::Projection)
     }
 
     pub fn empty() -> Self {
@@ -60,11 +56,7 @@ impl LogicalPlanBuilder {
         );
 
         Ok(LogicalPlanBuilder {
-            plan: LogicalPlan::CrossJoin(CrossJoin::new(
-                Arc::new(self.plan),
-                Arc::new(right),
-                Arc::new(schema),
-            )),
+            plan: LogicalPlan::CrossJoin(CrossJoin::new(Arc::new(self.plan), Arc::new(right), Arc::new(schema))),
         })
     }
 

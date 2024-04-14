@@ -22,10 +22,7 @@ pub struct PostgresSource {
 
 impl PostgresSource {
     /// Create a Postgres connection and map each table to a PostgresTableSource
-    pub fn try_new_with_config(
-        url: &str,
-        config: PostgresSourceOptions,
-    ) -> Result<Vec<PostgresTableSource>> {
+    pub fn try_new_with_config(url: &str, config: PostgresSourceOptions) -> Result<Vec<PostgresTableSource>> {
         let conn = SourceConn::try_from(url).map_err(|e| Error::InternalError(e.to_string()))?;
 
         // get all tables, eg: schema.table_name
@@ -43,18 +40,12 @@ impl PostgresSource {
     }
 
     /// return the schema of all tables, eg: schema.table_name -> schema
-    fn get_schema_tables(
-        conn: &SourceConn,
-        config: &PostgresSourceOptions,
-    ) -> Result<Vec<(String, Schema)>> {
+    fn get_schema_tables(conn: &SourceConn, config: &PostgresSourceOptions) -> Result<Vec<(String, Schema)>> {
         let mut sql = String::from("SELECT schema_name, table_name FROM information_schema.schemata JOIN information_schema.tables ON schemata.schema_name = tables.table_schema");
 
         if let Some(filter_schemas) = &config.filter_schemas {
             let filter_schemas = filter_schemas.join("','");
-            sql = format!(
-                "{} WHERE schemata.schema_name IN ('{}')",
-                sql, filter_schemas
-            );
+            sql = format!("{} WHERE schemata.schema_name IN ('{}')", sql, filter_schemas);
         }
 
         let batch = get_record_batch(conn, None, &sql)?;
@@ -70,7 +61,10 @@ impl PostgresSource {
         // zip the schema and table names
         let mut results = vec![];
         for (schema, table) in schemas.iter().zip(tables.iter()) {
-            let sql = format!("SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '{}' AND table_schema = '{}'", table, schema);
+            let sql = format!(
+                "SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '{}' AND table_schema = '{}'",
+                table, schema
+            );
             let batch = get_record_batch(conn, None, &sql)?;
 
             let column_name = as_string_array(batch.column(0))
@@ -91,10 +85,7 @@ impl PostgresSource {
                 .iter()
                 .zip(data_type.into_iter().zip(is_nullable.into_iter()))
                 .map(|(col_name, (dt, nullable))| Field::new(*col_name, dt, nullable));
-            results.push((
-                format!("{}.{}", schema, table),
-                Schema::new(Fields::from_iter(fields)),
-            ));
+            results.push((format!("{}.{}", schema, table), Schema::new(Fields::from_iter(fields))));
         }
 
         Ok(results)
@@ -123,9 +114,7 @@ fn parse_data_type(data_type: &str) -> Result<DataType> {
         // Boolean type
         "bool" | "boolean" => Ok(DataType::Boolean),
         // Date/time types
-        "timestamp with time zone" | "timestamp" => {
-            Ok(DataType::Timestamp(TimeUnit::Nanosecond, None))
-        }
+        "timestamp with time zone" | "timestamp" => Ok(DataType::Timestamp(TimeUnit::Nanosecond, None)),
         // TODO: Handle other date/time types (DATE, TIME)
 
         // Unsupported types
@@ -158,11 +147,7 @@ impl DataSource for PostgresTableSource {
         self.schema.clone()
     }
 
-    fn scan(
-        &self,
-        projection: Option<Vec<String>>,
-        filters: &[LogicalExpr],
-    ) -> Result<Vec<RecordBatch>> {
+    fn scan(&self, projection: Option<Vec<String>>, filters: &[LogicalExpr]) -> Result<Vec<RecordBatch>> {
         let mut sql = match projection {
             Some(p) => format!("SELECT {} FROM {}", p.join(","), self.table_name()),
             None => format!("SELECT * FROM {}", self.table_name()),
@@ -231,10 +216,7 @@ mod tests {
         let batch = sources[0]
             .scan(
                 Some(vec!["id".to_string(), "name".to_string()]),
-                &[eq(
-                    column("id"),
-                    LogicalExpr::Literal(ScalarValue::Int32(Some(1))),
-                )],
+                &[eq(column("id"), LogicalExpr::Literal(ScalarValue::Int32(Some(1))))],
             )
             .unwrap();
 

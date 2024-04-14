@@ -35,8 +35,7 @@ pub fn read_csv<T: DataFilePath>(path: T, options: CsvReadOptions) -> Result<Arc
     match url.scheme() {
         "file" => {
             // FIXME this may not ok when csv file is too big to read into memory
-            let mut file =
-                File::open(url.path()).map_err(|e| Error::InternalError(e.to_string()))?;
+            let mut file = File::open(url.path()).map_err(|e| Error::InternalError(e.to_string()))?;
 
             let mut format = Format::default()
                 .with_header(options.has_header)
@@ -52,9 +51,7 @@ pub fn read_csv<T: DataFilePath>(path: T, options: CsvReadOptions) -> Result<Arc
             // max records set 2 means we only read the first 2 records to infer the schema
             // first line is header
             // second line is data to infer the data type
-            let (schema, _) = format
-                .infer_schema(&mut file, None)
-                .map_err(|e| Error::ArrowError(e))?;
+            let (schema, _) = format.infer_schema(&mut file, None).map_err(|e| Error::ArrowError(e))?;
 
             // rewind the file to the beginning because the schema inference
             file.rewind().unwrap();

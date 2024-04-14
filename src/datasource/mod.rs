@@ -10,9 +10,5 @@ pub trait DataSource: Debug {
     fn schema(&self) -> SchemaRef;
 
     /// Perform a scan of the data source and return the results as RecordBatch
-    fn scan(
-        &self,
-        projection: Option<Vec<String>>,
-        filters: &[LogicalExpr],
-    ) -> Result<Vec<RecordBatch>>;
+    fn scan(&self, projection: Option<Vec<String>>, filters: &[LogicalExpr]) -> Result<Vec<RecordBatch>>;
 }

@@ -50,11 +50,7 @@ impl DataFrame {
         })
     }
 
-    pub fn aggregate(
-        self,
-        group_by: Vec<LogicalExpr>,
-        aggr_expr: Vec<expr::AggregateExpr>,
-    ) -> Result<Self> {
+    pub fn aggregate(self, group_by: Vec<LogicalExpr>, aggr_expr: Vec<expr::AggregateExpr>) -> Result<Self> {
         Aggregate::try_new(self.plan.clone(), group_by, aggr_expr).map(|a| Self {
             planner: self.planner,
             plan: LogicalPlan::Aggregate(a),

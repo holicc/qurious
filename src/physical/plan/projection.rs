@@ -14,16 +14,8 @@ pub struct Projection {
 }
 
 impl Projection {
-    pub fn new(
-        schema: SchemaRef,
-        input: Arc<dyn PhysicalPlan>,
-        exprs: Vec<Arc<dyn PhysicalExpr>>,
-    ) -> Self {
-        Self {
-            input,
-            schema,
-            exprs,
-        }
+    pub fn new(schema: SchemaRef, input: Arc<dyn PhysicalPlan>, exprs: Vec<Arc<dyn PhysicalExpr>>) -> Self {
+        Self { input, schema, exprs }
     }
 }
 
@@ -40,9 +32,7 @@ impl PhysicalPlan for Projection {
             for expr in &self.exprs {
                 columns.push(expr.evaluate(&batch)?);
             }
-            reulsts.push(
-                RecordBatch::try_new(self.schema(), columns).map_err(|e| Error::ArrowError(e))?,
-            );
+            reulsts.push(RecordBatch::try_new(self.schema(), columns).map_err(|e| Error::ArrowError(e))?);
         }
 
         Ok(reulsts)

@@ -1,7 +1,7 @@
 use arrow::{
     array::{
-        new_null_array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array,
-        Int64Array, Int8Array, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+        new_null_array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
+        Int8Array, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
     },
     datatypes::{DataType, Field},
 };
@@ -76,9 +76,7 @@ impl ScalarValue {
             ScalarValue::UInt8(i) => Arc::new(UInt8Array::from(vec![*i; num_row])) as ArrayRef,
             ScalarValue::Float64(f) => Arc::new(Float64Array::from(vec![*f; num_row])) as ArrayRef,
             ScalarValue::Float32(f) => Arc::new(Float32Array::from(vec![*f; num_row])) as ArrayRef,
-            ScalarValue::Utf8(s) => {
-                Arc::new(StringArray::from(vec![s.clone(); num_row])) as ArrayRef
-            }
+            ScalarValue::Utf8(s) => Arc::new(StringArray::from(vec![s.clone(); num_row])) as ArrayRef,
         }
     }
 

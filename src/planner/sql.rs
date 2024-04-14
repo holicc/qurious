@@ -3,11 +3,8 @@ use std::{
     sync::Arc,
 };
 
-
 use sqlparser::{
-    ast::{
-        Assignment, BinaryOperator, Cte, Expression, From, Literal, Select, SelectItem, Statement,
-    },
+    ast::{Assignment, BinaryOperator, Cte, Expression, From, Literal, Select, SelectItem, Statement},
     parser::Parser,
 };
 
@@ -44,9 +41,7 @@ impl<'a> SqlQueryPlanner<'a> {
     }
 
     pub fn create_logical_plan(&mut self, sql: &str) -> Result<LogicalPlan> {
-        let stmts = Parser::new(sql)
-            .parse()
-            .map_err(|e| Error::SQLParseError(e))?;
+        let stmts = Parser::new(sql).parse().map_err(|e| Error::SQLParseError(e))?;
 
         let mut context = PlannerContext::default();
 
@@ -60,11 +55,7 @@ impl<'a> SqlQueryPlanner<'a> {
         todo!()
     }
 
-    fn select_to_plan(
-        &mut self,
-        select: Select,
-        mut context: &mut PlannerContext,
-    ) -> Result<LogicalPlan> {
+    fn select_to_plan(&mut self, select: Select, mut context: &mut PlannerContext) -> Result<LogicalPlan> {
         if let Some(with) = select.with {
             self.cte_tables(&mut context, with.cte_tables)?;
         }
@@ -83,11 +74,7 @@ impl<'a> SqlQueryPlanner<'a> {
         LogicalPlanBuilder::project(plan, column_exprs)
     }
 
-    fn table_scan_to_plan(
-        &mut self,
-        ctx: &mut PlannerContext,
-        mut froms: Vec<From>,
-    ) -> Result<LogicalPlan> {
+    fn table_scan_to_plan(&mut self, ctx: &mut PlannerContext, mut froms: Vec<From>) -> Result<LogicalPlan> {
         match froms.len() {
             0 => Ok(LogicalPlanBuilder::empty().build()),
             1 => {
@@ -100,16 +87,10 @@ impl<'a> SqlQueryPlanner<'a> {
                             .ctes
                             .get(&name)
                             .map(|a| a.as_ref().clone())
-                            .ok_or(Error::InternalError(format!(
-                                "Can't get cte tables: {}",
-                                name
-                            )))
-                            .or(self.table_registry.get_table_source(&name).and_then(
-                                |table_source| {
-                                    LogicalPlanBuilder::scan(relation.clone(), table_source, None)
-                                        .map(|l| l.build())
-                                },
-                            ))?;
+                            .ok_or(Error::InternalError(format!("Can't get cte tables: {}", name)))
+                            .or(self.table_registry.get_table_source(&name).and_then(|table_source| {
+                                LogicalPlanBuilder::scan(relation.clone(), table_source, None).map(|l| l.build())
+                            }))?;
 
                         // put relation into context
                         // we will use it in normalize_col_with_schemas_and_ambiguity_check
@@ -123,9 +104,7 @@ impl<'a> SqlQueryPlanner<'a> {
 
                         (scan, alias)
                     }
-                    From::TableFunction { name, args, alias } => {
-                        (self.table_func_to_plan(ctx, name, args)?, alias)
-                    }
+                    From::TableFunction { name, args, alias } => (self.table_func_to_plan(ctx, name, args)?, alias),
                     From::Join {
                         left,
                         right,
@@ -136,9 +115,7 @@ impl<'a> SqlQueryPlanner<'a> {
                         let right = self.table_scan_to_plan(ctx, vec![*right])?;
 
                         let filter_expr = on
-                            .ok_or(Error::InternalError(
-                                "Join clause requires an ON clause".to_owned(),
-                            ))
+                            .ok_or(Error::InternalError("Join clause requires an ON clause".to_owned()))
                             .and_then(|expr| self.sql_to_expr(ctx, expr))?;
 
                         (
@@ -159,9 +136,7 @@ impl<'a> SqlQueryPlanner<'a> {
             }
             _ => {
                 // handle cross join
-                let mut plans = froms
-                    .into_iter()
-                    .map(|f| self.table_scan_to_plan(ctx, vec![f]));
+                let mut plans = froms.into_iter().map(|f| self.table_scan_to_plan(ctx, vec![f]));
 
                 let mut left = LogicalPlanBuilder::from(plans.next().unwrap()?);
 
@@ -185,12 +160,10 @@ impl<'a> SqlQueryPlanner<'a> {
                 let (path, options) = self.parse_csv_options(args)?;
                 let table_name = "tmp_csv_table";
                 let table_srouce = csv::read_csv(path, options)?;
-                let plan =
-                    LogicalPlanBuilder::scan(table_name, table_srouce.clone(), None)?.build();
+                let plan = LogicalPlanBuilder::scan(table_name, table_srouce.clone(), None)?.build();
                 // register the table to the table registry
                 // TODO: we should use a unique name for the table and apply the alias
-                self.table_registry
-                    .register_table(table_name, table_srouce)?;
+                self.table_registry.register_table(table_name, table_srouce)?;
 
                 ctx.relations.insert(
                     table_name.into(),
@@ -231,9 +204,7 @@ impl<'a> SqlQueryPlanner<'a> {
             match expr {
                 Expression::Literal(Literal::String(s)) => {
                     if s.len() != 1 {
-                        return Err(Error::InternalError(
-                            "Expected a single character".to_owned(),
-                        ));
+                        return Err(Error::InternalError("Expected a single character".to_owned()));
                     }
                     Ok(s.as_bytes()[0])
                 }
@@ -243,9 +214,7 @@ impl<'a> SqlQueryPlanner<'a> {
         let extract_value = |expr: Expression| -> Result<Literal> {
             match expr {
                 Expression::Literal(lit) => Ok(lit),
-                _ => Err(Error::InternalError(
-                    "Expected a boolean literal".to_owned(),
-                )),
+                _ => Err(Error::InternalError("Expected a boolean literal".to_owned())),
             }
         };
 
@@ -265,9 +234,8 @@ impl<'a> SqlQueryPlanner<'a> {
                 "quote" => options.quote = extract_literal(value).ok(),
                 "header" => {
                     options.has_header = extract_value(value).and_then(|a| {
-                        a.try_into().map_err(|e| {
-                            Error::InternalError(format!("Parse CsvOptions error, {}", e))
-                        })
+                        a.try_into()
+                            .map_err(|e| Error::InternalError(format!("Parse CsvOptions error, {}", e)))
                     })?
                 }
                 "columns" => todo!(),
@@ -313,18 +281,13 @@ impl<'a> SqlQueryPlanner<'a> {
         Ok(())
     }
 
-    fn apply_table_alias(
-        &self,
-        ctx: &mut PlannerContext,
-        plan: LogicalPlan,
-        alias: String,
-    ) -> Result<LogicalPlan> {
+    fn apply_table_alias(&self, ctx: &mut PlannerContext, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
         match plan {
             LogicalPlan::TableScan(mut table) => {
-                let mut relation =
-                    ctx.relations
-                        .remove(&table.relation)
-                        .ok_or(Error::TableNotFound(format!(
+                let mut relation = ctx
+                    .relations
+                    .remove(&table.relation)
+                    .ok_or(Error::TableNotFound(format!(
                         "Can't apply table alias: {} to relation: {}, because relation not exists",
                         alias, table.relation
                     )))?;
@@ -351,12 +314,10 @@ impl<'a> SqlQueryPlanner<'a> {
     ) -> Result<Vec<LogicalExpr>> {
         columns
             .into_iter()
-            .flat_map(
-                |col| match self.sql_select_item_to_expr(ctx, plan, col, empty_from) {
-                    Ok(vec) => vec.into_iter().map(Ok).collect(),
-                    Err(err) => vec![Err(err)],
-                },
-            )
+            .flat_map(|col| match self.sql_select_item_to_expr(ctx, plan, col, empty_from) {
+                Ok(vec) => vec.into_iter().map(Ok).collect(),
+                Err(err) => vec![Err(err)],
+            })
             .collect::<Result<Vec<LogicalExpr>>>()
     }
 
@@ -419,9 +380,7 @@ impl<'a> SqlQueryPlanner<'a> {
         match item {
             SelectItem::UnNamedExpr(expr) => self
                 .sql_to_expr(ctx, expr)
-                .and_then(|expr| {
-                    normalize_col_with_schemas_and_ambiguity_check(expr, &ctx.relations)
-                })
+                .and_then(|expr| normalize_col_with_schemas_and_ambiguity_check(expr, &ctx.relations))
                 .map(|v| vec![v]),
             SelectItem::ExprWithAlias(expr, alias) => self
                 .sql_to_expr(ctx, expr)
@@ -433,8 +392,7 @@ impl<'a> SqlQueryPlanner<'a> {
                     ));
                 }
                 // expand schema
-                let mut using_columns: HashMap<TableRelation<'_>, HashSet<String>> =
-                    HashMap::default();
+                let mut using_columns: HashMap<TableRelation<'_>, HashSet<String>> = HashMap::default();
                 let mut eval_stack = vec![plan];
                 while let Some(next_plan) = eval_stack.pop() {
                     match next_plan {
@@ -655,10 +613,7 @@ mod tests {
             "Projection: (person.age,person.first_name,person.id,person.name,person.id)\n  TableScan: person\n",
         );
 
-        quick_test(
-            "SELECT t.id FROM person as t",
-            "Projection: (t.id)\n  TableScan: t\n",
-        );
+        quick_test("SELECT t.id FROM person as t", "Projection: (t.id)\n  TableScan: t\n");
 
         quick_test(
             "SELECT t.* FROM person as t",
@@ -701,10 +656,7 @@ mod tests {
             "Projection: (person.age,person.first_name,a.id,b.id,person.id,a.name,b.name,person.name)\n  CrossJoin\n    CrossJoin\n      TableScan: person\n      TableScan: b\n    TableScan: a\n",
         );
 
-        quick_test(
-            "SELECT id FROM person,b",
-            "Internal Error: Column \"id\" is ambiguous",
-        );
+        quick_test("SELECT id FROM person,b", "Internal Error: Column \"id\" is ambiguous");
 
         quick_test(
             "SELECT * FROM person,b WHERE id = 1",
