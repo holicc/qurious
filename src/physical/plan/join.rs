@@ -5,7 +5,7 @@ use crate::{
     physical::expr::PhysicalExpr,
 };
 use arrow::{
-    array::{Int32Array, RecordBatch, RecordBatchOptions},
+    array::{new_null_array, Int32Array, RecordBatch, RecordBatchOptions},
     compute::concat_batches,
     datatypes::{DataType, Field, Schema, SchemaRef},
 };
@@ -40,7 +40,6 @@ impl PhysicalPlan for Join {
         let right_schema = self.right.schema();
         let join_schema = join_schema(&left_schema, &right_schema, &self.join_type);
 
-        
         todo!()
     }
 
@@ -120,10 +119,7 @@ fn append_null_to_record_batch(r: &RecordBatch, size: usize) -> Result<RecordBat
         schema
             .fields()
             .iter()
-            .map(|f| match f.data_type() {
-                DataType::Int32 => Arc::new(Int32Array::new_null(size)) as Arc<dyn arrow::array::Array>,
-                _ => todo!(),
-            })
+            .map(|f| new_null_array(f.data_type(), size))
             .collect::<Vec<_>>(),
     )
     .unwrap();
