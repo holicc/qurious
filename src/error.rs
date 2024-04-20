@@ -17,6 +17,12 @@ pub enum Error {
     TableNotFound(String),
 }
 
+impl From<ArrowError> for Error {
+    fn from(e: ArrowError) -> Self {
+        Error::ArrowError(e)
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

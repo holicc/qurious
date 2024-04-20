@@ -1,35 +1,257 @@
 mod cross_join;
-// mod nested_loop_join;
-
-use std::sync::Arc;
 
 pub use cross_join::CrossJoin;
 
+use std::sync::Arc;
+
 use arrow::{
-    array::{new_null_array, RecordBatch},
-    compute::concat_batches,
-    datatypes::{Field, Schema},
+    array::{
+        downcast_array, new_empty_array, new_null_array, AsArray, BooleanArray, RecordBatch, RecordBatchOptions,
+        UInt32Array, UInt32Builder, UInt64Array, UInt64Builder,
+    },
+    compute::{self, concat_batches},
+    datatypes::{DataType, Field, Schema, SchemaBuilder, SchemaRef, UInt64Type},
 };
 
-use crate::common::JoinType;
-use crate::error::{Error, Result};
+use crate::{
+    common::JoinType,
+    error::{Error, Result},
+    logical::expr::LogicalExpr,
+    physical::expr::PhysicalExpr,
+};
 
-fn append_null_to_record_batch(r: &RecordBatch, size: usize) -> Result<RecordBatch> {
-    let schema = r.schema();
-    let null_batch = RecordBatch::try_new(
-        schema.clone(),
-        schema
-            .fields()
-            .iter()
-            .map(|f| new_null_array(f.data_type(), size))
-            .collect::<Vec<_>>(),
-    )
-    .unwrap();
+use super::PhysicalPlan;
 
-    concat_batches(&schema, [r, &null_batch]).map_err(|e| Error::ArrowError(e))
+pub type ColumnIndex = (usize, JoinSide);
+
+#[derive(Debug)]
+pub enum JoinSide {
+    Left,
+    Right,
 }
 
-fn join_schema(left: &Schema, right: &Schema, join_type: &JoinType) -> Schema {
+#[derive(Debug)]
+pub struct JoinFilter {
+    pub expr: Arc<dyn PhysicalExpr>,
+    pub schema: SchemaRef,
+    /// Indices of origin table
+    /// eg:
+    ///  left table: a1[0] b1[1] c1[2]
+    ///  right table: a2[0] b2[1]
+    ///  join on: b1 = b2
+    ///  then columns indices: [ (1,LEFT),(1,RIGHT) ]
+    pub column_indices: Vec<ColumnIndex>,
+}
+
+pub struct Join {
+    pub left: Arc<dyn PhysicalPlan>,
+    pub right: Arc<dyn PhysicalPlan>,
+    pub join_type: JoinType,
+    pub filter: Option<JoinFilter>,
+    schema: SchemaRef,
+    // Schema Indices of left and right, placement of columns
+    column_indices: Vec<ColumnIndex>,
+}
+
+impl Join {
+    pub fn try_new(
+        left: Arc<dyn PhysicalPlan>,
+        right: Arc<dyn PhysicalPlan>,
+        join_type: JoinType,
+        filter: Option<JoinFilter>,
+    ) -> Result<Self> {
+        let left_schema = left.schema();
+        let right_schema = right.schema();
+        let (schema, column_indices) = join_schema(&left_schema, &right_schema, &join_type);
+
+        Ok(Self {
+            left,
+            right,
+            join_type,
+            filter,
+            schema,
+            column_indices,
+        })
+    }
+}
+
+impl PhysicalPlan for Join {
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+
+    fn execute(&self) -> Result<Vec<RecordBatch>> {
+        let right_schema = self.right.schema();
+
+        let left_batches = self.left.execute()?;
+        let right_batche =
+            concat_batches(&right_schema, self.right.execute()?.as_slice()).map_err(|e| Error::ArrowError(e))?;
+
+        // build indices for left table and right table
+        // create intermediate record batches for indices and filter
+        // apply mask to left and right record batches and take columns
+        // join columns to a record batch
+        left_batches
+            .into_iter()
+            .map(|left_batch| {
+                let (li, ri) = build_join_indices(&left_batch, &right_batche, &self.join_type, self.filter.as_ref())?;
+                build_batch_from_indices(
+                    self.schema.clone(),
+                    &self.column_indices,
+                    &left_batch,
+                    &right_batche,
+                    &li,
+                    &ri,
+                )
+            })
+            .collect()
+    }
+
+    fn children(&self) -> Option<Vec<Arc<dyn PhysicalPlan>>> {
+        Some(vec![self.left.clone(), self.right.clone()])
+    }
+}
+
+/// Build join indices for left and right record batches
+/// Step 1: Combine every left row with each right row, so that we will get  
+///     left indices: [left_row_index, left_row_index, ...., left_row_index]
+///     right indices: [0, 1, 2, 3, 4,....,right_row_count]
+/// Step 2: Convert the result above from rows to columns, resulting in two arrays with the same length
+///     left array: [ left_row_index, left_row_index, left_row_index, left_row_index+1 .. , left_row_index+n ]
+///     right indices: [ 0, 1, .. right_row_count, 0, 1, .. right_row_count .. ]    
+/// For example, if the left has 3 rows and the right has 2 rows, then the result will be
+///    left indices:  [0, 0, 1, 1, 2, 2]
+///    right indices: [0, 1, 0, 1, 0, 1]
+fn build_join_indices(
+    left: &RecordBatch,
+    right: &RecordBatch,
+    join_type: &JoinType,
+    filter_join: Option<&JoinFilter>,
+) -> Result<(UInt64Array, UInt32Array)> {
+    let indices = (0..left.num_rows())
+        .map(|row_index| {
+            let li = UInt64Array::from_value(row_index as u64, right.num_rows());
+            let ri = UInt32Array::from_iter_values(0..(right.num_rows() as u32));
+
+            (li, ri)
+        })
+        .collect::<Vec<_>>();
+
+    // apply filter to the indices
+    let masks = if let Some(filter) = filter_join {
+        indices
+            .iter()
+            .map(|(li, ri)| join_filter_indices(left, right, li, ri, filter))
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        (0..left.num_rows())
+            .map(|_| BooleanArray::from(vec![true; right.num_rows()]))
+            .collect()
+    };
+
+    let mut l = UInt64Builder::new();
+    let mut r = UInt32Builder::new();
+    for ((left_indices, right_indices), mask) in indices.into_iter().zip(masks.into_iter()) {
+        let is_valid = &mask
+            .iter()
+            .map(|a| a.ok_or(Error::InternalError(format!("unable expand mask array {:?}", mask))))
+            .collect::<Result<Vec<_>>>()?;
+
+        match join_type {
+            JoinType::Left => {
+                l.append_values(left_indices.values(), &vec![true; left_indices.len()]);
+                r.append_values(right_indices.values(), &is_valid);
+            }
+            JoinType::Right => {
+                l.append_values(left_indices.values(), &is_valid);
+                r.append_values(right_indices.values(), &vec![true; right_indices.len()]);
+            }
+            JoinType::Inner => {
+                // inner join should filter out null data
+                let left_indices = compute::filter(&left_indices, &mask)?;
+                let left_indices: UInt64Array = downcast_array(&left_indices);
+
+                let right_indices = compute::filter(&right_indices, &mask)?;
+                let right_indices: UInt32Array = downcast_array(&right_indices);
+
+                l.append_values(left_indices.values(), &vec![true; left_indices.len()]);
+                r.append_values(right_indices.values(), &vec![true; right_indices.len()]);
+            }
+            JoinType::Full => {
+                l.append_values(left_indices.values(), &vec![true; right_indices.len()]);
+                r.append_values(right_indices.values(), &vec![true; right_indices.len()]);
+            }
+        }
+    }
+
+    Ok((l.finish(), r.finish()))
+}
+
+fn join_filter_indices(
+    lb: &RecordBatch,
+    rb: &RecordBatch,
+    li: &UInt64Array,
+    ri: &UInt32Array,
+    filter: &JoinFilter,
+) -> Result<BooleanArray> {
+    if li.is_empty() && ri.is_empty() {
+        return Ok(new_empty_array(&DataType::Boolean).as_boolean().clone());
+    }
+
+    let intermediate_batch = build_batch_from_indices(
+        filter.schema.clone(),
+        &filter.column_indices.as_slice(),
+        lb,
+        rb,
+        &li,
+        &ri,
+    )?;
+
+    Ok(downcast_array(filter.expr.evaluate(&intermediate_batch)?.as_ref()))
+}
+
+fn build_batch_from_indices(
+    schema: SchemaRef,
+    columns_index: &[ColumnIndex],
+    lb: &RecordBatch,
+    rb: &RecordBatch,
+    li: &UInt64Array,
+    ri: &UInt32Array,
+) -> Result<RecordBatch> {
+    if schema.fields().is_empty() {
+        let options = RecordBatchOptions::new()
+            .with_match_field_names(true)
+            .with_row_count(Some(li.len()));
+        return Ok(RecordBatch::try_new_with_options(schema.clone(), vec![], &options)?);
+    }
+
+    let mut columns = Vec::with_capacity(schema.fields().len());
+
+    for (index, join_side) in columns_index {
+        match join_side {
+            JoinSide::Left => {
+                let array = lb.column(*index);
+                if array.is_empty() {
+                    columns.push(new_null_array(array.data_type(), li.len()));
+                } else {
+                    columns.push(compute::take(array, &li, None)?);
+                }
+            }
+            JoinSide::Right => {
+                let array = rb.column(*index);
+                if array.is_empty() {
+                    columns.push(new_null_array(array.data_type(), ri.len()));
+                } else {
+                    columns.push(compute::take(array, &ri, None)?);
+                }
+            }
+        }
+    }
+
+    Ok(RecordBatch::try_new(schema, columns)?)
+}
+
+pub fn join_schema(left: &Schema, right: &Schema, join_type: &JoinType) -> (SchemaRef, Vec<ColumnIndex>) {
     let (left_nullable, right_nullable) = match join_type {
         JoinType::Left => (false, true),
         JoinType::Right => (true, false),
@@ -45,27 +267,144 @@ fn join_schema(left: &Schema, right: &Schema, join_type: &JoinType) -> Schema {
         }
     };
 
-    let fields = left
+    let left_fields = left
         .fields()
         .iter()
         .map(with_nullable(left_nullable))
-        .chain(right.fields().iter().map(with_nullable(right_nullable)))
-        .collect::<Vec<_>>();
+        .enumerate()
+        .map(|(index, f)| (f, (index, JoinSide::Left)));
 
-    Schema::new(fields)
+    let right_fields = right
+        .fields()
+        .iter()
+        .map(with_nullable(right_nullable))
+        .enumerate()
+        .map(|(index, f)| (f, (index, JoinSide::Right)));
+
+    let (fields, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = left_fields.chain(right_fields).unzip();
+
+    (Arc::new(fields.finish()), column_indices)
 }
 
 #[cfg(test)]
 mod tests {
-    use arrow::datatypes::{DataType, Field, Fields, Schema};
+    use std::sync::Arc;
 
-    use crate::{build_schema, common::JoinType, physical::plan::join::join_schema};
+    use crate::{
+        build_schema,
+        common::JoinType,
+        datatypes::operator::Operator,
+        physical::{
+            expr::{BinaryExpr, Column, Literal},
+            plan::{
+                join::{join_schema, Join},
+                tests::build_table_scan_i32,
+                PhysicalPlan,
+            },
+        },
+        test_utils::assert_batch_eq,
+    };
+    use arrow::datatypes::{DataType, Fields, Schema};
+
+    use super::{JoinFilter, JoinSide};
+
+    /// +----+----+----+----+----+----+
+    /// | a1 | b1 | c1 | a2 | b2 | c2 |
+    /// +----+----+----+----+----+----+
+    /// | 1  | 4  | 7  | 10 | 12 | 14 |
+    /// | 1  | 4  | 7  | 11 | 13 | 15 |
+    /// | 2  | 5  | 8  | 10 | 12 | 14 |
+    /// | 2  | 5  | 8  | 11 | 13 | 15 |
+    /// | 3  | 6  | 9  | 10 | 12 | 14 |
+    /// | 3  | 6  | 9  | 11 | 13 | 15 |
+    /// +----+----+----+----+----+----+
+    fn build_table(join_type: JoinType) -> Join {
+        let left = build_table_scan_i32(vec![
+            ("a1", vec![1, 2, 3]),
+            ("b1", vec![4, 5, 6]),
+            ("c1", vec![7, 8, 9]),
+        ]);
+
+        let right = build_table_scan_i32(vec![("a2", vec![10, 11]), ("b2", vec![12, 13]), ("c2", vec![14, 15])]);
+
+        // a1 != 2 and b2 != 10
+        let expr = Arc::new(BinaryExpr::new(
+            Arc::new(BinaryExpr::new(
+                Arc::new(Column::new("a1", 0)),
+                Operator::NotEq,
+                Arc::new(Literal::new(2.into())),
+            )),
+            Operator::And,
+            Arc::new(BinaryExpr::new(
+                Arc::new(Column::new("b2", 1)),
+                Operator::NotEq,
+                Arc::new(Literal::new(10.into())),
+            )),
+        ));
+
+        let filter_schema = Arc::new(build_schema!(("a1", DataType::Int32), ("b2", DataType::Int32)));
+        let column_indices = vec![(0, JoinSide::Left), (1, JoinSide::Right)];
+
+        Join::try_new(
+            left,
+            right,
+            join_type,
+            Some(JoinFilter {
+                expr,
+                schema: filter_schema,
+                column_indices,
+            }),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_inner_join() {
+        let join = build_table(JoinType::Inner);
+        let r = join.execute().unwrap();
+
+        assert_batch_eq(
+            &r,
+            vec![
+                "+----+----+----+----+----+----+",
+                "| a1 | b1 | c1 | a2 | b2 | c2 |",
+                "+----+----+----+----+----+----+",
+                "| 1  | 4  | 7  | 10 | 12 | 14 |",
+                "| 1  | 4  | 7  | 11 | 13 | 15 |",
+                "| 3  | 6  | 9  | 10 | 12 | 14 |",
+                "| 3  | 6  | 9  | 11 | 13 | 15 |",
+                "+----+----+----+----+----+----+",
+            ],
+        )
+    }
+
+    #[test]
+    fn test_left_join() {
+        let join = build_table(JoinType::Left);
+        let r = join.execute().unwrap();
+
+        assert_batch_eq(
+            &r,
+            vec![
+                "+----+----+----+----+----+----+",
+                "| a1 | b1 | c1 | a2 | b2 | c2 |",
+                "+----+----+----+----+----+----+",
+                "| 1  | 4  | 7  | 10 | 12 | 14 |",
+                "| 1  | 4  | 7  | 11 | 13 | 15 |",
+                "| 2  | 5  | 8  |    |    |    |",
+                "| 2  | 5  | 8  |    |    |    |",
+                "| 3  | 6  | 9  | 10 | 12 | 14 |",
+                "| 3  | 6  | 9  | 11 | 13 | 15 |",
+                "+----+----+----+----+----+----+",
+            ],
+        )
+    }
 
     #[test]
     fn test_join_schema() {
         let left = build_schema!(
-            ("b1", DataType::Int32),
             ("a1", DataType::Int32),
+            ("b1", DataType::Int32),
             ("c1", DataType::Int32)
         );
 
@@ -99,15 +438,14 @@ mod tests {
         ];
 
         for (join_type, left, right, expected_left, expected_right) in cases {
-            let result = join_schema(left, right, &join_type);
-
+            let (result, _) = join_schema(left, right, &join_type);
             let expected_fields = expected_left
                 .fields()
                 .iter()
                 .cloned()
                 .chain(expected_right.fields().iter().cloned())
                 .collect::<Fields>();
-            let expected_schema = Schema::new(expected_fields);
+            let expected_schema = Arc::new(Schema::new(expected_fields));
 
             assert_eq!(result, expected_schema);
         }

@@ -2,7 +2,7 @@ pub mod sql;
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use arrow::datatypes::SchemaRef;
+use arrow::datatypes::{SchemaBuilder, SchemaRef};
 
 use crate::{
     common::TableRelation,
@@ -10,12 +10,12 @@ use crate::{
     error::{Error, Result},
     logical::{
         expr::{AggregateOperator, BinaryExpr, Column, LogicalExpr},
-        plan::{Aggregate, Filter, Join, LogicalPlan, Projection, TableScan},
+        plan::{Aggregate, CrossJoin, Filter, Join, LogicalPlan, Projection, TableScan},
     },
     physical::{
         self,
         expr::{AggregateExpr, PhysicalExpr},
-        plan::PhysicalPlan,
+        plan::{ColumnIndex, JoinFilter, JoinSide, PhysicalPlan},
     },
 };
 
@@ -108,8 +108,44 @@ impl DefaultQueryPlanner {
         Ok(Arc::new(physical::expr::BinaryExpr::new(left, binary_expr.op.clone(), right)) as Arc<dyn PhysicalExpr>)
     }
 
+    fn physical_plan_cross_join(&self, cross_join: &CrossJoin) -> Result<Arc<dyn PhysicalPlan>> {
+        let left = self.create_physical_plan(cross_join.left.as_ref())?;
+        let right = self.create_physical_plan(cross_join.right.as_ref())?;
+        Ok(Arc::new(physical::plan::CrossJoin::new(left, right)))
+    }
+
     fn physical_plan_join(&self, join: &Join) -> Result<Arc<dyn PhysicalPlan>> {
-        todo!()
+        let left = self.create_physical_plan(join.left.as_ref())?;
+        let right = self.create_physical_plan(join.right.as_ref())?;
+
+        
+
+        let using_columns = join.filter.using_columns()?;
+
+        let ls = left.schema();
+        let li = using_columns
+            .iter()
+            .filter_map(|c| ls.fields().find(&c.name))
+            .map(|(i, f)| (f.clone(), (i, JoinSide::Left)));
+
+        let rs = right.schema();
+        let ri = using_columns
+            .iter()
+            .filter_map(|c| rs.fields().find(&c.name))
+            .map(|(i, f)| (f.clone(), (i, JoinSide::Right)));
+
+        let (filter_schema, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = li.chain(ri).unzip();
+        let filter_schema = Arc::new(filter_schema.finish());
+        let filter_expr = self.create_physical_expr(&filter_schema, &join.filter)?;
+
+        let join_filter = JoinFilter {
+            expr: filter_expr,
+            schema: filter_schema,
+            column_indices,
+        };
+
+        physical::plan::Join::try_new(left, right, join.join_type, Some(join_filter))
+            .map(|j| Arc::new(j) as Arc<dyn PhysicalPlan>)
     }
 }
 
@@ -121,7 +157,7 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalPlan::Aggregate(a) => self.physical_plan_aggregate(a),
             LogicalPlan::TableScan(t) => self.physical_plan_table_scan(t),
             LogicalPlan::EmptyRelation(_) => todo!(),
-            LogicalPlan::CrossJoin(_) => todo!(),
+            LogicalPlan::CrossJoin(j) => self.physical_plan_cross_join(j),
             LogicalPlan::SubqueryAlias(_) => todo!(),
             LogicalPlan::Join(join) => self.physical_plan_join(join),
         }

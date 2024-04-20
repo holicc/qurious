@@ -69,3 +69,30 @@ impl Display for BinaryExpr {
         write!(f, "{} {} {}", self.left, self.op, self.right)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use arrow::datatypes::{DataType, Schema};
+
+    use super::*;
+    use crate::{build_schema, physical::expr::Column, test_utils::build_record_i32};
+    use std::sync::Arc;
+
+    #[test]
+    fn test_eq() {
+        let expr = Arc::new(BinaryExpr::new(
+            Arc::new(Column::new("b1", 0)),
+            Operator::Eq,
+            Arc::new(Column::new("b2", 1)),
+        ));
+
+        let schema = Arc::new(build_schema!(("b1", DataType::Int32), ("b2", DataType::Int32)));
+
+        let data = build_record_i32(schema, vec![vec![1, 2]]);
+
+        let results = expr.evaluate(&data[0]).unwrap();
+        let except = Arc::new(BooleanArray::from(vec![false]));
+
+        assert_eq!(*results, *except);
+    }
+}

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone,Copy)]
 pub enum JoinType {
     Left,
     Right,

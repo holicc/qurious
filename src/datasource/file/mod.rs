@@ -7,7 +7,6 @@ use url::Url;
 
 use crate::error::{Error, Result};
 
-use super::DataSource;
 
 pub trait DataFilePath {
     fn to_url(self) -> Result<Url>;

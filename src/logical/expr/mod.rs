@@ -5,6 +5,7 @@ mod binary;
 mod column;
 mod literal;
 
+use std::collections::HashSet;
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -40,6 +41,10 @@ impl LogicalExpr {
             LogicalExpr::Literal(v) => Ok(Arc::new(v.to_field())),
             LogicalExpr::Alias(a) => a.expr.field(plan),
         }
+    }
+
+    pub fn using_columns(&self) -> Result<HashSet<Column>> {
+        todo!()
     }
 }
 

@@ -5,7 +5,7 @@ edition = "2021"
 
 
 [dependencies]
-arrow = "50.0.0"
+arrow = "51.0.0"
 connectorx = { git = "https://github.com/holicc/connector-x.git", branch = "main", default-features = false, features = [
     "branch",
     "dst_arrow",
@@ -17,7 +17,7 @@ url = "2.5.0"
 
 
 [dev-dependencies]
-arrow = { version = "50.0.0", features = ["prettyprint", "test_utils"] }
+arrow = { version = "51.0.0", features = ["prettyprint", "test_utils"] }
 
 [features]
 postgres = ["connectorx/src_postgres"]
