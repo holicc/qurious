@@ -43,8 +43,30 @@ impl LogicalExpr {
         }
     }
 
-    pub fn using_columns(&self) -> Result<HashSet<Column>> {
-        todo!()
+    pub fn using_columns(&self) -> HashSet<Column> {
+        let mut columns = HashSet::new();
+        let mut stack = vec![self];
+
+        while let Some(expr) = stack.pop() {
+            match expr {
+                LogicalExpr::Column(a) => {
+                    columns.insert(a.clone());
+                }
+                LogicalExpr::Alias(a) => {
+                    stack.push(&a.expr);
+                }
+                LogicalExpr::BinaryExpr(binary_op) => {
+                    stack.push(&binary_op.left);
+                    stack.push(&binary_op.right);
+                }
+                LogicalExpr::AggregateExpr(ag) => {
+                    stack.push(&ag.expr);
+                }
+                _ => {}
+            }
+        }
+
+        columns
     }
 }
 

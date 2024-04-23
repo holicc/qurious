@@ -118,9 +118,7 @@ impl DefaultQueryPlanner {
         let left = self.create_physical_plan(join.left.as_ref())?;
         let right = self.create_physical_plan(join.right.as_ref())?;
 
-        
-
-        let using_columns = join.filter.using_columns()?;
+        let using_columns = join.filter.using_columns();
 
         let ls = left.schema();
         let li = using_columns

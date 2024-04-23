@@ -6,17 +6,16 @@ use std::sync::Arc;
 
 use arrow::{
     array::{
-        downcast_array, new_empty_array, new_null_array, AsArray, BooleanArray, RecordBatch, RecordBatchOptions,
-        UInt32Array, UInt32Builder, UInt64Array, UInt64Builder,
+        downcast_array, new_empty_array, new_null_array, AsArray, BooleanArray, BooleanBufferBuilder, RecordBatch,
+        RecordBatchOptions, UInt32Array, UInt32Builder, UInt64Array, UInt64Builder,
     },
     compute::{self, concat_batches},
-    datatypes::{DataType, Field, Schema, SchemaBuilder, SchemaRef, UInt64Type},
+    datatypes::{DataType, Field, Schema, SchemaBuilder, SchemaRef},
 };
 
 use crate::{
     common::JoinType,
     error::{Error, Result},
-    logical::expr::LogicalExpr,
     physical::expr::PhysicalExpr,
 };
 
@@ -149,6 +148,10 @@ fn build_join_indices(
             .collect()
     };
 
+    // bitmap for full join
+    let mut left_bitmap = build_bitmap(join_type, left.num_rows());
+    let mut right_bitmap = build_bitmap(join_type, right.num_rows());
+
     let mut l = UInt64Builder::new();
     let mut r = UInt32Builder::new();
     for ((left_indices, right_indices), mask) in indices.into_iter().zip(masks.into_iter()) {
@@ -167,7 +170,6 @@ fn build_join_indices(
                 r.append_values(right_indices.values(), &vec![true; right_indices.len()]);
             }
             JoinType::Inner => {
-                // inner join should filter out null data
                 let left_indices = compute::filter(&left_indices, &mask)?;
                 let left_indices: UInt64Array = downcast_array(&left_indices);
 
@@ -178,9 +180,45 @@ fn build_join_indices(
                 r.append_values(right_indices.values(), &vec![true; right_indices.len()]);
             }
             JoinType::Full => {
-                l.append_values(left_indices.values(), &vec![true; right_indices.len()]);
+                let left_indices = compute::filter(&left_indices, &mask)?;
+                let left_indices: UInt64Array = downcast_array(&left_indices);
+
+                let right_indices = compute::filter(&right_indices, &mask)?;
+                let right_indices: UInt32Array = downcast_array(&right_indices);
+
+                if join_type == &JoinType::Full {
+                    left_indices
+                        .iter()
+                        .flatten()
+                        .for_each(|v| left_bitmap.set_bit(v as usize, false));
+                    right_indices
+                        .iter()
+                        .flatten()
+                        .for_each(|v| right_bitmap.set_bit(v as usize, false));
+                }
+
+                l.append_values(left_indices.values(), &vec![true; left_indices.len()]);
                 r.append_values(right_indices.values(), &vec![true; right_indices.len()]);
             }
+        }
+    }
+
+    if join_type == &JoinType::Full {
+        // append right remain indices
+        let right_remain_indices = (0..right.num_rows())
+            .filter_map(|idx| right_bitmap.get_bit(idx).then_some(idx as u32))
+            .collect::<UInt32Array>();
+        for remain_row in right_remain_indices.iter().flatten() {
+            l.append_null();
+            r.append_value(remain_row);
+        }
+        // append left remain indices
+        let left_remain_indices = (0..left.num_rows())
+            .filter_map(|idx| left_bitmap.get_bit(idx).then_some(idx as u64))
+            .collect::<UInt64Array>();
+        for remain_row in left_remain_indices.iter().flatten() {
+            l.append_value(remain_row);
+            r.append_null();
         }
     }
 
@@ -251,6 +289,17 @@ fn build_batch_from_indices(
     Ok(RecordBatch::try_new(schema, columns)?)
 }
 
+fn build_bitmap(join_type: &JoinType, num_rows: usize) -> BooleanBufferBuilder {
+    match join_type {
+        JoinType::Full => {
+            let mut buffer = BooleanBufferBuilder::new(num_rows);
+            buffer.append_n(num_rows, true);
+            buffer
+        }
+        _ => BooleanBufferBuilder::new(0),
+    }
+}
+
 pub fn join_schema(left: &Schema, right: &Schema, join_type: &JoinType) -> (SchemaRef, Vec<ColumnIndex>) {
     let (left_nullable, right_nullable) = match join_type {
         JoinType::Left => (false, true),
@@ -318,7 +367,7 @@ mod tests {
     /// | 3  | 6  | 9  | 10 | 12 | 14 |
     /// | 3  | 6  | 9  | 11 | 13 | 15 |
     /// +----+----+----+----+----+----+
-    fn build_table(join_type: JoinType) -> Join {
+    fn build_table(join_type: JoinType, join_filter: Option<JoinFilter>) -> Join {
         let left = build_table_scan_i32(vec![
             ("a1", vec![1, 2, 3]),
             ("b1", vec![4, 5, 6]),
@@ -326,41 +375,39 @@ mod tests {
         ]);
 
         let right = build_table_scan_i32(vec![("a2", vec![10, 11]), ("b2", vec![12, 13]), ("c2", vec![14, 15])]);
+        Join::try_new(left, right, join_type, join_filter).unwrap()
+    }
 
-        // a1 != 2 and b2 != 10
+    // a1 != ? and b2 != ?
+    fn build_filter(a1: i32, b2: i32) -> Option<JoinFilter> {
         let expr = Arc::new(BinaryExpr::new(
             Arc::new(BinaryExpr::new(
                 Arc::new(Column::new("a1", 0)),
                 Operator::NotEq,
-                Arc::new(Literal::new(2.into())),
+                Arc::new(Literal::new(a1.into())),
             )),
             Operator::And,
             Arc::new(BinaryExpr::new(
                 Arc::new(Column::new("b2", 1)),
                 Operator::NotEq,
-                Arc::new(Literal::new(10.into())),
+                Arc::new(Literal::new(b2.into())),
             )),
         ));
 
         let filter_schema = Arc::new(build_schema!(("a1", DataType::Int32), ("b2", DataType::Int32)));
         let column_indices = vec![(0, JoinSide::Left), (1, JoinSide::Right)];
 
-        Join::try_new(
-            left,
-            right,
-            join_type,
-            Some(JoinFilter {
-                expr,
-                schema: filter_schema,
-                column_indices,
-            }),
-        )
-        .unwrap()
+        Some(JoinFilter {
+            expr,
+            schema: filter_schema,
+            column_indices,
+        })
     }
 
     #[test]
     fn test_inner_join() {
-        let join = build_table(JoinType::Inner);
+        let filter_join = build_filter(2, 10);
+        let join = build_table(JoinType::Inner, filter_join);
         let r = join.execute().unwrap();
 
         assert_batch_eq(
@@ -380,7 +427,8 @@ mod tests {
 
     #[test]
     fn test_left_join() {
-        let join = build_table(JoinType::Left);
+        let filter_join = build_filter(2, 10);
+        let join = build_table(JoinType::Inner, filter_join);
         let r = join.execute().unwrap();
 
         assert_batch_eq(
@@ -395,6 +443,50 @@ mod tests {
                 "| 2  | 5  | 8  |    |    |    |",
                 "| 3  | 6  | 9  | 10 | 12 | 14 |",
                 "| 3  | 6  | 9  | 11 | 13 | 15 |",
+                "+----+----+----+----+----+----+",
+            ],
+        )
+    }
+
+    #[test]
+    fn test_right_join() {
+        let filter_join = build_filter(2, 10);
+        let join = build_table(JoinType::Inner, filter_join);
+        let r = join.execute().unwrap();
+
+        assert_batch_eq(
+            &r,
+            vec![
+                "+----+----+----+----+----+----+",
+                "| a1 | b1 | c1 | a2 | b2 | c2 |",
+                "+----+----+----+----+----+----+",
+                "| 1  | 4  | 7  | 10 | 12 | 14 |",
+                "| 1  | 4  | 7  | 11 | 13 | 15 |",
+                "|    |    |    | 10 | 12 | 14 |",
+                "|    |    |    | 11 | 13 | 15 |",
+                "| 3  | 6  | 9  | 10 | 12 | 14 |",
+                "| 3  | 6  | 9  | 11 | 13 | 15 |",
+                "+----+----+----+----+----+----+",
+            ],
+        )
+    }
+
+    #[test]
+    fn test_full_join() {
+        let filter_join = build_filter(2, 12);
+        let join = build_table(JoinType::Full, filter_join);
+        let r = join.execute().unwrap();
+
+        assert_batch_eq(
+            &r,
+            vec![
+                "+----+----+----+----+----+----+",
+                "| a1 | b1 | c1 | a2 | b2 | c2 |",
+                "+----+----+----+----+----+----+",
+                "| 1  | 4  | 7  | 11 | 13 | 15 |",
+                "| 3  | 6  | 9  | 11 | 13 | 15 |",
+                "|    |    |    | 10 | 12 | 14 |",
+                "| 2  | 5  | 8  |    |    |    |",
                 "+----+----+----+----+----+----+",
             ],
         )
