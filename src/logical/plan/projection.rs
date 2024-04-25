@@ -17,7 +17,10 @@ impl Projection {
         Ok(Self {
             schema: exprs
                 .iter()
-                .map(|f| f.field(&input))
+                .filter_map(|f| match f {
+                    LogicalExpr::Column(i) => Some(i.field(&input)),
+                    _ => None,
+                })
                 .collect::<Result<Vec<FieldRef>>>()
                 .map(|fields| Arc::new(Schema::new(fields)))?,
             input: Box::new(input),

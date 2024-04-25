@@ -18,11 +18,24 @@ pub enum AggregateOperator {
 impl Display for AggregateOperator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AggregateOperator::Sum => write!(f, "sum"),
-            AggregateOperator::Min => write!(f, "min"),
-            AggregateOperator::Max => write!(f, "max"),
-            AggregateOperator::Avg => write!(f, "avg"),
-            AggregateOperator::Count => write!(f, "count"),
+            AggregateOperator::Sum => write!(f, "SUM"),
+            AggregateOperator::Min => write!(f, "MIN"),
+            AggregateOperator::Max => write!(f, "MAX"),
+            AggregateOperator::Avg => write!(f, "AVG"),
+            AggregateOperator::Count => write!(f, "COUNT"),
+        }
+    }
+}
+
+impl From<String> for AggregateOperator {
+    fn from(value: String) -> Self {
+        match value.to_lowercase().as_str() {
+            "sum" => AggregateOperator::Sum,
+            "min" => AggregateOperator::Min,
+            "max" => AggregateOperator::Max,
+            "avg" => AggregateOperator::Avg,
+            "count" => AggregateOperator::Count,
+            _ => unimplemented!("{} is not a valid aggregate operator", value),
         }
     }
 }

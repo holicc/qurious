@@ -15,8 +15,8 @@ use crate::{
     error::{Error, Result},
     execution::registry::TableRegistry,
     logical::{
-        expr::*,
-        plan::{Filter, LogicalPlan, SubqueryAlias},
+        expr::{self, *},
+        plan::{Aggregate, Filter, LogicalPlan, SubqueryAlias},
         LogicalPlanBuilder,
     },
 };
@@ -56,10 +56,10 @@ impl<'a> SqlQueryPlanner<'a> {
     }
 
     fn select_to_plan(&mut self, select: Select, mut context: &mut PlannerContext) -> Result<LogicalPlan> {
+        // process `with` clause
         if let Some(with) = select.with {
             self.cte_tables(&mut context, with.cte_tables)?;
         }
-
         // process `from` clause
         let plan = self.table_scan_to_plan(&mut context, select.from)?;
         let empty_from = match plan {
@@ -70,6 +70,18 @@ impl<'a> SqlQueryPlanner<'a> {
         let plan = self.filter_expr(plan, select.r#where, &mut context)?;
         // process the SELECT expressions
         let column_exprs = self.column_exprs(&plan, empty_from, select.columns, &context)?;
+        // process the HAVING clause
+        let having = if let Some(having_expr) = select.having {
+            Some(self.sql_to_expr(&mut context, having_expr)?)
+        } else {
+            None
+        };
+        // process the GROUP BY clause
+        let plan = if let Some(group_by) = select.group_by {
+            self.aggregate_plan(plan, &mut context, &column_exprs, group_by, having)?
+        } else {
+            plan
+        };
 
         LogicalPlanBuilder::project(plan, column_exprs)
     }
@@ -181,6 +193,53 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
+    fn filter_expr(
+        &self,
+        mut plan: LogicalPlan,
+        expr: Option<Expression>,
+        ctx: &PlannerContext,
+    ) -> Result<LogicalPlan> {
+        if let Some(filter) = expr {
+            let filter_expr = self.sql_to_expr(ctx, filter)?;
+
+            // we should parse filter first and then apply it to the table scan
+            match &mut plan {
+                LogicalPlan::TableScan(table) => {
+                    table.filter = Some(filter_expr.clone());
+                }
+                _ => {}
+            }
+
+            Ok(LogicalPlan::Filter(Filter::new(plan, filter_expr)))
+        } else {
+            Ok(plan)
+        }
+    }
+
+    fn apply_table_alias(&self, ctx: &mut PlannerContext, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
+        match plan {
+            LogicalPlan::TableScan(mut table) => {
+                let mut relation = ctx
+                    .relations
+                    .remove(&table.relation)
+                    .ok_or(Error::TableNotFound(format!(
+                        "Can't apply table alias: {} to relation: {}, because relation not exists",
+                        alias, table.relation
+                    )))?;
+
+                let new_relation: TableRelation = alias.clone().into();
+                // replace table relation in context with alias
+                relation.alias = Some(alias);
+                ctx.relations.insert(new_relation.clone(), relation);
+                // apply alias to table scan plan
+                table.relation = new_relation;
+
+                Ok(LogicalPlan::TableScan(table))
+            }
+            _ => Ok(plan),
+        }
+    }
+
     fn parse_csv_options(&self, mut args: Vec<Assignment>) -> Result<(String, CsvReadOptions)> {
         if args.len() == 0 {
             return Err(Error::InternalError(
@@ -250,6 +309,32 @@ impl<'a> SqlQueryPlanner<'a> {
 
         Ok((path, options))
     }
+
+    fn aggregate_plan(
+        &self,
+        input: LogicalPlan,
+        ctx: &mut PlannerContext,
+        column_exprs: &[LogicalExpr],
+        group_by: Vec<Expression>,
+        _having_expr: Option<LogicalExpr>,
+    ) -> Result<LogicalPlan> {
+        // get aggregate expressions
+        let aggr_exprs = column_exprs
+            .iter()
+            .filter_map(|expr| match expr {
+                LogicalExpr::AggregateExpr(aggr) => Some(aggr.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let group_exprs = group_by
+            .into_iter()
+            .map(|expr| self.sql_to_expr(ctx, expr))
+            .collect::<Result<Vec<_>>>()?;
+
+        LogicalPlanBuilder::from(input)
+            .aggregate(group_exprs, aggr_exprs)
+            .map(|plan| plan.build())
+    }
 }
 
 impl<'a> SqlQueryPlanner<'a> {
@@ -281,30 +366,6 @@ impl<'a> SqlQueryPlanner<'a> {
         Ok(())
     }
 
-    fn apply_table_alias(&self, ctx: &mut PlannerContext, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
-        match plan {
-            LogicalPlan::TableScan(mut table) => {
-                let mut relation = ctx
-                    .relations
-                    .remove(&table.relation)
-                    .ok_or(Error::TableNotFound(format!(
-                        "Can't apply table alias: {} to relation: {}, because relation not exists",
-                        alias, table.relation
-                    )))?;
-
-                let new_relation: TableRelation = alias.clone().into();
-                // replace table relation in context with alias
-                relation.alias = Some(alias);
-                ctx.relations.insert(new_relation.clone(), relation);
-                // apply alias to table scan plan
-                table.relation = new_relation;
-
-                Ok(LogicalPlan::TableScan(table))
-            }
-            _ => Ok(plan),
-        }
-    }
-
     fn column_exprs(
         &self,
         plan: &LogicalPlan,
@@ -321,29 +382,6 @@ impl<'a> SqlQueryPlanner<'a> {
             .collect::<Result<Vec<LogicalExpr>>>()
     }
 
-    fn filter_expr(
-        &self,
-        mut plan: LogicalPlan,
-        expr: Option<Expression>,
-        ctx: &PlannerContext,
-    ) -> Result<LogicalPlan> {
-        if let Some(filter) = expr {
-            let filter_expr = self.sql_to_expr(ctx, filter)?;
-
-            // we should parse filter first and then apply it to the table scan
-            match &mut plan {
-                LogicalPlan::TableScan(table) => {
-                    table.filter = Some(filter_expr.clone());
-                }
-                _ => {}
-            }
-
-            Ok(LogicalPlan::Filter(Filter::new(plan, filter_expr)))
-        } else {
-            Ok(plan)
-        }
-    }
-
     fn sql_to_expr(&self, ctx: &PlannerContext, expr: Expression) -> Result<LogicalExpr> {
         match expr {
             Expression::Identifier(ident) => normalize_col_with_schemas_and_ambiguity_check(
@@ -358,7 +396,26 @@ impl<'a> SqlQueryPlanner<'a> {
                 Literal::Null => Ok(LogicalExpr::Literal(ScalarValue::Null)),
             },
             Expression::BinaryOperator(op) => self.parse_binary_op(op, ctx),
-            _ => todo!("{:?}", expr),
+            Expression::Function(name, args) => {
+                let mut exprs = args
+                    .into_iter()
+                    .map(|expr| self.sql_function_args_to_expr(ctx, expr))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(LogicalExpr::AggregateExpr(AggregateExpr {
+                    op: name.into(),
+                    expr: Box::new(exprs.pop().ok_or(Error::InternalError(format!(
+                        "Aggreate function should have at latest one expr"
+                    )))?),
+                }))
+            }
+            _ => todo!(),
+        }
+    }
+
+    fn sql_function_args_to_expr(&self, ctx: &PlannerContext, expr: Expression) -> Result<LogicalExpr> {
+        match expr {
+            Expression::Identifier(ident) if ident == "*" => Ok(LogicalExpr::Wildcard),
+            _ => self.sql_to_expr(ctx, expr),
         }
     }
 
@@ -703,6 +760,17 @@ mod tests {
             "WITH t1 AS (SELECT * FROM person) SELECT * FROM t1",
             "Projection: (t1.age,t1.first_name,t1.id,t1.name)\n  SubqueryAlias: t1\n    Projection: (person.age,person.first_name,person.id,person.name)\n      TableScan: person\n",
         );
+    }
+
+    #[test]
+    fn test_group_by() {
+        let sql = "SELECT name,max(name) FROM person GROUP BY name";
+        let expected = "Projection: (person.name,MAX(person.name))\n  Aggregate: group_expr=[person.name], aggregat_expr=[MAX(person.name)]\n    TableScan: person\n";
+        quick_test(sql, expected);
+
+        let sql = "SELECT name, COUNT(*) FROM person GROUP BY name";
+        let expected = "Projection: (person.name,COUNT(*))\n  Aggregate: group_expr=[person.name], aggregat_expr=[COUNT(*)]\n    TableScan: person\n";
+        quick_test(sql, expected);
     }
 
     fn quick_test(sql: &str, expected: &str) {

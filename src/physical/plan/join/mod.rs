@@ -186,16 +186,14 @@ fn build_join_indices(
                 let right_indices = compute::filter(&right_indices, &mask)?;
                 let right_indices: UInt32Array = downcast_array(&right_indices);
 
-                if join_type == &JoinType::Full {
-                    left_indices
-                        .iter()
-                        .flatten()
-                        .for_each(|v| left_bitmap.set_bit(v as usize, false));
-                    right_indices
-                        .iter()
-                        .flatten()
-                        .for_each(|v| right_bitmap.set_bit(v as usize, false));
-                }
+                left_indices
+                    .iter()
+                    .flatten()
+                    .for_each(|v| left_bitmap.set_bit(v as usize, false));
+                right_indices
+                    .iter()
+                    .flatten()
+                    .for_each(|v| right_bitmap.set_bit(v as usize, false));
 
                 l.append_values(left_indices.values(), &vec![true; left_indices.len()]);
                 r.append_values(right_indices.values(), &vec![true; right_indices.len()]);
@@ -203,8 +201,8 @@ fn build_join_indices(
         }
     }
 
+    // combain left and right null values
     if join_type == &JoinType::Full {
-        // append right remain indices
         let right_remain_indices = (0..right.num_rows())
             .filter_map(|idx| right_bitmap.get_bit(idx).then_some(idx as u32))
             .collect::<UInt32Array>();
@@ -212,7 +210,6 @@ fn build_join_indices(
             l.append_null();
             r.append_value(remain_row);
         }
-        // append left remain indices
         let left_remain_indices = (0..left.num_rows())
             .filter_map(|idx| left_bitmap.get_bit(idx).then_some(idx as u64))
             .collect::<UInt64Array>();
@@ -428,7 +425,7 @@ mod tests {
     #[test]
     fn test_left_join() {
         let filter_join = build_filter(2, 10);
-        let join = build_table(JoinType::Inner, filter_join);
+        let join = build_table(JoinType::Left, filter_join);
         let r = join.execute().unwrap();
 
         assert_batch_eq(
@@ -451,7 +448,7 @@ mod tests {
     #[test]
     fn test_right_join() {
         let filter_join = build_filter(2, 10);
-        let join = build_table(JoinType::Inner, filter_join);
+        let join = build_table(JoinType::Right, filter_join);
         let r = join.execute().unwrap();
 
         assert_batch_eq(

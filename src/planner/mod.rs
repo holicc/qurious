@@ -184,7 +184,7 @@ pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
 ) -> Result<LogicalExpr> {
     match expr {
         LogicalExpr::Column(mut col) => {
-            if col.relation.is_some() {
+            if col.relation.is_some(){
                 return Ok(LogicalExpr::Column(col));
             }
 

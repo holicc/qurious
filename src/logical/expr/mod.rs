@@ -11,13 +11,13 @@ use std::sync::Arc;
 
 pub use aggregate::{AggregateExpr, AggregateOperator};
 
-use arrow::datatypes::FieldRef;
+use arrow::datatypes::{Field, FieldRef};
 pub use binary::*;
 pub use column::*;
 pub use literal::*;
 
 use crate::datatypes::scalar::ScalarValue;
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 use self::alias::Alias;
 
@@ -30,6 +30,7 @@ pub enum LogicalExpr {
     Literal(ScalarValue),
     BinaryExpr(BinaryExpr),
     AggregateExpr(AggregateExpr),
+    Wildcard,
 }
 
 impl LogicalExpr {
@@ -40,6 +41,10 @@ impl LogicalExpr {
             LogicalExpr::AggregateExpr(a) => a.field(plan),
             LogicalExpr::Literal(v) => Ok(Arc::new(v.to_field())),
             LogicalExpr::Alias(a) => a.expr.field(plan),
+            _ => Err(Error::InternalError(format!(
+                "Cannot determine schema for expression: {:?}",
+                self
+            ))),
         }
     }
 
@@ -78,6 +83,7 @@ impl Display for LogicalExpr {
             LogicalExpr::BinaryExpr(e) => write!(f, "{}", e),
             LogicalExpr::AggregateExpr(e) => write!(f, "{}", e),
             LogicalExpr::Alias(a) => write!(f, "{}", a),
+            LogicalExpr::Wildcard => write!(f, "*"),
         }
     }
 }
