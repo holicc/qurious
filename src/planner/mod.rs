@@ -52,6 +52,7 @@ impl DefaultQueryPlanner {
 
     fn physical_plan_aggregate(&self, aggregate: &Aggregate) -> Result<Arc<dyn PhysicalPlan>> {
         let input = self.create_physical_plan(&aggregate.input)?;
+        
         let group_expr = aggregate
             .group_expr
             .iter()

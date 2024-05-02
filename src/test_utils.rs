@@ -10,15 +10,15 @@ use crate::datasource::{memory::MemoryDataSource, DataSource};
 
 #[macro_export]
 macro_rules! build_schema {
-    ( $(($field_name:expr,$data_type:expr)),* ) => {
-        Schema::new(vec![
+    ( $(($field_name:expr,$data_type:expr)),+$(,)?) => {
+        arrow::datatypes::Schema::new(vec![
             $(
                 arrow::datatypes::Field::new($field_name, $data_type, false),
             )*
         ])
     };
 
-    ( $(($field_name:expr,$data_type:expr, $nullable:expr)),* ) => {
+    ( $(($field_name:expr,$data_type:expr, $nullable:expr)),+$(,)? ) => {
         Schema::new(vec![
             $(
                 arrow::datatypes::Field::new($field_name, $data_type, $nullable),

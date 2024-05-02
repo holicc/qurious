@@ -326,6 +326,7 @@ impl<'a> SqlQueryPlanner<'a> {
                 _ => None,
             })
             .collect::<Vec<_>>();
+
         let group_exprs = group_by
             .into_iter()
             .map(|expr| self.sql_to_expr(ctx, expr))
@@ -770,6 +771,10 @@ mod tests {
 
         let sql = "SELECT name, COUNT(*) FROM person GROUP BY name";
         let expected = "Projection: (person.name,COUNT(*))\n  Aggregate: group_expr=[person.name], aggregat_expr=[COUNT(*)]\n    TableScan: person\n";
+        quick_test(sql, expected);
+
+        let sql = "SELECT * FROM person GROUP BY name";
+        let expected = "Arrow Error: Schema error: Unable to get field named \"age\". Valid fields: [\"name\"]";
         quick_test(sql, expected);
     }
 

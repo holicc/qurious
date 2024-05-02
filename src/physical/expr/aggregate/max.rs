@@ -1,13 +1,17 @@
 use std::{fmt::Display, sync::Arc};
 
+use arrow::array::{ArrayRef, AsArray};
+use arrow::compute;
+use arrow::datatypes::{DataType, Int32Type};
+
 use super::{Accumulator, AggregateExpr};
 use crate::datatypes::scalar::ScalarValue;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::physical::expr::PhysicalExpr;
 
 #[derive(Debug)]
 pub struct MaxAggregateExpr {
-    expr: Arc<dyn PhysicalExpr>,
+    pub expr: Arc<dyn PhysicalExpr>,
 }
 
 impl MaxAggregateExpr {}
@@ -40,19 +44,19 @@ pub struct MaxAccumulator {
 }
 
 impl Accumulator for MaxAccumulator {
-    fn accumluate(&mut self, value: &ScalarValue) -> Result<()> {
-        if self.max.is_none() {
-            self.max = Some(value.clone())
-        } else if let Some(max) = &mut self.max {
-            if value > max {
-                *max = value.clone();
-            }
-        }
+    fn accumluate(&mut self, value: &ArrayRef) -> Result<()> {
+        let value: &arrow::array::PrimitiveArray<Int32Type> = value.as_primitive();
+
+        let max = compute::max(value);
+
+        self.max = max.map(|a| ScalarValue::from(a));
 
         Ok(())
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
-        Ok(self.max.take().unwrap_or_else(|| ScalarValue::Null))
+        self.max
+            .clone()
+            .ok_or(Error::InternalError(format!("failed get max accumulator results!")))
     }
 }
