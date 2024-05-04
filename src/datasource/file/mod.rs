@@ -1,4 +1,5 @@
 pub mod csv;
+pub mod json;
 
 use std::fs::{self, File};
 
@@ -6,7 +7,6 @@ use arrow::{csv::reader::BufReader, datatypes::SchemaRef};
 use url::Url;
 
 use crate::error::{Error, Result};
-
 
 pub trait DataFilePath {
     fn to_url(self) -> Result<Url>;

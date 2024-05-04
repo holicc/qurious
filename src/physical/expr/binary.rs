@@ -72,7 +72,7 @@ impl Display for BinaryExpr {
 
 #[cfg(test)]
 mod tests {
-    use arrow::datatypes::{DataType, Schema};
+    use arrow::datatypes::DataType;
 
     use super::*;
     use crate::{build_schema, physical::expr::Column, test_utils::build_record_i32};

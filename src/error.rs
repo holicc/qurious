@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, io};
 
 use arrow::error::ArrowError;
 
@@ -20,6 +20,12 @@ pub enum Error {
 impl From<ArrowError> for Error {
     fn from(e: ArrowError) -> Self {
         Error::ArrowError(e)
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::InternalError(e.to_string())
     }
 }
 

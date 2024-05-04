@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 pub use aggregate::{AggregateExpr, AggregateOperator};
 
-use arrow::datatypes::{Field, FieldRef};
+use arrow::datatypes::{DataType, Field, FieldRef};
 pub use binary::*;
 pub use column::*;
 pub use literal::*;
@@ -41,6 +41,7 @@ impl LogicalExpr {
             LogicalExpr::AggregateExpr(a) => a.field(plan),
             LogicalExpr::Literal(v) => Ok(Arc::new(v.to_field())),
             LogicalExpr::Alias(a) => a.expr.field(plan),
+            LogicalExpr::Wildcard => Ok(Arc::new(Field::new("*", DataType::Null, true))),
             _ => Err(Error::InternalError(format!(
                 "Cannot determine schema for expression: {:?}",
                 self

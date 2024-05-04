@@ -2,7 +2,7 @@ use std::{fmt::Display, sync::Arc};
 
 use arrow::array::{ArrayRef, AsArray};
 use arrow::compute;
-use arrow::datatypes::{DataType, Int32Type};
+use arrow::datatypes::Int32Type;
 
 use super::{Accumulator, AggregateExpr};
 use crate::datatypes::scalar::ScalarValue;

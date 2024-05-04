@@ -14,8 +14,6 @@ pub use sub_query::SubqueryAlias;
 
 use arrow::datatypes::SchemaRef;
 
-use super::expr::Column;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmptyRelation {
     schema: SchemaRef,

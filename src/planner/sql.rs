@@ -15,8 +15,8 @@ use crate::{
     error::{Error, Result},
     execution::registry::TableRegistry,
     logical::{
-        expr::{self, *},
-        plan::{Aggregate, Filter, LogicalPlan, SubqueryAlias},
+        expr::*,
+        plan::{Filter, LogicalPlan, SubqueryAlias},
         LogicalPlanBuilder,
     },
 };

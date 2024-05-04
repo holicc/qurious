@@ -6,7 +6,7 @@ mod scan;
 
 pub use aggregate::HashAggregate;
 pub use filter::Filter;
-pub use join::{CrossJoin, Join, JoinSide,JoinFilter,ColumnIndex,join_schema};
+pub use join::{join_schema, ColumnIndex, CrossJoin, Join, JoinFilter, JoinSide};
 pub use projection::Projection;
 pub use scan::Scan;
 

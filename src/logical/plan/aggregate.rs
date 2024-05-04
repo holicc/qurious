@@ -17,14 +17,11 @@ pub struct Aggregate {
 
 impl Aggregate {
     pub fn try_new(input: LogicalPlan, group_expr: Vec<LogicalExpr>, aggr_expr: Vec<AggregateExpr>) -> Result<Self> {
-        let schema = group_expr
-            .iter()
-            .map(|f| f.field(&input))
-            .collect::<Result<Vec<_>>>()
-            .map(|fields| Arc::new(Schema::new(fields)))?;
+        let group_fields = group_expr.iter().map(|f| f.field(&input));
+        let agg_fields = aggr_expr.iter().map(|f| &f.expr).map(|f| f.field(&input));
 
         Ok(Self {
-            schema,
+            schema: Arc::new(Schema::new(group_fields.chain(agg_fields).collect::<Result<Vec<_>>>()?)),
             input: Box::new(input),
             group_expr,
             aggr_expr,

@@ -1,4 +1,4 @@
-// pub mod db;
+pub mod adbc;
 pub mod file;
 pub mod memory;
 

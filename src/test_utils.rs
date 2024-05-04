@@ -31,7 +31,13 @@ pub(crate) fn assert_batch_eq(actual: &[RecordBatch], except: Vec<&str>) {
     let str = util::pretty::pretty_format_batches(actual).unwrap().to_string();
     let actual = str.split('\n').collect::<Vec<&str>>();
 
-    assert_eq!(actual, except, "\nexcepe:\n[ \n\t{}\n ]\nactual:\n[ \n\t{} \n]\n", except.join("\n\t"), actual.join("\n\t"));
+    assert_eq!(
+        actual,
+        except,
+        "\nexcepe:\n[ \n\t{}\n ]\nactual:\n[ \n\t{} \n]\n",
+        except.join("\n\t"),
+        actual.join("\n\t")
+    );
 }
 
 pub(crate) fn build_mem_datasource(fields: impl Into<Fields>, data: Vec<RecordBatch>) -> Arc<dyn DataSource> {

@@ -6,7 +6,6 @@ use arrow::{
     datatypes::{DataType, Field},
 };
 
-use crate::error::Result;
 use std::{fmt::Display, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
