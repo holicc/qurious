@@ -1,5 +1,6 @@
 pub mod csv;
 pub mod json;
+pub mod parquet;
 
 use std::fs::{self, File};
 

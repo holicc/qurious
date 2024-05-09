@@ -9,6 +9,7 @@ arrow = "51.0.0"
 sqlparser = { git = "https://github.com/holicc/sqlparser.git" }
 url = "2.5.0"
 adbc_core = { git = "https://github.com/holicc/arrow-adbc", branch = "main" }
+parquet = "51.0.0"
 
 [dev-dependencies]
 arrow = { version = "51.0.0", features = ["prettyprint", "test_utils"] }
