@@ -8,7 +8,9 @@ edition = "2021"
 arrow = "51.0.0"
 sqlparser = { git = "https://github.com/holicc/sqlparser.git" }
 url = "2.5.0"
-adbc_core = { git = "https://github.com/holicc/arrow-adbc", branch = "main" }
+adbc_core = { git = "https://github.com/alexandreyc/adbc-rs", branch = "main", features = [
+    "driver_manager",
+] }
 parquet = "51.0.0"
 
 [dev-dependencies]
