@@ -3,6 +3,7 @@ mod filter;
 mod join;
 mod projection;
 mod scan;
+mod sort;
 
 pub use aggregate::HashAggregate;
 pub use filter::Filter;

@@ -4,7 +4,7 @@ use std::{
 };
 
 use sqlparser::{
-    ast::{Assignment, BinaryOperator, Cte, Expression, From, Literal, Select, SelectItem, Statement},
+    ast::{Assignment, BinaryOperator, Cte, Expression, From, Literal, Order, Select, SelectItem, Statement},
     parser::Parser,
 };
 
@@ -83,7 +83,15 @@ impl<'a> SqlQueryPlanner<'a> {
             plan
         };
 
-        LogicalPlanBuilder::project(plan, column_exprs)
+        let plan = LogicalPlanBuilder::project(plan, column_exprs)?;
+
+        // process the ORDER BY clause
+        if let Some(order_by) = select.order_by {
+            let sort_expr = self.order_by_expr(context, order_by)?;
+            Ok(LogicalPlanBuilder::from(plan).sort(sort_expr)?.build())
+        } else {
+            Ok(plan)
+        }
     }
 
     fn table_scan_to_plan(&mut self, ctx: &mut PlannerContext, mut froms: Vec<From>) -> Result<LogicalPlan> {
@@ -335,6 +343,18 @@ impl<'a> SqlQueryPlanner<'a> {
         LogicalPlanBuilder::from(input)
             .aggregate(group_exprs, aggr_exprs)
             .map(|plan| plan.build())
+    }
+
+    fn order_by_expr(&self, ctx: &mut PlannerContext, order_by: Vec<(Expression, Order)>) -> Result<Vec<SortExpr>> {
+        order_by
+            .into_iter()
+            .map(|(expr, order)| {
+                self.sql_to_expr(ctx, expr).map(|expr| SortExpr {
+                    expr: Box::new(expr),
+                    asc: order == Order::Asc,
+                })
+            })
+            .collect()
     }
 }
 
@@ -777,6 +797,17 @@ mod tests {
         let expected = "Arrow Error: Schema error: Unable to get field named \"age\". Valid fields: [\"name\"]";
         quick_test(sql, expected);
     }
+
+    #[test]
+    fn test_order_by() {
+        quick_test(
+            "SELECT name FROM person ORDER BY name",
+            "Sort: person.name ASC\n  Projection: (person.name)\n    TableScan: person\n",
+        );
+    }
+
+    #[test]
+    fn test_limit() {}
 
     fn quick_test(sql: &str, expected: &str) {
         let mut registry = TestTableRegistry::new();

@@ -39,7 +39,6 @@ impl PostgresOption {
 
 pub fn read_postgres(sql: &str, ops: PostgresOption) -> Result<Arc<dyn DataSource>> {
     let mut driver = ops.driver.get_dirver()?;
-    println!("====>");
     let mut opts = vec![];
     // add url
     opts.push((OptionDatabase::Uri, ops.url.into()));
@@ -51,17 +50,13 @@ pub fn read_postgres(sql: &str, ops: PostgresOption) -> Result<Arc<dyn DataSourc
     if let Some(password) = ops.password {
         opts.push((OptionDatabase::Password, password.into()));
     }
-    println!("====>");
     let mut db = driver.new_database_with_opts(opts)?;
     let mut conn = db.new_connection()?;
     let mut stmt = conn.new_statement()?;
-    println!("====>");
+    
     stmt.set_sql_query(sql)?;
 
     let schema = stmt.execute_schema()?;
-
-    println!("====>");
-
     stmt.execute().map(|reader| {
         let batch = reader.collect::<Result<Vec<_>, arrow::error::ArrowError>>()?;
         Ok(Arc::new(MemoryDataSource::new(Arc::new(schema), batch)) as Arc<dyn DataSource>)

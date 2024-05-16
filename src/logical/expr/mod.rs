@@ -1,27 +1,26 @@
-pub mod alias;
-
 mod aggregate;
+pub mod alias;
 mod binary;
 mod column;
 mod literal;
+mod sort;
 
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::sync::Arc;
 
 pub use aggregate::{AggregateExpr, AggregateOperator};
-
-use arrow::datatypes::{DataType, Field, FieldRef};
 pub use binary::*;
 pub use column::*;
 pub use literal::*;
+pub use sort::*;
 
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::{Error, Result};
+use crate::logical::plan::LogicalPlan;
+use arrow::datatypes::{DataType, Field, FieldRef};
 
 use self::alias::Alias;
-
-use super::plan::LogicalPlan;
 
 #[derive(Debug, Clone)]
 pub enum LogicalExpr {
@@ -30,6 +29,7 @@ pub enum LogicalExpr {
     Literal(ScalarValue),
     BinaryExpr(BinaryExpr),
     AggregateExpr(AggregateExpr),
+    SortExpr(SortExpr),
     Wildcard,
 }
 
@@ -85,6 +85,7 @@ impl Display for LogicalExpr {
             LogicalExpr::AggregateExpr(e) => write!(f, "{}", e),
             LogicalExpr::Alias(a) => write!(f, "{}", a),
             LogicalExpr::Wildcard => write!(f, "*"),
+            LogicalExpr::SortExpr(s) => write!(f, "{}", s),
         }
     }
 }

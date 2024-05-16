@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, Int32Array, RecordBatch},
-    datatypes::{Fields, Schema, SchemaRef},
+    array::{make_array, make_builder, Array, Int32Array, PrimitiveArray, RecordBatch},
+    datatypes::{Fields, Int32Type, Schema, SchemaRef},
     util,
 };
 
@@ -24,6 +24,36 @@ macro_rules! build_schema {
                 arrow::datatypes::Field::new($field_name, $data_type, $nullable),
             )*
         ])
+    };
+}
+
+#[macro_export]
+macro_rules! build_table_scan {
+    ( $(($column: expr, $data_type: ty, $f_dy: expr, $data: expr)),+$(,)? ) => {
+       { 
+        use crate::datasource::memory::MemoryDataSource;
+        use crate::physical::plan::Scan;
+        use arrow::array::{Array, PrimitiveArray};
+        use arrow::datatypes::*;
+
+        let schema = Schema::new(vec![
+            $(
+                Field::new($column, $f_dy, false),
+            )*
+        ]);
+
+        let columns = vec![
+            $(
+                Arc::new(PrimitiveArray::<$data_type>::from( $data )) as Arc<dyn Array>,
+            )*
+        ];
+
+        let batch = RecordBatch::try_new(Arc::new(schema.clone()), columns).unwrap();
+
+        let source = MemoryDataSource::new(Arc::new(schema.clone()), vec![batch]);
+
+        Arc::new(Scan::new(Arc::new(schema), Arc::new(source), None))
+       }
     };
 }
 

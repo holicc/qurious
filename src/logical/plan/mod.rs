@@ -3,6 +3,7 @@ mod filter;
 mod join;
 mod projection;
 mod scan;
+mod sort;
 mod sub_query;
 
 pub use aggregate::Aggregate;
@@ -10,6 +11,7 @@ pub use filter::Filter;
 pub use join::*;
 pub use projection::Projection;
 pub use scan::TableScan;
+pub use sort::*;
 pub use sub_query::SubqueryAlias;
 
 use arrow::datatypes::SchemaRef;
@@ -45,6 +47,8 @@ pub enum LogicalPlan {
     EmptyRelation(EmptyRelation),
     /// Aliased relation provides, or changes, the name of a relation.
     SubqueryAlias(SubqueryAlias),
+    /// Sort the result set by the specified expressions.
+    Sort(Sort),
 }
 
 impl LogicalPlan {
@@ -58,6 +62,7 @@ impl LogicalPlan {
             LogicalPlan::CrossJoin(s) => s.schema(),
             LogicalPlan::SubqueryAlias(s) => s.schema(),
             LogicalPlan::Join(j) => j.schema(),
+            LogicalPlan::Sort(s) => s.schema(),
         }
     }
 
@@ -71,6 +76,7 @@ impl LogicalPlan {
             LogicalPlan::CrossJoin(s) => s.children(),
             LogicalPlan::SubqueryAlias(s) => s.children(),
             LogicalPlan::Join(j) => j.children(),
+            LogicalPlan::Sort(s) => s.children(),
         }
     }
 }
@@ -86,6 +92,7 @@ impl std::fmt::Display for LogicalPlan {
             LogicalPlan::CrossJoin(s) => write!(f, "{}", s),
             LogicalPlan::SubqueryAlias(s) => write!(f, "{}", s),
             LogicalPlan::Join(j) => write!(f, "{}", j),
+            LogicalPlan::Sort(s) => write!(f, "{}", s),
         }
     }
 }
