@@ -97,4 +97,8 @@ impl LogicalPlanBuilder {
             }),
         })
     }
+
+    pub(crate) fn limit(&self) -> Self {
+        todo!()
+    }
 }

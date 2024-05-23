@@ -68,6 +68,7 @@ mod tests {
     use super::*;
     use crate::build_table_scan;
     use crate::physical::expr::Column;
+    use crate::test_utils::assert_batch_eq;
 
     #[test]
     fn test_sort() {
@@ -90,8 +91,19 @@ mod tests {
 
         let result = sort.execute().unwrap();
 
-        println!("{}", arrow::util::pretty::pretty_format_batches(&result).unwrap());
-
         assert_eq!(result.len(), 1);
+        assert_batch_eq(
+            &result,
+            vec![
+                "+---+-----+---+",
+                "| a | b   | c |",
+                "+---+-----+---+",
+                "| 4 | 4.0 | 4 |",
+                "| 3 | 3.0 | 3 |",
+                "| 2 | 2.0 | 2 |",
+                "| 1 | 1.0 | 1 |",
+                "+---+-----+---+",
+            ],
+        );
     }
 }

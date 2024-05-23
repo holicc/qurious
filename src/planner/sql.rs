@@ -86,9 +86,19 @@ impl<'a> SqlQueryPlanner<'a> {
         let plan = LogicalPlanBuilder::project(plan, column_exprs)?;
 
         // process the ORDER BY clause
-        if let Some(order_by) = select.order_by {
+        let plan = if let Some(order_by) = select.order_by {
             let sort_expr = self.order_by_expr(context, order_by)?;
-            Ok(LogicalPlanBuilder::from(plan).sort(sort_expr)?.build())
+            LogicalPlanBuilder::from(plan).sort(sort_expr)?.build()
+        } else {
+            plan
+        };
+
+        // process the LIMIT clause
+        if let (Some(limit), Some(offset)) = (select.limit, select.offset) {
+            let limit = self.sql_to_expr(context, limit)?;
+            let offset = self.sql_to_expr(context, offset)?;
+            // Ok(LogicalPlanBuilder::from(plan).limit(limit).offset(offset)?)
+            Ok(plan)
         } else {
             Ok(plan)
         }
@@ -807,7 +817,18 @@ mod tests {
     }
 
     #[test]
-    fn test_limit() {}
+    fn test_limit() {
+        let sql = "select id from person where person.id > 100 LIMIT 5 OFFSET 0;";
+        let expected = "Limit: skip=0, fetch=5\
+                                        \n  Projection: person.id\
+                                        \n    Filter: person.id > Int64(100)\
+                                        \n      TableScan: person";
+        quick_test(sql, expected);
+
+        // Flip the order of LIMIT and OFFSET in the query. Plan should remain the same.
+        let sql = "SELECT id FROM person WHERE person.id > 100 OFFSET 0 LIMIT 5;";
+        quick_test(sql, expected);
+    }
 
     fn quick_test(sql: &str, expected: &str) {
         let mut registry = TestTableRegistry::new();
