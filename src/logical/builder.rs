@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::{
     expr::{AggregateExpr, LogicalExpr, SortExpr},
-    plan::{Aggregate, CrossJoin, EmptyRelation, Join, LogicalPlan, Projection, Sort, TableScan},
+    plan::{Aggregate, CrossJoin, EmptyRelation, Join, Limit, LogicalPlan, Projection, Sort, TableScan},
 };
 use crate::{common::JoinType, error::Result};
 use crate::{common::OwnedTableRelation, datasource::DataSource};
@@ -98,7 +98,13 @@ impl LogicalPlanBuilder {
         })
     }
 
-    pub(crate) fn limit(&self) -> Self {
-        todo!()
+    pub fn limit(self, limit: i64, offset: i64) -> Self {
+        LogicalPlanBuilder {
+            plan: LogicalPlan::Limit(Limit {
+                input: Box::new(self.plan),
+                fetch: limit as usize,
+                offset: offset as usize,
+            }),
+        }
     }
 }

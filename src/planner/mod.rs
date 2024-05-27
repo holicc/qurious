@@ -160,6 +160,7 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalPlan::SubqueryAlias(_) => todo!(),
             LogicalPlan::Join(join) => self.physical_plan_join(join),
             LogicalPlan::Sort(_) => todo!(),
+            LogicalPlan::Limit(_) => todo!(),
         }
     }
 

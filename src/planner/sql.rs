@@ -51,10 +51,6 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn create_logical_expr(&self) -> Result<LogicalPlan> {
-        todo!()
-    }
-
     fn select_to_plan(&mut self, select: Select, mut context: &mut PlannerContext) -> Result<LogicalPlan> {
         // process `with` clause
         if let Some(with) = select.with {
@@ -95,10 +91,10 @@ impl<'a> SqlQueryPlanner<'a> {
 
         // process the LIMIT clause
         if let (Some(limit), Some(offset)) = (select.limit, select.offset) {
-            let limit = self.sql_to_expr(context, limit)?;
-            let offset = self.sql_to_expr(context, offset)?;
-            // Ok(LogicalPlanBuilder::from(plan).limit(limit).offset(offset)?)
-            Ok(plan)
+            let limit = self.sql_to_expr(context, limit).and_then(get_expr_value)?;
+            let offset = self.sql_to_expr(context, offset).and_then(get_expr_value)?;
+
+            Ok(LogicalPlanBuilder::from(plan).limit(limit, offset).build())
         } else {
             Ok(plan)
         }
@@ -819,13 +815,9 @@ mod tests {
     #[test]
     fn test_limit() {
         let sql = "select id from person where person.id > 100 LIMIT 5 OFFSET 0;";
-        let expected = "Limit: skip=0, fetch=5\
-                                        \n  Projection: person.id\
-                                        \n    Filter: person.id > Int64(100)\
-                                        \n      TableScan: person";
+        let expected = "Limit: fetch=5, offset=0\n  Filter: person.id > Int64(100)\n    TableScan: person\n";
         quick_test(sql, expected);
 
-        // Flip the order of LIMIT and OFFSET in the query. Plan should remain the same.
         let sql = "SELECT id FROM person WHERE person.id > 100 OFFSET 0 LIMIT 5;";
         quick_test(sql, expected);
     }

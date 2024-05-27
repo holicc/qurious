@@ -1,6 +1,7 @@
 mod aggregate;
 mod filter;
 mod join;
+mod limit;
 mod projection;
 mod scan;
 mod sort;
@@ -9,6 +10,7 @@ mod sub_query;
 pub use aggregate::Aggregate;
 pub use filter::Filter;
 pub use join::*;
+pub use limit::Limit;
 pub use projection::Projection;
 pub use scan::TableScan;
 pub use sort::*;
@@ -49,6 +51,8 @@ pub enum LogicalPlan {
     SubqueryAlias(SubqueryAlias),
     /// Sort the result set by the specified expressions.
     Sort(Sort),
+    /// Limit the number of rows in the result set, and optionally an offset.
+    Limit(Limit),
 }
 
 impl LogicalPlan {
@@ -63,6 +67,7 @@ impl LogicalPlan {
             LogicalPlan::SubqueryAlias(s) => s.schema(),
             LogicalPlan::Join(j) => j.schema(),
             LogicalPlan::Sort(s) => s.schema(),
+            LogicalPlan::Limit(l) => l.schema(),
         }
     }
 
@@ -77,6 +82,7 @@ impl LogicalPlan {
             LogicalPlan::SubqueryAlias(s) => s.children(),
             LogicalPlan::Join(j) => j.children(),
             LogicalPlan::Sort(s) => s.children(),
+            LogicalPlan::Limit(l) => l.children(),
         }
     }
 }
@@ -93,6 +99,7 @@ impl std::fmt::Display for LogicalPlan {
             LogicalPlan::SubqueryAlias(s) => write!(f, "{}", s),
             LogicalPlan::Join(j) => write!(f, "{}", j),
             LogicalPlan::Sort(s) => write!(f, "{}", s),
+            LogicalPlan::Limit(l) => write!(f, "{}", l),
         }
     }
 }

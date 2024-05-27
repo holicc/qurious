@@ -89,3 +89,10 @@ impl Display for LogicalExpr {
         }
     }
 }
+
+pub(crate) fn get_expr_value(expr: LogicalExpr) -> Result<i64> {
+    match expr {
+        LogicalExpr::Literal(ScalarValue::Int64(Some(v))) => Ok(v),
+        _ => Err(Error::InternalError(format!("Unexpected expression in"))),
+    }
+}

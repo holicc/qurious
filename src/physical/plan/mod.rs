@@ -4,12 +4,14 @@ mod join;
 mod projection;
 mod scan;
 mod sort;
+mod limit;
 
 pub use aggregate::HashAggregate;
 pub use filter::Filter;
 pub use join::{join_schema, ColumnIndex, CrossJoin, Join, JoinFilter, JoinSide};
 pub use projection::Projection;
 pub use scan::Scan;
+pub use limit::Limit;
 
 use std::sync::Arc;
 

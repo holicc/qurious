@@ -30,11 +30,12 @@ macro_rules! build_schema {
 #[macro_export]
 macro_rules! build_table_scan {
     ( $(($column: expr, $data_type: ty, $f_dy: expr, $data: expr)),+$(,)? ) => {
-       { 
+       {
         use crate::datasource::memory::MemoryDataSource;
         use crate::physical::plan::Scan;
-        use arrow::array::{Array, PrimitiveArray};
+        use arrow::array::{Array,RecordBatch, PrimitiveArray};
         use arrow::datatypes::*;
+        use std::sync::Arc;
 
         let schema = Schema::new(vec![
             $(
