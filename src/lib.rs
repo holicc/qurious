@@ -9,6 +9,7 @@ pub mod optimizer;
 pub mod physical;
 pub mod planner;
 pub mod utils;
+pub mod server;
 
 #[cfg(test)]
 pub mod test_utils;

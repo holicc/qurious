@@ -8,10 +8,11 @@ edition = "2021"
 arrow = "51.0.0"
 sqlparser = { git = "https://github.com/holicc/sqlparser.git" }
 url = "2.5.0"
-adbc_core = { git = "https://github.com/alexandreyc/adbc-rs", branch = "main", features = [
-    "driver_manager",
-] }
 parquet = "51.0.0"
+pgwire = "0.22.0"
+tokio = { version = "1.37.0", features = ["macros","time"] }
+async-trait = "0.1.80"
+log = "0.4.21"
 
 [dev-dependencies]
 arrow = { version = "51.0.0", features = ["prettyprint", "test_utils"] }
