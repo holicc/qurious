@@ -10,7 +10,7 @@ use crate::{
     error::{Error, Result},
     logical::{
         expr::{AggregateOperator, BinaryExpr, Column, LogicalExpr},
-        plan::{Aggregate, CrossJoin, Filter, Join, LogicalPlan, Projection, TableScan},
+        plan::{Aggregate, CrossJoin, EmptyRelation, Filter, Join, LogicalPlan, Projection, TableScan},
     },
     physical::{
         self,
@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-pub trait QueryPlanner: Debug {
+pub trait QueryPlanner: Debug + Sync + Send {
     fn create_physical_plan(&self, logical_plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>>;
 
     fn create_physical_expr(&self, schema: &SchemaRef, expr: &LogicalExpr) -> Result<Arc<dyn PhysicalExpr>>;
@@ -146,6 +146,13 @@ impl DefaultQueryPlanner {
         physical::plan::Join::try_new(left, right, join.join_type, Some(join_filter))
             .map(|j| Arc::new(j) as Arc<dyn PhysicalPlan>)
     }
+
+    fn physical_empty_relation(&self, empty: &EmptyRelation) -> Result<Arc<dyn PhysicalPlan>> {
+        Ok(Arc::new(physical::plan::EmptyRelation::new(
+            empty.schema(),
+            empty.produce_one_row,
+        )))
+    }
 }
 
 impl QueryPlanner for DefaultQueryPlanner {
@@ -155,7 +162,7 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalPlan::Filter(f) => self.physical_plan_filter(f),
             LogicalPlan::Aggregate(a) => self.physical_plan_aggregate(a),
             LogicalPlan::TableScan(t) => self.physical_plan_table_scan(t),
-            LogicalPlan::EmptyRelation(_) => todo!(),
+            LogicalPlan::EmptyRelation(v) => self.physical_empty_relation(v),
             LogicalPlan::CrossJoin(j) => self.physical_plan_cross_join(j),
             LogicalPlan::SubqueryAlias(_) => todo!(),
             LogicalPlan::Join(join) => self.physical_plan_join(join),

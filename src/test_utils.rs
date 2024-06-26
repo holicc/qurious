@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{make_array, make_builder, Array, Int32Array, PrimitiveArray, RecordBatch},
-    datatypes::{Fields, Int32Type, Schema, SchemaRef},
+    array::{Array, Int32Array, RecordBatch},
+    datatypes::{Fields, Schema, SchemaRef},
     util,
 };
 

@@ -19,6 +19,7 @@ impl Projection {
                 .iter()
                 .filter_map(|f| match f {
                     LogicalExpr::Column(i) => Some(i.field(&input)),
+                    LogicalExpr::Literal(i) => Some(Ok(Arc::new(i.to_field()))),
                     _ => None,
                 })
                 .collect::<Result<Vec<FieldRef>>>()

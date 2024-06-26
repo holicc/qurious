@@ -1,6 +1,5 @@
-use std::{fmt::Display, io};
-
 use arrow::error::ArrowError;
+use std::fmt::Display;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -17,21 +16,9 @@ pub enum Error {
     TableNotFound(String),
 }
 
-impl From<ArrowError> for Error {
-    fn from(e: ArrowError) -> Self {
-        Error::ArrowError(e)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Error::InternalError(e.to_string())
-    }
-}
-
-impl From<parquet::errors::ParquetError> for Error {
-    fn from(e: parquet::errors::ParquetError) -> Self {
-        Error::InternalError(e.to_string())
+impl<T: std::error::Error> From<T> for Error {
+    fn from(value: T) -> Self {
+        Error::InternalError(value.to_string())
     }
 }
 

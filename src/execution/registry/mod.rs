@@ -1,14 +1,16 @@
 use crate::datasource::DataSource;
 use crate::error::{Error, Result};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::Arc;
 
-pub trait TableRegistry {
+pub trait TableRegistry: Debug + Sync + Send {
     fn register_table(&mut self, name: &str, table: Arc<dyn DataSource>) -> Result<()>;
 
     fn get_table_source(&self, name: &str) -> Result<Arc<dyn DataSource>>;
 }
 
+#[derive(Debug)]
 pub struct HashMapTableRegistry {
     tables: HashMap<String, Arc<dyn DataSource>>,
 }

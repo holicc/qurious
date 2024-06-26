@@ -20,12 +20,16 @@ use arrow::datatypes::SchemaRef;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmptyRelation {
-    schema: SchemaRef,
+    pub produce_one_row: bool,
+    pub schema: SchemaRef,
 }
 
 impl EmptyRelation {
-    pub fn new(schema: SchemaRef) -> Self {
-        Self { schema }
+    pub fn new(schema: SchemaRef, produce_one_row: bool) -> Self {
+        Self {
+            produce_one_row,
+            schema,
+        }
     }
 
     pub fn schema(&self) -> SchemaRef {

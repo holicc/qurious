@@ -27,9 +27,9 @@ impl LogicalPlanBuilder {
         Projection::try_new(input, exprs.into_iter().map(|exp| exp.into()).collect()).map(LogicalPlan::Projection)
     }
 
-    pub fn empty() -> Self {
+    pub fn empty(produce_one_row: bool) -> Self {
         LogicalPlanBuilder {
-            plan: LogicalPlan::EmptyRelation(EmptyRelation::new(Arc::new(Schema::empty()))),
+            plan: LogicalPlan::EmptyRelation(EmptyRelation::new(Arc::new(Schema::empty()), produce_one_row)),
         }
     }
 

@@ -1,5 +1,6 @@
+mod datatypes;
 mod handler;
 mod server;
 
-pub use server::PostgresqlServer;
 pub use handler::PostgresqlHandler;
+pub use server::PostgresqlServer;

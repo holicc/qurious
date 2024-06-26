@@ -25,17 +25,17 @@ impl PhysicalPlan for Projection {
     }
 
     fn execute(&self) -> Result<Vec<RecordBatch>> {
-        let batches = self.input.execute()?;
-        let mut reulsts = vec![];
-        for batch in batches {
-            let mut columns = vec![];
-            for expr in &self.exprs {
-                columns.push(expr.evaluate(&batch)?);
-            }
-            reulsts.push(RecordBatch::try_new(self.schema(), columns).map_err(|e| Error::ArrowError(e))?);
-        }
-
-        Ok(reulsts)
+        self.input
+            .execute()?
+            .into_iter()
+            .map(|batch| {
+                let mut columns = vec![];
+                for expr in &self.exprs {
+                    columns.push(expr.evaluate(&batch)?);
+                }
+                RecordBatch::try_new(self.schema(), columns).map_err(|e| Error::ArrowError(e))
+            })
+            .collect()
     }
 
     fn children(&self) -> Option<Vec<Arc<dyn PhysicalPlan>>> {

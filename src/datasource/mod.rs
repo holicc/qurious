@@ -5,7 +5,7 @@ use crate::{error::Result, logical::expr::LogicalExpr};
 use arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
 use std::fmt::Debug;
 
-pub trait DataSource: Debug {
+pub trait DataSource: Debug + Sync + Send {
     fn schema(&self) -> SchemaRef;
 
     /// Perform a scan of the data source and return the results as RecordBatch

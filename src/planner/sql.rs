@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use sqlparser::{
@@ -10,7 +10,10 @@ use sqlparser::{
 
 use crate::{
     common::{JoinType, OwnedTableRelation, TableRelation},
-    datasource::file::csv::{self, CsvReadOptions},
+    datasource::{
+        file::csv::{self, CsvReadOptions},
+        DataSource,
+    },
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
     execution::registry::TableRegistry,
@@ -25,56 +28,53 @@ use self::alias::Alias;
 
 use super::{normalize_col_with_schemas_and_ambiguity_check, TableSchemaInfo};
 
-#[derive(Debug, Default, Clone)]
-struct PlannerContext<'a> {
+pub struct SqlQueryPlanner<'a> {
+    table_registry: Arc<RwLock<dyn TableRegistry>>,
     ctes: HashMap<String, Arc<LogicalPlan>>,
+    new_tables: HashMap<String, Arc<dyn DataSource>>,
     relations: HashMap<TableRelation<'a>, TableSchemaInfo>,
 }
 
-pub struct SqlQueryPlanner<'a> {
-    table_registry: &'a mut dyn TableRegistry,
-}
-
 impl<'a> SqlQueryPlanner<'a> {
-    pub fn new(table_registry: &'a mut dyn TableRegistry) -> Self {
-        SqlQueryPlanner { table_registry }
-    }
-
-    pub fn create_logical_plan(&mut self, sql: &str) -> Result<LogicalPlan> {
+    pub fn create_logical_plan(table_registry: Arc<RwLock<dyn TableRegistry>>, sql: &str) -> Result<LogicalPlan> {
+        let mut planner = SqlQueryPlanner {
+            table_registry,
+            ctes: HashMap::default(),
+            new_tables: HashMap::default(),
+            relations: HashMap::default(),
+        };
         let stmts = Parser::new(sql).parse().map_err(|e| Error::SQLParseError(e))?;
 
-        let mut context = PlannerContext::default();
-
         match stmts {
-            Statement::Select(select) => self.select_to_plan(*select, &mut context),
+            Statement::Select(select) => planner.select_to_plan(*select),
             _ => todo!(),
         }
     }
 
-    fn select_to_plan(&mut self, select: Select, mut context: &mut PlannerContext) -> Result<LogicalPlan> {
+    fn select_to_plan(&mut self, select: Select) -> Result<LogicalPlan> {
         // process `with` clause
         if let Some(with) = select.with {
-            self.cte_tables(&mut context, with.cte_tables)?;
+            self.cte_tables(with.cte_tables)?;
         }
         // process `from` clause
-        let plan = self.table_scan_to_plan(&mut context, select.from)?;
+        let plan = self.table_scan_to_plan(select.from)?;
         let empty_from = match plan {
             LogicalPlan::EmptyRelation(_) => true,
             _ => false,
         };
         // process the WHERE clause
-        let plan = self.filter_expr(plan, select.r#where, &mut context)?;
+        let plan = self.filter_expr(plan, select.r#where)?;
         // process the SELECT expressions
-        let column_exprs = self.column_exprs(&plan, empty_from, select.columns, &context)?;
+        let column_exprs = self.column_exprs(&plan, empty_from, select.columns)?;
         // process the HAVING clause
         let having = if let Some(having_expr) = select.having {
-            Some(self.sql_to_expr(&mut context, having_expr)?)
+            Some(self.sql_to_expr(having_expr)?)
         } else {
             None
         };
         // process the GROUP BY clause
         let plan = if let Some(group_by) = select.group_by {
-            self.aggregate_plan(plan, &mut context, &column_exprs, group_by, having)?
+            self.aggregate_plan(plan, &column_exprs, group_by, having)?
         } else {
             plan
         };
@@ -83,7 +83,7 @@ impl<'a> SqlQueryPlanner<'a> {
 
         // process the ORDER BY clause
         let plan = if let Some(order_by) = select.order_by {
-            let sort_expr = self.order_by_expr(context, order_by)?;
+            let sort_expr = self.order_by_expr(order_by)?;
             LogicalPlanBuilder::from(plan).sort(sort_expr)?.build()
         } else {
             plan
@@ -91,8 +91,8 @@ impl<'a> SqlQueryPlanner<'a> {
 
         // process the LIMIT clause
         if let (Some(limit), Some(offset)) = (select.limit, select.offset) {
-            let limit = self.sql_to_expr(context, limit).and_then(get_expr_value)?;
-            let offset = self.sql_to_expr(context, offset).and_then(get_expr_value)?;
+            let limit = self.sql_to_expr(limit).and_then(get_expr_value)?;
+            let offset = self.sql_to_expr(offset).and_then(get_expr_value)?;
 
             Ok(LogicalPlanBuilder::from(plan).limit(limit, offset).build())
         } else {
@@ -100,27 +100,25 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn table_scan_to_plan(&mut self, ctx: &mut PlannerContext, mut froms: Vec<From>) -> Result<LogicalPlan> {
+    fn table_scan_to_plan(&mut self, mut froms: Vec<From>) -> Result<LogicalPlan> {
         match froms.len() {
-            0 => Ok(LogicalPlanBuilder::empty().build()),
+            0 => Ok(LogicalPlanBuilder::empty(true).build()),
             1 => {
                 let (plan, alias) = match froms.remove(0) {
                     From::Table { name, alias } => {
                         let relation: TableRelation = name.clone().into();
 
                         // try to get ctes table first and the from table registey
-                        let scan = ctx
-                            .ctes
-                            .get(&name)
-                            .map(|a| a.as_ref().clone())
-                            .ok_or(Error::InternalError(format!("Can't get cte tables: {}", name)))
-                            .or(self.table_registry.get_table_source(&name).and_then(|table_source| {
-                                LogicalPlanBuilder::scan(relation.clone(), table_source, None).map(|l| l.build())
-                            }))?;
+                        let scan = if let Some(plan) = self.get_cte_table(&name) {
+                            plan
+                        } else {
+                            let source = self.get_table_source(&name)?;
+                            LogicalPlanBuilder::scan(relation.clone(), source, None)?.build()
+                        };
 
                         // put relation into context
                         // we will use it in normalize_col_with_schemas_and_ambiguity_check
-                        ctx.relations.insert(
+                        self.relations.insert(
                             relation,
                             TableSchemaInfo {
                                 schema: scan.schema(),
@@ -130,19 +128,19 @@ impl<'a> SqlQueryPlanner<'a> {
 
                         (scan, alias)
                     }
-                    From::TableFunction { name, args, alias } => (self.table_func_to_plan(ctx, name, args)?, alias),
+                    From::TableFunction { name, args, alias } => (self.table_func_to_plan(name, args)?, alias),
                     From::Join {
                         left,
                         right,
                         on,
                         join_type,
                     } => {
-                        let left = self.table_scan_to_plan(ctx, vec![*left])?;
-                        let right = self.table_scan_to_plan(ctx, vec![*right])?;
+                        let left = self.table_scan_to_plan(vec![*left])?;
+                        let right = self.table_scan_to_plan(vec![*right])?;
 
                         let filter_expr = on
                             .ok_or(Error::InternalError("Join clause requires an ON clause".to_owned()))
-                            .and_then(|expr| self.sql_to_expr(ctx, expr))?;
+                            .and_then(|expr| self.sql_to_expr(expr))?;
 
                         (
                             LogicalPlanBuilder::from(left)
@@ -155,14 +153,14 @@ impl<'a> SqlQueryPlanner<'a> {
                 };
 
                 if let Some(alias) = alias {
-                    self.apply_table_alias(ctx, plan, alias)
+                    self.apply_table_alias(plan, alias)
                 } else {
                     Ok(plan)
                 }
             }
             _ => {
                 // handle cross join
-                let mut plans = froms.into_iter().map(|f| self.table_scan_to_plan(ctx, vec![f]));
+                let mut plans = froms.into_iter().map(|f| self.table_scan_to_plan(vec![f]));
 
                 let mut left = LogicalPlanBuilder::from(plans.next().unwrap()?);
 
@@ -175,12 +173,7 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn table_func_to_plan(
-        &mut self,
-        ctx: &mut PlannerContext,
-        name: String,
-        args: Vec<Assignment>,
-    ) -> Result<LogicalPlan> {
+    fn table_func_to_plan(&mut self, name: String, args: Vec<Assignment>) -> Result<LogicalPlan> {
         match name.to_lowercase().as_str() {
             "read_csv" => {
                 let (path, options) = self.parse_csv_options(args)?;
@@ -189,15 +182,7 @@ impl<'a> SqlQueryPlanner<'a> {
                 let plan = LogicalPlanBuilder::scan(table_name, table_srouce.clone(), None)?.build();
                 // register the table to the table registry
                 // TODO: we should use a unique name for the table and apply the alias
-                self.table_registry.register_table(table_name, table_srouce)?;
-
-                ctx.relations.insert(
-                    table_name.into(),
-                    TableSchemaInfo {
-                        schema: plan.schema(),
-                        alias: None,
-                    },
-                );
+                self.add_new_table(table_name, table_srouce)?;
 
                 Ok(plan)
             }
@@ -207,14 +192,9 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn filter_expr(
-        &self,
-        mut plan: LogicalPlan,
-        expr: Option<Expression>,
-        ctx: &PlannerContext,
-    ) -> Result<LogicalPlan> {
+    fn filter_expr(&self, mut plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {
         if let Some(filter) = expr {
-            let filter_expr = self.sql_to_expr(ctx, filter)?;
+            let filter_expr = self.sql_to_expr(filter)?;
 
             // we should parse filter first and then apply it to the table scan
             match &mut plan {
@@ -230,21 +210,20 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn apply_table_alias(&self, ctx: &mut PlannerContext, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
+    fn apply_table_alias(&mut self, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
         match plan {
             LogicalPlan::TableScan(mut table) => {
-                let mut relation = ctx
+                let mut relation = self
                     .relations
                     .remove(&table.relation)
                     .ok_or(Error::TableNotFound(format!(
                         "Can't apply table alias: {} to relation: {}, because relation not exists",
                         alias, table.relation
                     )))?;
-
                 let new_relation: TableRelation = alias.clone().into();
                 // replace table relation in context with alias
                 relation.alias = Some(alias);
-                ctx.relations.insert(new_relation.clone(), relation);
+                self.relations.insert(new_relation.clone(), relation);
                 // apply alias to table scan plan
                 table.relation = new_relation;
 
@@ -327,7 +306,6 @@ impl<'a> SqlQueryPlanner<'a> {
     fn aggregate_plan(
         &self,
         input: LogicalPlan,
-        ctx: &mut PlannerContext,
         column_exprs: &[LogicalExpr],
         group_by: Vec<Expression>,
         _having_expr: Option<LogicalExpr>,
@@ -343,7 +321,7 @@ impl<'a> SqlQueryPlanner<'a> {
 
         let group_exprs = group_by
             .into_iter()
-            .map(|expr| self.sql_to_expr(ctx, expr))
+            .map(|expr| self.sql_to_expr(expr))
             .collect::<Result<Vec<_>>>()?;
 
         LogicalPlanBuilder::from(input)
@@ -351,11 +329,11 @@ impl<'a> SqlQueryPlanner<'a> {
             .map(|plan| plan.build())
     }
 
-    fn order_by_expr(&self, ctx: &mut PlannerContext, order_by: Vec<(Expression, Order)>) -> Result<Vec<SortExpr>> {
+    fn order_by_expr(&self, order_by: Vec<(Expression, Order)>) -> Result<Vec<SortExpr>> {
         order_by
             .into_iter()
             .map(|(expr, order)| {
-                self.sql_to_expr(ctx, expr).map(|expr| SortExpr {
+                self.sql_to_expr(expr).map(|expr| SortExpr {
                     expr: Box::new(expr),
                     asc: order == Order::Asc,
                 })
@@ -365,11 +343,11 @@ impl<'a> SqlQueryPlanner<'a> {
 }
 
 impl<'a> SqlQueryPlanner<'a> {
-    fn cte_tables(&mut self, ctx: &mut PlannerContext, ctes: Vec<Cte>) -> Result<()> {
+    fn cte_tables(&mut self, ctes: Vec<Cte>) -> Result<()> {
         for cte in ctes {
             let plan = self
-                .select_to_plan(*cte.query, &mut ctx.clone())
-                .and_then(|plan| self.apply_table_alias(ctx, plan, cte.alias.clone()))
+                .select_to_plan(*cte.query)
+                .and_then(|plan| self.apply_table_alias(plan, cte.alias.clone()))
                 .map(|plan| {
                     let schema = plan.schema();
                     Arc::new(LogicalPlan::SubqueryAlias(SubqueryAlias {
@@ -379,41 +357,27 @@ impl<'a> SqlQueryPlanner<'a> {
                     }))
                 })?;
 
-            ctx.relations.insert(
-                cte.alias.clone().into(),
-                TableSchemaInfo {
-                    schema: plan.schema(),
-                    alias: Some(cte.alias.clone()),
-                },
-            );
-
-            ctx.ctes.insert(cte.alias, plan);
+            self.add_cte_table(&cte.alias, plan)
         }
 
         Ok(())
     }
 
-    fn column_exprs(
-        &self,
-        plan: &LogicalPlan,
-        empty_from: bool,
-        columns: Vec<SelectItem>,
-        ctx: &PlannerContext,
-    ) -> Result<Vec<LogicalExpr>> {
+    fn column_exprs(&self, plan: &LogicalPlan, empty_from: bool, columns: Vec<SelectItem>) -> Result<Vec<LogicalExpr>> {
         columns
             .into_iter()
-            .flat_map(|col| match self.sql_select_item_to_expr(ctx, plan, col, empty_from) {
+            .flat_map(|col| match self.sql_select_item_to_expr(plan, col, empty_from) {
                 Ok(vec) => vec.into_iter().map(Ok).collect(),
                 Err(err) => vec![Err(err)],
             })
             .collect::<Result<Vec<LogicalExpr>>>()
     }
 
-    fn sql_to_expr(&self, ctx: &PlannerContext, expr: Expression) -> Result<LogicalExpr> {
+    fn sql_to_expr(&self, expr: Expression) -> Result<LogicalExpr> {
         match expr {
             Expression::Identifier(ident) => normalize_col_with_schemas_and_ambiguity_check(
                 LogicalExpr::Column(Column::new(ident, None::<OwnedTableRelation>)),
-                &ctx.relations,
+                &self.relations,
             ),
             Expression::Literal(lit) => match lit {
                 Literal::Int(i) => Ok(LogicalExpr::Literal(ScalarValue::Int64(Some(i)))),
@@ -422,11 +386,11 @@ impl<'a> SqlQueryPlanner<'a> {
                 Literal::Boolean(b) => Ok(LogicalExpr::Literal(ScalarValue::Boolean(Some(b)))),
                 Literal::Null => Ok(LogicalExpr::Literal(ScalarValue::Null)),
             },
-            Expression::BinaryOperator(op) => self.parse_binary_op(op, ctx),
+            Expression::BinaryOperator(op) => self.parse_binary_op(op),
             Expression::Function(name, args) => {
                 let mut exprs = args
                     .into_iter()
-                    .map(|expr| self.sql_function_args_to_expr(ctx, expr))
+                    .map(|expr| self.sql_function_args_to_expr(expr))
                     .collect::<Result<Vec<_>>>()?;
                 Ok(LogicalExpr::AggregateExpr(AggregateExpr {
                     op: name.into(),
@@ -439,35 +403,34 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn sql_function_args_to_expr(&self, ctx: &PlannerContext, expr: Expression) -> Result<LogicalExpr> {
+    fn sql_function_args_to_expr(&self, expr: Expression) -> Result<LogicalExpr> {
         match expr {
             Expression::Identifier(ident) if ident == "*" => Ok(LogicalExpr::Wildcard),
-            _ => self.sql_to_expr(ctx, expr),
+            _ => self.sql_to_expr(expr),
         }
     }
 
-    fn parse_binary_op(&self, op: BinaryOperator, ctx: &PlannerContext) -> Result<LogicalExpr> {
+    fn parse_binary_op(&self, op: BinaryOperator) -> Result<LogicalExpr> {
         Ok(match op {
-            BinaryOperator::Eq(l, r) => eq(self.sql_to_expr(ctx, *l)?, self.sql_to_expr(ctx, *r)?),
-            BinaryOperator::Gt(l, r) => gt(self.sql_to_expr(ctx, *l)?, self.sql_to_expr(ctx, *r)?),
+            BinaryOperator::Eq(l, r) => eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+            BinaryOperator::Gt(l, r) => gt(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             _ => todo!(),
         })
     }
 
     fn sql_select_item_to_expr(
         &self,
-        ctx: &PlannerContext,
         plan: &LogicalPlan,
         item: SelectItem,
         empty_relation: bool,
     ) -> Result<Vec<LogicalExpr>> {
         match item {
             SelectItem::UnNamedExpr(expr) => self
-                .sql_to_expr(ctx, expr)
-                .and_then(|expr| normalize_col_with_schemas_and_ambiguity_check(expr, &ctx.relations))
+                .sql_to_expr(expr)
+                .and_then(|expr| normalize_col_with_schemas_and_ambiguity_check(expr, &self.relations))
                 .map(|v| vec![v]),
             SelectItem::ExprWithAlias(expr, alias) => self
-                .sql_to_expr(ctx, expr)
+                .sql_to_expr(expr)
                 .map(|col| vec![LogicalExpr::Alias(Alias::new(alias, col))]),
             SelectItem::Wildcard => {
                 if empty_relation {
@@ -536,7 +499,7 @@ impl<'a> SqlQueryPlanner<'a> {
                 // expand schema
                 let quanlified_prefix = idents.join(".").into();
 
-                if ctx.relations.contains_key(&quanlified_prefix) {
+                if self.relations.contains_key(&quanlified_prefix) {
                     return // expand schema
                         plan.schema()
                             .all_fields()
@@ -544,7 +507,7 @@ impl<'a> SqlQueryPlanner<'a> {
                             .map(|field| {
                                 normalize_col_with_schemas_and_ambiguity_check(
                                     column(field.name()),
-                                    &ctx.relations,
+                                    &self.relations,
                                 )
                             })
                             .collect();
@@ -559,10 +522,52 @@ impl<'a> SqlQueryPlanner<'a> {
     }
 }
 
+impl<'a> SqlQueryPlanner<'a> {
+    fn add_cte_table(&mut self, name: &str, plan: Arc<LogicalPlan>) {
+        let cte_table_name = name.to_owned();
+        self.relations.insert(
+            cte_table_name.clone().into(),
+            TableSchemaInfo {
+                schema: plan.schema(),
+                alias: None,
+            },
+        );
+
+        self.ctes.insert(cte_table_name, plan);
+    }
+
+    fn add_new_table(&mut self, table_name: &str, source: Arc<dyn DataSource>) -> Result<()> {
+        self.relations.insert(
+            table_name.to_owned().into(),
+            TableSchemaInfo {
+                schema: source.schema(),
+                alias: None,
+            },
+        );
+
+        if self.new_tables.insert(table_name.to_owned(), source).is_some() {
+            return Err(Error::InternalError(format!("table [{}] already exists", table_name)));
+        }
+
+        Ok(())
+    }
+
+    fn get_table_source(&self, table_name: &str) -> Result<Arc<dyn DataSource>> {
+        self.table_registry.read()?.get_table_source(table_name)
+    }
+
+    fn get_cte_table(&self, name: &str) -> Option<LogicalPlan> {
+        self.ctes.get(name).map(|a| a.as_ref().clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, sync::Arc};
+    use std::{
+        collections::HashMap,
+        sync::{Arc, RwLock},
+    };
 
     use arrow::datatypes::{DataType, Field};
 
@@ -576,6 +581,7 @@ mod tests {
 
     use super::SqlQueryPlanner;
 
+    #[derive(Debug)]
     struct TestTableRegistry {
         tables: HashMap<String, Arc<dyn DataSource>>,
     }
@@ -823,9 +829,9 @@ mod tests {
     }
 
     fn quick_test(sql: &str, expected: &str) {
-        let mut registry = TestTableRegistry::new();
-        let mut planner = SqlQueryPlanner::new(&mut registry);
-        match planner.create_logical_plan(sql) {
+        let registry = Arc::new(RwLock::new(TestTableRegistry::new()));
+        let plan = SqlQueryPlanner::create_logical_plan(registry, sql);
+        match plan {
             Ok(plan) => assert_eq!(utils::format(&plan, 0), expected),
             Err(err) => assert_eq!(err.to_string(), expected),
         }
