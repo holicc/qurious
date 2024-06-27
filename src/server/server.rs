@@ -28,9 +28,3 @@ impl Server {
         todo!()
     }
 }
-
-pub(crate) async fn send_and_receive(tx: mpsc::Sender<Message>, sql: String) -> Result<Vec<RecordBatch>> {
-    let (otx, orx) = oneshot::channel();
-    tx.send(Message::Query { sql, resp: otx }).await?;
-    orx.await?
-}

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use arrow::{array::*, datatypes::*};
 use chrono::{NaiveDate, NaiveDateTime};
-use futures::{stream, Stream, StreamExt};
 use pgwire::{
     api::{
         results::{DataRowEncoder, FieldInfo, QueryResponse, Response},
@@ -11,7 +10,7 @@ use pgwire::{
     error::{ErrorInfo, PgWireError, PgWireResult},
     messages::data::DataRow,
 };
-use tokio_postgres::row;
+use tokio_stream::{self as stream, StreamExt};
 
 fn get_bool_value(arr: &Arc<dyn Array>, idx: usize) -> bool {
     arr.as_any().downcast_ref::<BooleanArray>().unwrap().value(idx)

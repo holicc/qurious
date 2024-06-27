@@ -5,22 +5,26 @@ edition = "2021"
 
 
 [dependencies]
-arrow = "51.0.0"
+# sqlparser
 sqlparser = { git = "https://github.com/holicc/sqlparser.git" }
+# arrow
+parquet = "52.0.0"
+arrow = "52.0.0"
+# file
 url = "2.5.0"
-parquet = "51.0.0"
-
+# async
 tokio = { version = "1.37.0", features = ["full"] }
 async-trait = "0.1.80"
+tokio-stream = "0.1.15"
+
+# postgres
+pgwire = { version = "0.23.0", optional = true }
+chrono = "0.4.38"
+# log
 log = "0.4.21"
 
-pgwire = { version = "0.23.0", optional = true }
-tokio-postgres = { version = "0.7.10", optional = true }
-chrono = "0.4.38"
-futures = "0.3.30"
-
 [features]
-postgresql = ["dep:pgwire", "dep:tokio-postgres"]
+postgresql = ["dep:pgwire"]
 
 [dev-dependencies]
-arrow = { version = "51.0.0", features = ["prettyprint", "test_utils"] }
+arrow = { version = "52.0.0", features = ["prettyprint", "test_utils"] }

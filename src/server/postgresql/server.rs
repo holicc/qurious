@@ -1,45 +1,48 @@
 use crate::error::{Error, Result};
+use crate::execution::session::ExecuteSession;
 use crate::server::server::Message;
-use log::error;
-use pgwire::api::auth::noop::NoopStartupHandler;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::mpsc::{self, Sender};
-use tokio_postgres::{Client, NoTls};
 
 use super::handler::HandlerFactory;
 use super::PostgresqlHandler;
 
 pub struct PostgresqlServer {
+    session: Arc<ExecuteSession>,
     tx: Sender<Message>,
     addr: SocketAddr,
 }
 
 impl PostgresqlServer {
-    pub fn try_new(tx: Sender<Message>, svr_addr: SocketAddr) -> Result<Self> {
-        Ok(PostgresqlServer { tx, addr: svr_addr })
+    pub fn try_new(session: Arc<ExecuteSession>, tx: Sender<Message>, svr_addr: SocketAddr) -> Result<Self> {
+        Ok(PostgresqlServer {
+            session,
+            tx,
+            addr: svr_addr,
+        })
     }
 
-    async fn connect_pg_backend(url: &str) -> Result<Client> {
-        let (cli, connection) = tokio_postgres::connect(url, NoTls)
-            .await
-            .map_err(|e| Error::InternalError(e.to_string()))?;
+    // async fn connect_pg_backend(url: &str) -> Result<Client> {
+    //     let (cli, connection) = tokio_postgres::connect(url, NoTls)
+    //         .await
+    //         .map_err(|e| Error::InternalError(e.to_string()))?;
 
-        // The connection object performs the actual communication with the database,
-        // so spawn it off to run on its own.
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
-            }
-        });
+    //     // The connection object performs the actual communication with the database,
+    //     // so spawn it off to run on its own.
+    //     tokio::spawn(async move {
+    //         if let Err(e) = connection.await {
+    //             eprintln!("connection error: {}", e);
+    //         }
+    //     });
 
-        Ok(cli)
-    }
+    //     Ok(cli)
+    // }
 }
 
 impl PostgresqlServer {
     pub async fn start(&self) -> Result<()> {
         // tokio::spawn();
-        Self::listen(self.tx.clone(), self.addr).await;
+        Self::listen(self.session.clone(), self.tx.clone(), self.addr).await;
         Ok(())
     }
 
@@ -47,12 +50,12 @@ impl PostgresqlServer {
         todo!("Implement PostgresqlServer::shutdown()")
     }
 
-    async fn listen(tx: mpsc::Sender<Message>, addr: SocketAddr) {
+    async fn listen(session: Arc<ExecuteSession>, tx: mpsc::Sender<Message>, addr: SocketAddr) {
         let listener = tokio::net::TcpListener::bind(addr)
             .await
             .unwrap_or_else(|e| panic!("PostgreSQL Server bind fail. err: {}", e));
 
-        let processor = Arc::new(HandlerFactory(Arc::new(PostgresqlHandler { tx })));
+        let processor = Arc::new(HandlerFactory(Arc::new(PostgresqlHandler { session })));
 
         loop {
             tokio::select! {

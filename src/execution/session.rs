@@ -4,6 +4,7 @@ use arrow::array::RecordBatch;
 
 use super::registry::TableRegistry;
 use crate::datasource::DataSource;
+use crate::error::Error;
 use crate::execution::registry::HashMapTableRegistry;
 use crate::planner::sql::SqlQueryPlanner;
 use crate::planner::QueryPlanner;
@@ -31,8 +32,14 @@ impl ExecuteSession {
     }
 
     pub fn register_table(&mut self, name: &str, table: Arc<dyn DataSource>) -> Result<()> {
-        let mut write = self.tables.write()?;
-        write.register_table(name, table)
+        self.tables
+            .write()
+            .map_err(|e| Error::InternalError(e.to_string()))?
+            .register_table(name, table)
+    }
+
+    pub(crate) fn get_tables(&self) -> Arc<RwLock<dyn TableRegistry>> {
+        self.tables.clone()
     }
 }
 

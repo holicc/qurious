@@ -28,14 +28,14 @@ use self::alias::Alias;
 
 use super::{normalize_col_with_schemas_and_ambiguity_check, TableSchemaInfo};
 
-pub struct SqlQueryPlanner<'a> {
+pub struct SqlQueryPlanner {
     table_registry: Arc<RwLock<dyn TableRegistry>>,
     ctes: HashMap<String, Arc<LogicalPlan>>,
     new_tables: HashMap<String, Arc<dyn DataSource>>,
-    relations: HashMap<TableRelation<'a>, TableSchemaInfo>,
+    relations: HashMap<OwnedTableRelation, TableSchemaInfo>,
 }
 
-impl<'a> SqlQueryPlanner<'a> {
+impl SqlQueryPlanner {
     pub fn create_logical_plan(table_registry: Arc<RwLock<dyn TableRegistry>>, sql: &str) -> Result<LogicalPlan> {
         let mut planner = SqlQueryPlanner {
             table_registry,
@@ -340,9 +340,7 @@ impl<'a> SqlQueryPlanner<'a> {
             })
             .collect()
     }
-}
 
-impl<'a> SqlQueryPlanner<'a> {
     fn cte_tables(&mut self, ctes: Vec<Cte>) -> Result<()> {
         for cte in ctes {
             let plan = self
@@ -522,7 +520,16 @@ impl<'a> SqlQueryPlanner<'a> {
     }
 }
 
-impl<'a> SqlQueryPlanner<'a> {
+impl SqlQueryPlanner {
+    pub fn new(table_registry: Arc<RwLock<dyn TableRegistry>>) -> Self {
+        SqlQueryPlanner {
+            table_registry,
+            ctes: HashMap::default(),
+            new_tables: HashMap::default(),
+            relations: HashMap::default(),
+        }
+    }
+
     fn add_cte_table(&mut self, name: &str, plan: Arc<LogicalPlan>) {
         let cte_table_name = name.to_owned();
         self.relations.insert(
@@ -553,7 +560,10 @@ impl<'a> SqlQueryPlanner<'a> {
     }
 
     fn get_table_source(&self, table_name: &str) -> Result<Arc<dyn DataSource>> {
-        self.table_registry.read()?.get_table_source(table_name)
+        self.table_registry
+            .read()
+            .map_err(|e| Error::InternalError(e.to_string()))?
+            .get_table_source(table_name)
     }
 
     fn get_cte_table(&self, name: &str) -> Option<LogicalPlan> {
