@@ -90,6 +90,10 @@ fn get_utf8_value(arr: &Arc<dyn Array>, idx: usize) -> &str {
     arr.as_any().downcast_ref::<StringArray>().unwrap().value(idx)
 }
 
+fn get_large_utf8_value(arr: &Arc<dyn Array>, idx: usize) -> &str {
+    arr.as_any().downcast_ref::<LargeStringArray>().unwrap().value(idx)
+}
+
 fn get_date32_value(arr: &Arc<dyn Array>, idx: usize) -> Option<NaiveDate> {
     arr.as_any().downcast_ref::<Date32Array>().unwrap().value_as_date(idx)
 }
@@ -221,6 +225,7 @@ fn encode_value(encoder: &mut DataRowEncoder, arr: &Arc<dyn Array>, idx: usize) 
         DataType::Float32 => encoder.encode_field(&get_f32_value(arr, idx))?,
         DataType::Float64 => encoder.encode_field(&get_f64_value(arr, idx))?,
         DataType::Utf8 => encoder.encode_field(&get_utf8_value(arr, idx))?,
+        DataType::LargeUtf8 => encoder.encode_field(&get_large_utf8_value(arr, idx))?,
         DataType::Date32 => encoder.encode_field(&get_date32_value(arr, idx))?,
         DataType::Date64 => encoder.encode_field(&get_date64_value(arr, idx))?,
         DataType::Time32(unit) => match unit {
@@ -253,7 +258,6 @@ fn encode_value(encoder: &mut DataRowEncoder, arr: &Arc<dyn Array>, idx: usize) 
             DataType::Float32 => encoder.encode_field(&get_f32_list_value(arr, idx))?,
             DataType::Float64 => encoder.encode_field(&get_f64_list_value(arr, idx))?,
             DataType::Utf8 => encoder.encode_field(&get_utf8_list_value(arr, idx))?,
-
             // TODO: more types
             list_type => {
                 return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -263,10 +267,11 @@ fn encode_value(encoder: &mut DataRowEncoder, arr: &Arc<dyn Array>, idx: usize) 
                 ))))
             }
         },
+
         _ => {
             return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
-                "XX000".to_owned(),
+                "XX001".to_owned(),
                 format!("Unsupported Datatype {} and array {:?}", arr.data_type(), &arr),
             ))))
         }
@@ -289,6 +294,7 @@ pub(crate) fn into_pg_type(f: &Field) -> PgWireResult<FieldInfo> {
         DataType::Float32 => Type::FLOAT4,
         DataType::Float64 => Type::FLOAT8,
         DataType::Utf8 => Type::VARCHAR,
+        DataType::LargeUtf8 => Type::TEXT,
         DataType::List(field) => match field.data_type() {
             DataType::Boolean => Type::BOOL_ARRAY,
             DataType::Int8 | DataType::UInt8 => Type::CHAR_ARRAY,
@@ -302,6 +308,7 @@ pub(crate) fn into_pg_type(f: &Field) -> PgWireResult<FieldInfo> {
             DataType::Float32 => Type::FLOAT4_ARRAY,
             DataType::Float64 => Type::FLOAT8_ARRAY,
             DataType::Utf8 => Type::VARCHAR_ARRAY,
+            DataType::LargeUtf8 => Type::TEXT_ARRAY,
             list_type => {
                 return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),
@@ -313,7 +320,7 @@ pub(crate) fn into_pg_type(f: &Field) -> PgWireResult<FieldInfo> {
         _ => {
             return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
-                "XX000".to_owned(),
+                "XX002".to_owned(),
                 format!("Unsupported Datatype {}", f.data_type()),
             ))));
         }

@@ -13,6 +13,12 @@ pub trait DataFilePath {
     fn to_url(self) -> Result<Url>;
 }
 
+impl DataFilePath for &String {
+    fn to_url(self) -> Result<Url> {
+        parse_path(self)
+    }
+}
+
 impl DataFilePath for String {
     fn to_url(self) -> Result<Url> {
         parse_path(self)

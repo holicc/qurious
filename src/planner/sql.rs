@@ -11,7 +11,10 @@ use sqlparser::{
 use crate::{
     common::{JoinType, OwnedTableRelation, TableRelation},
     datasource::{
-        file::csv::{self, CsvReadOptions},
+        file::{
+            csv::{self, CsvReadOptions},
+            parquet::read_parquet,
+        },
         DataSource,
     },
     datatypes::scalar::ScalarValue,
@@ -175,22 +178,37 @@ impl SqlQueryPlanner {
     }
 
     fn table_func_to_plan(&mut self, name: String, args: Vec<Assignment>) -> Result<LogicalPlan> {
-        match name.to_lowercase().as_str() {
+        let (table_name, source) = match name.to_lowercase().as_str() {
             "read_csv" => {
                 let (path, options) = self.parse_csv_options(args)?;
-                let table_name = "tmp_csv_table";
-                let table_srouce = csv::read_csv(path, options)?;
-                let plan = LogicalPlanBuilder::scan(table_name, table_srouce.clone(), None)?.build();
-                // register the table to the table registry
-                // TODO: we should use a unique name for the table and apply the alias
-                self.add_new_table(table_name, table_srouce)?;
-
-                Ok(plan)
+                ("tmp_csv_table", csv::read_csv(path, options)?)
+            }
+            "read_parquet" => {
+                let path = match args.get(0) {
+                    Some(Assignment {
+                        value: Expression::Literal(Literal::String(s)),
+                        ..
+                    }) => s,
+                    _ => {
+                        return Err(Error::InternalError(
+                            "read_parquet function requires the first argument to be a string".to_owned(),
+                        ))
+                    }
+                };
+                
+                ("tmp_parquet_table", read_parquet(path)?)
             }
             "read_json" => todo!(),
-
             _ => todo!(),
-        }
+        };
+
+        let plan = LogicalPlanBuilder::scan(table_name, source.clone(), None)?.build();
+        // register the table to the table registry
+        // TODO: we should use a unique name for the table and apply the alias
+        self.add_new_table(table_name, source)?;
+
+        Ok(plan)
+        // register the table to the table registry
     }
 
     fn filter_expr(&self, mut plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {

@@ -7,6 +7,7 @@ use crate::datasource::DataSource;
 use crate::error::Error;
 use crate::execution::registry::HashMapTableRegistry;
 use crate::logical::plan::LogicalPlan;
+use crate::optimizer::Optimzier;
 use crate::planner::sql::SqlQueryPlanner;
 use crate::planner::QueryPlanner;
 use crate::{error::Result, planner::DefaultQueryPlanner};
@@ -14,6 +15,7 @@ use crate::{error::Result, planner::DefaultQueryPlanner};
 pub struct ExecuteSession {
     tables: Arc<RwLock<dyn TableRegistry>>,
     query_planner: Box<dyn QueryPlanner>,
+    optimizer: Optimzier,
 }
 
 impl Default for ExecuteSession {
@@ -21,6 +23,7 @@ impl Default for ExecuteSession {
         Self {
             tables: Arc::new(RwLock::new(HashMapTableRegistry::default())),
             query_planner: Box::new(DefaultQueryPlanner),
+            optimizer: Optimzier::new(),
         }
     }
 }
@@ -32,7 +35,8 @@ impl ExecuteSession {
     }
 
     pub fn execute_logical_plan(&self, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
-        self.query_planner.create_physical_plan(plan)?.execute()
+        let plan = self.optimizer.optimize(plan)?;
+        self.query_planner.create_physical_plan(&plan)?.execute()
     }
 
     pub fn register_table(&mut self, name: &str, table: Arc<dyn DataSource>) -> Result<()> {
