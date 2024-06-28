@@ -6,6 +6,7 @@ use super::registry::TableRegistry;
 use crate::datasource::DataSource;
 use crate::error::Error;
 use crate::execution::registry::HashMapTableRegistry;
+use crate::logical::plan::LogicalPlan;
 use crate::planner::sql::SqlQueryPlanner;
 use crate::planner::QueryPlanner;
 use crate::{error::Result, planner::DefaultQueryPlanner};
@@ -27,8 +28,11 @@ impl Default for ExecuteSession {
 impl ExecuteSession {
     pub fn sql(&self, sql: &str) -> Result<Vec<RecordBatch>> {
         SqlQueryPlanner::create_logical_plan(self.tables.clone(), sql)
-            .and_then(|logical_plan| self.query_planner.create_physical_plan(&logical_plan))
-            .and_then(|plan| plan.execute())
+            .and_then(|logical_plan| self.execute_logical_plan(&logical_plan))
+    }
+
+    pub fn execute_logical_plan(&self, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
+        self.query_planner.create_physical_plan(plan)?.execute()
     }
 
     pub fn register_table(&mut self, name: &str, table: Arc<dyn DataSource>) -> Result<()> {

@@ -1,5 +1,9 @@
 use crate::logical::plan::LogicalPlan;
 
+pub fn version() -> String {
+    format!("QURIOUS v{}", env!("CARGO_PKG_VERSION"))
+}
+
 pub fn format(plan: &LogicalPlan, ident: usize) -> String {
     let mut sb = String::new();
 

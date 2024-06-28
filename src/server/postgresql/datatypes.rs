@@ -274,7 +274,7 @@ fn encode_value(encoder: &mut DataRowEncoder, arr: &Arc<dyn Array>, idx: usize) 
     Ok(())
 }
 
-fn into_pg_type(f: &Field) -> PgWireResult<FieldInfo> {
+pub(crate) fn into_pg_type(f: &Field) -> PgWireResult<FieldInfo> {
     let pg_type = match f.data_type() {
         DataType::Null => Type::UNKNOWN,
         DataType::Boolean => Type::BOOL,

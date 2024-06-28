@@ -1,10 +1,6 @@
-use std::{
-    sync::{Arc, Mutex, RwLock},
-    vec,
-};
+use std::sync::{Arc, RwLock};
 
 use crate::{
-    error::{Error, Result},
     execution::{registry::TableRegistry, session::ExecuteSession},
     logical::plan::LogicalPlan,
     planner::sql::SqlQueryPlanner,
@@ -14,26 +10,23 @@ use pgwire::{
     api::{
         auth::noop::NoopStartupHandler,
         copy::NoopCopyHandler,
-        portal::{Format, Portal},
-        query::{ExtendedQueryHandler, PlaceholderExtendedQueryHandler, SimpleQueryHandler},
-        results::{DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse, Response},
-        stmt::{NoopQueryParser, QueryParser, StoredStatement},
+        portal::Portal,
+        query::{ExtendedQueryHandler, SimpleQueryHandler},
+        results::{DescribePortalResponse, DescribeStatementResponse, Response},
+        stmt::{QueryParser, StoredStatement},
         ClientInfo, PgWireHandlerFactory, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
 };
-use tokio::sync::{mpsc::Sender, oneshot};
 
-use crate::server::server::Message;
-
-use super::datatypes::into_pg_reponse;
+use super::datatypes::{into_pg_reponse, into_pg_type};
 
 pub struct HandlerFactory(pub Arc<PostgresqlHandler>);
 
 impl PgWireHandlerFactory for HandlerFactory {
     type StartupHandler = NoopStartupHandler;
     type SimpleQueryHandler = PostgresqlHandler;
-    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
+    type ExtendedQueryHandler = PostgresqlHandler;
     type CopyHandler = NoopCopyHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
@@ -41,7 +34,7 @@ impl PgWireHandlerFactory for HandlerFactory {
     }
 
     fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
-        Arc::new(PlaceholderExtendedQueryHandler)
+        self.0.clone()
     }
 
     fn startup_handler(&self) -> Arc<Self::StartupHandler> {
@@ -50,6 +43,17 @@ impl PgWireHandlerFactory for HandlerFactory {
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
+    }
+}
+
+pub struct Parser(Arc<RwLock<dyn TableRegistry>>);
+
+#[async_trait]
+impl QueryParser for Parser {
+    type Statement = LogicalPlan;
+
+    async fn parse_sql(&self, sql: &str, _types: &[Type]) -> PgWireResult<Self::Statement> {
+        SqlQueryPlanner::create_logical_plan(self.0.clone(), sql).map_err(|e| PgWireError::ApiError(Box::new(e)))
     }
 }
 
@@ -89,10 +93,19 @@ impl ExtendedQueryHandler for PostgresqlHandler {
 
     async fn do_describe_statement<C>(
         &self,
-        client: &mut C,
+        _client: &mut C,
         target: &StoredStatement<Self::Statement>,
     ) -> PgWireResult<DescribeStatementResponse> {
-        todo!()
+        let plan = &target.statement;
+
+        let schema = plan.schema();
+        let fields = schema
+            .fields()
+            .iter()
+            .map(|v| into_pg_type(v.as_ref()))
+            .collect::<PgWireResult<_>>()?;
+
+        Ok(DescribeStatementResponse::new(vec![], fields))
     }
 
     async fn do_describe_portal<C>(
@@ -100,9 +113,15 @@ impl ExtendedQueryHandler for PostgresqlHandler {
         _client: &mut C,
         target: &Portal<Self::Statement>,
     ) -> PgWireResult<DescribePortalResponse> {
-        println!("{:?}", target.statement.statement);
+        let plan = &target.statement.statement;
+        let schema = plan.schema();
+        let fields = schema
+            .fields()
+            .iter()
+            .map(|v| into_pg_type(v.as_ref()))
+            .collect::<PgWireResult<_>>()?;
 
-        Ok(DescribePortalResponse::new(vec![]))
+        Ok(DescribePortalResponse::new(fields))
     }
 
     async fn do_query<'a, 'b: 'a, C>(
@@ -114,27 +133,11 @@ impl ExtendedQueryHandler for PostgresqlHandler {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        // send_and_receive(self.tx.clone(), portal.statement.statement.clone())
-        //     .await
-        //     .map_err(|e| {
-        //         PgWireError::UserError(Box::new(ErrorInfo::new(
-        //             "FATAL".to_owned(),
-        //             "28P01".to_owned(),
-        //             e.to_string(),
-        //         )))
-        //     })
-        //     .and_then(|batch| into_pg_reponse(batch))
-        todo!()
-    }
-}
+        let plan = &portal.statement.statement;
 
-pub struct Parser(Arc<RwLock<dyn TableRegistry>>);
-
-#[async_trait]
-impl QueryParser for Parser {
-    type Statement = LogicalPlan;
-
-    async fn parse_sql(&self, sql: &str, _types: &[Type]) -> PgWireResult<Self::Statement> {
-        SqlQueryPlanner::create_logical_plan(self.0.clone(), sql).map_err(|e| PgWireError::ApiError(Box::new(e)))
+        self.session
+            .execute_logical_plan(plan)
+            .map_err(|e| PgWireError::ApiError(Box::new(e)))
+            .and_then(|batch| into_pg_reponse(batch))
     }
 }

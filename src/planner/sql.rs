@@ -22,6 +22,7 @@ use crate::{
         plan::{Filter, LogicalPlan, SubqueryAlias},
         LogicalPlanBuilder,
     },
+    utils,
 };
 
 use self::alias::Alias;
@@ -390,12 +391,23 @@ impl SqlQueryPlanner {
                     .into_iter()
                     .map(|expr| self.sql_function_args_to_expr(expr))
                     .collect::<Result<Vec<_>>>()?;
-                Ok(LogicalExpr::AggregateExpr(AggregateExpr {
-                    op: name.into(),
-                    expr: Box::new(exprs.pop().ok_or(Error::InternalError(format!(
-                        "Aggreate function should have at latest one expr"
-                    )))?),
-                }))
+
+                match name.to_uppercase().as_str() {
+                    "VERSION" => {
+                        if !exprs.is_empty() {
+                            return Err(Error::InternalError(format!(
+                                "VERSION function should not have any arguments"
+                            )));
+                        }
+                        Ok(LogicalExpr::Literal(ScalarValue::Utf8(Some(utils::version()))))
+                    }
+                    _ => Ok(LogicalExpr::AggregateExpr(AggregateExpr {
+                        op: name.into(),
+                        expr: Box::new(exprs.pop().ok_or(Error::InternalError(format!(
+                            "Aggreate function should have at latest one expr"
+                        )))?),
+                    })),
+                }
             }
             _ => todo!(),
         }
