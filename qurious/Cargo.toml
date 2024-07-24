@@ -1,0 +1,26 @@
+[package]
+name = "qurious"
+version = "0.1.0"
+edition = "2021"
+
+
+[features]
+default = []
+postgresql = ["dep:pgwire", "dep:chrono"]
+
+[dependencies]
+sqlparser = { workspace = true }
+parquet = { workspace = true }
+arrow = { workspace = true }
+url = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tokio-stream = { workspace = true }
+log = { workspace = true }
+# postgres
+pgwire = { version = "0.23.0", optional = true }
+chrono = { version = "0.4.38", optional = true }
+
+
+[dev-dependencies]
+arrow = { version = "52.0.0", features = ["prettyprint", "test_utils"] }
