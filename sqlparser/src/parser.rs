@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        self, Assignment, Cte, Expression, FunctionArgument, Ident, OnConflict, Order, Select,
-        SelectItem, Statement, StructField, With,
+        self, Assignment, Cte, Expression, FunctionArgument, Ident, ObjectName, OnConflict, Order, Select, SelectItem,
+        Statement, StructField, With,
     },
     error::{Error, Result},
     lexer::Lexer,
@@ -42,19 +42,13 @@ impl<'a> Parser<'a> {
                 let check_exists = self.parse_if_exists()?;
                 let schema = self.next_ident()?;
 
-                Ok(Statement::DropSchema {
-                    schema,
-                    check_exists,
-                })
+                Ok(Statement::DropSchema { schema, check_exists })
             }
             TokenType::Keyword(Keyword::Table) => {
                 let check_exists = self.parse_if_exists()?;
                 let table = self.next_ident()?;
 
-                Ok(Statement::DropTable {
-                    table,
-                    check_exists,
-                })
+                Ok(Statement::DropTable { table, check_exists })
             }
             _ => unimplemented!(),
         }
@@ -83,10 +77,7 @@ impl<'a> Parser<'a> {
                 let mut nullable = true;
                 let datatype = self.next_token().and_then(|t| t.datatype())?;
 
-                let primary_key = if self
-                    .next_if_token(TokenType::Keyword(Keyword::Primary))
-                    .is_some()
-                {
+                let primary_key = if self.next_if_token(TokenType::Keyword(Keyword::Primary)).is_some() {
                     self.next_except(TokenType::Keyword(Keyword::Key))?;
 
                     nullable = false;
@@ -95,14 +86,9 @@ impl<'a> Parser<'a> {
                     false
                 };
 
-                let unique = self
-                    .next_if_token(TokenType::Keyword(Keyword::Unique))
-                    .is_some();
+                let unique = self.next_if_token(TokenType::Keyword(Keyword::Unique)).is_some();
 
-                if self
-                    .next_if_token(TokenType::Keyword(Keyword::Not))
-                    .is_some()
-                {
+                if self.next_if_token(TokenType::Keyword(Keyword::Not)).is_some() {
                     self.next_except(TokenType::Keyword(Keyword::Null))?;
 
                     nullable = false;
@@ -124,14 +110,8 @@ impl<'a> Parser<'a> {
             }
         }
         // parse query
-        let query = if self
-            .next_if_token(TokenType::Keyword(Keyword::As))
-            .is_some()
-        {
-            if self
-                .next_if_token(TokenType::Keyword(Keyword::Select))
-                .is_some()
-            {
+        let query = if self.next_if_token(TokenType::Keyword(Keyword::As)).is_some() {
+            if self.next_if_token(TokenType::Keyword(Keyword::Select)).is_some() {
                 Some(self.parse_select()?)
             } else {
                 self.next_except(TokenType::Keyword(Keyword::From))?;
@@ -165,10 +145,7 @@ impl<'a> Parser<'a> {
         let check_exists: bool = self.parse_if_not_exists()?;
         let schema = self.next_ident()?;
 
-        Ok(Statement::CreateSchema {
-            schema,
-            check_exists,
-        })
+        Ok(Statement::CreateSchema { schema, check_exists })
     }
 
     fn parse_delete_statement(&mut self) -> Result<Statement> {
@@ -176,10 +153,7 @@ impl<'a> Parser<'a> {
 
         let table = self.next_ident()?;
 
-        let r#where = if self
-            .next_if_token(TokenType::Keyword(Keyword::Where))
-            .is_some()
-        {
+        let r#where = if self.next_if_token(TokenType::Keyword(Keyword::Where)).is_some() {
             Some(self.parse_expression(0)?)
         } else {
             None
@@ -195,10 +169,7 @@ impl<'a> Parser<'a> {
 
         let assignments = self.parse_comma_separated(Parser::parse_assignment)?;
 
-        let r#where = if self
-            .next_if_token(TokenType::Keyword(Keyword::Where))
-            .is_some()
-        {
+        let r#where = if self.next_if_token(TokenType::Keyword(Keyword::Where)).is_some() {
             Some(self.parse_expression(0)?)
         } else {
             None
@@ -230,15 +201,9 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        let query = if self
-            .next_if_token(TokenType::Keyword(Keyword::Select))
-            .is_some()
-        {
+        let query = if self.next_if_token(TokenType::Keyword(Keyword::Select)).is_some() {
             Some(self.parse_select()?)
-        } else if self
-            .next_if_token(TokenType::Keyword(Keyword::From))
-            .is_some()
-        {
+        } else if self.next_if_token(TokenType::Keyword(Keyword::From)).is_some() {
             let table = self.parse_table_reference()?;
             Some(Select {
                 with: None,
@@ -256,28 +221,19 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let values = if self
-            .next_if_token(TokenType::Keyword(Keyword::Values))
-            .is_some()
-        {
+        let values = if self.next_if_token(TokenType::Keyword(Keyword::Values)).is_some() {
             self.parse_values()?
         } else {
             vec![]
         };
 
-        let on_conflict = if self
-            .next_if_token(TokenType::Keyword(Keyword::On))
-            .is_some()
-        {
+        let on_conflict = if self.next_if_token(TokenType::Keyword(Keyword::On)).is_some() {
             Some(self.parse_on_conflict()?)
         } else {
             None
         };
 
-        let returning = if self
-            .next_if_token(TokenType::Keyword(Keyword::Returning))
-            .is_some()
-        {
+        let returning = if self.next_if_token(TokenType::Keyword(Keyword::Returning)).is_some() {
             self.parse_columns().ok()
         } else {
             None
@@ -315,10 +271,7 @@ impl<'a> Parser<'a> {
 
         let columns = self.parse_columns()?;
 
-        if self
-            .next_if_token(TokenType::Keyword(Keyword::From))
-            .is_none()
-        {
+        if self.next_if_token(TokenType::Keyword(Keyword::From)).is_none() {
             return Ok(Select {
                 with: None,
                 distinct,
@@ -334,37 +287,25 @@ impl<'a> Parser<'a> {
         }
         let from = self.parse_from_statment()?;
 
-        let r#where = if self
-            .next_if_token(TokenType::Keyword(Keyword::Where))
-            .is_some()
-        {
+        let r#where = if self.next_if_token(TokenType::Keyword(Keyword::Where)).is_some() {
             Some(self.parse_expression(0)?)
         } else {
             None
         };
 
-        let group_by = if self
-            .next_if_token(TokenType::Keyword(Keyword::Group))
-            .is_some()
-        {
+        let group_by = if self.next_if_token(TokenType::Keyword(Keyword::Group)).is_some() {
             Some(self.parse_group_by()?)
         } else {
             None
         };
 
-        let having = if self
-            .next_if_token(TokenType::Keyword(Keyword::Having))
-            .is_some()
-        {
+        let having = if self.next_if_token(TokenType::Keyword(Keyword::Having)).is_some() {
             Some(self.parse_expression(0)?)
         } else {
             None
         };
 
-        let order_by = if self
-            .next_if_token(TokenType::Keyword(Keyword::Order))
-            .is_some()
-        {
+        let order_by = if self.next_if_token(TokenType::Keyword(Keyword::Order)).is_some() {
             Some(self.parse_order_by()?)
         } else {
             None
@@ -374,17 +315,11 @@ impl<'a> Parser<'a> {
         let mut offset = None;
 
         for _ in 0..2 {
-            if self
-                .next_if_token(TokenType::Keyword(Keyword::Limit))
-                .is_some()
-            {
+            if self.next_if_token(TokenType::Keyword(Keyword::Limit)).is_some() {
                 limit = Some(self.parse_expression(0)?);
             }
 
-            if self
-                .next_if_token(TokenType::Keyword(Keyword::Offset))
-                .is_some()
-            {
+            if self.next_if_token(TokenType::Keyword(Keyword::Offset)).is_some() {
                 offset = Some(self.parse_expression(0)?)
             }
         }
@@ -448,10 +383,7 @@ impl<'a> Parser<'a> {
         self.next_except(TokenType::RParen)?;
         self.next_except(TokenType::Keyword(Keyword::Do))?;
 
-        if self
-            .next_if_token(TokenType::Keyword(Keyword::Nothing))
-            .is_some()
-        {
+        if self.next_if_token(TokenType::Keyword(Keyword::Nothing)).is_some() {
             Ok(OnConflict::DoNothing)
         } else {
             self.next_except(TokenType::Keyword(Keyword::Update))?;
@@ -465,10 +397,7 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            Ok(OnConflict::DoUpdate {
-                constraints,
-                values,
-            })
+            Ok(OnConflict::DoUpdate { constraints, values })
         }
     }
 
@@ -496,10 +425,7 @@ impl<'a> Parser<'a> {
 
     fn parse_if_not_exists(&mut self) -> Result<bool> {
         let mut check_exists = false;
-        if self
-            .next_if_token(TokenType::Keyword(Keyword::If))
-            .is_some()
-        {
+        if self.next_if_token(TokenType::Keyword(Keyword::If)).is_some() {
             self.next_except(TokenType::Keyword(Keyword::Not))?;
             self.next_except(TokenType::Keyword(Keyword::Exists))?;
 
@@ -510,10 +436,7 @@ impl<'a> Parser<'a> {
 
     fn parse_if_exists(&mut self) -> Result<bool> {
         let mut check_exists = false;
-        if self
-            .next_if_token(TokenType::Keyword(Keyword::If))
-            .is_some()
-        {
+        if self.next_if_token(TokenType::Keyword(Keyword::If)).is_some() {
             self.next_except(TokenType::Keyword(Keyword::Exists))?;
 
             check_exists = true;
@@ -529,10 +452,7 @@ impl<'a> Parser<'a> {
             let expr = self.parse_expression(0)?;
             let mut order = ast::Order::Asc;
 
-            if self
-                .next_if_token(TokenType::Keyword(Keyword::Desc))
-                .is_some()
-            {
+            if self.next_if_token(TokenType::Keyword(Keyword::Desc)).is_some() {
                 order = ast::Order::Desc;
             }
 
@@ -561,14 +481,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_distinct(&mut self) -> Result<Option<ast::Distinct>> {
-        if self
-            .next_if_token(TokenType::Keyword(Keyword::Distinct))
-            .is_some()
-        {
-            if self
-                .next_if_token(TokenType::Keyword(Keyword::On))
-                .is_some()
-            {
+        if self.next_if_token(TokenType::Keyword(Keyword::Distinct)).is_some() {
+            if self.next_if_token(TokenType::Keyword(Keyword::On)).is_some() {
                 self.next_except(TokenType::LParen)?;
 
                 let mut columns = Vec::new();
@@ -594,10 +508,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
             let expr = self.parse_expression(0)?;
-            let alias = if self
-                .next_if_token(TokenType::Keyword(Keyword::As))
-                .is_some()
-            {
+            let alias = if self.next_if_token(TokenType::Keyword(Keyword::As)).is_some() {
                 Some(self.parse_expression(0)?.to_string())
             } else {
                 None
@@ -609,13 +520,7 @@ impl<'a> Parser<'a> {
                         SelectItem::QualifiedWildcard(
                             idents
                                 .iter()
-                                .filter_map(|i| {
-                                    if i.value == "*" {
-                                        None
-                                    } else {
-                                        Some(i.value.clone())
-                                    }
-                                })
+                                .filter_map(|i| if i.value == "*" { None } else { Some(i.value.clone()) })
                                 .collect(),
                         )
                     } else {
@@ -704,9 +609,7 @@ impl<'a> Parser<'a> {
             TokenType::Keyword(Keyword::Right) => ast::JoinType::Right,
             TokenType::Keyword(Keyword::Full) => ast::JoinType::Full,
             TokenType::Keyword(Keyword::Cross) => ast::JoinType::Cross,
-            TokenType::Keyword(Keyword::Inner) | TokenType::Keyword(Keyword::Join) => {
-                ast::JoinType::Inner
-            }
+            TokenType::Keyword(Keyword::Inner) | TokenType::Keyword(Keyword::Join) => ast::JoinType::Inner,
             _ => return Ok(None),
         };
         // consumer keyword token,such as: left \ right \ full \ cross \ inner
@@ -759,10 +662,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_alias(&mut self) -> Result<Option<String>> {
-        if self
-            .next_if_token(TokenType::Keyword(Keyword::As))
-            .is_some()
-        {
+        if self.next_if_token(TokenType::Keyword(Keyword::As)).is_some() {
             self.next_ident().map(Some)
         } else if let Some(ident) = self.next_if_token(TokenType::Ident) {
             Ok(Some(ident.literal))
@@ -774,10 +674,7 @@ impl<'a> Parser<'a> {
     fn parse_in_expr(&mut self, lhs: Expression, negated: bool) -> Result<Expression> {
         self.next_except(TokenType::LParen)?;
 
-        if self
-            .next_if_token(TokenType::Keyword(Keyword::Select))
-            .is_some()
-        {
+        if self.next_if_token(TokenType::Keyword(Keyword::Select)).is_some() {
             Ok(Expression::InSubQuery {
                 field: Box::new(lhs),
                 query: Box::new(self.parse_select_statement()?),
@@ -804,9 +701,7 @@ impl<'a> Parser<'a> {
             self.parse_expression_atom()?
         };
 
-        let negated = self
-            .next_if_token(TokenType::Keyword(Keyword::Not))
-            .is_some();
+        let negated = self.next_if_token(TokenType::Keyword(Keyword::Not)).is_some();
 
         while let Some(infix) = self.next_if_operator::<InfixOperator>(precedence) {
             if infix.precedence() < precedence {
@@ -852,12 +747,8 @@ impl<'a> Parser<'a> {
                 .map(|i| ast::Expression::Literal(ast::Literal::Int(i)))
                 .map_err(|e| Error::ParseIntError(e, token)),
             TokenType::String => Ok(ast::Expression::Literal(ast::Literal::String(literal))),
-            TokenType::Keyword(Keyword::True) => {
-                Ok(ast::Expression::Literal(ast::Literal::Boolean(true)))
-            }
-            TokenType::Keyword(Keyword::False) => {
-                Ok(ast::Expression::Literal(ast::Literal::Boolean(false)))
-            }
+            TokenType::Keyword(Keyword::True) => Ok(ast::Expression::Literal(ast::Literal::Boolean(true))),
+            TokenType::Keyword(Keyword::False) => Ok(ast::Expression::Literal(ast::Literal::Boolean(false))),
             TokenType::LParen => {
                 let expr = self.parse_expression(0)?;
                 self.next_except(TokenType::RParen)?;
@@ -894,7 +785,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assignment(&mut self) -> Result<Assignment> {
-        let target = self.parse_comma_separated(Parser::parse_ident)?;
+        let target = self.parse_comma_separated(Parser::parse_ident).map(ObjectName)?;
         self.next_except(TokenType::Eq)?;
         let value = self.parse_expression(0)?;
         Ok(Assignment { target, value })
@@ -1017,15 +908,9 @@ impl Operator for PrefixOperator {
 impl PrefixOperator {
     fn build(&self, rhs: Expression) -> Expression {
         match self {
-            PrefixOperator::Plus => {
-                Expression::BinaryOperator(ast::BinaryOperator::Pos(Box::new(rhs)))
-            }
-            PrefixOperator::Minus => {
-                Expression::BinaryOperator(ast::BinaryOperator::Neg(Box::new(rhs)))
-            }
-            PrefixOperator::Not => {
-                Expression::BinaryOperator(ast::BinaryOperator::Not(Box::new(rhs)))
-            }
+            PrefixOperator::Plus => Expression::BinaryOperator(ast::BinaryOperator::Pos(Box::new(rhs))),
+            PrefixOperator::Minus => Expression::BinaryOperator(ast::BinaryOperator::Neg(Box::new(rhs))),
+            PrefixOperator::Not => Expression::BinaryOperator(ast::BinaryOperator::Not(Box::new(rhs))),
         }
     }
 }
@@ -1141,19 +1026,14 @@ mod tests {
     use std::vec;
 
     use super::Parser;
-    use crate::ast::{
-        self, Assignment, Expression, FunctionArgument, Select, SelectItem, Statement,
-    };
+    use crate::ast::{self, Assignment, Expression, FunctionArgument, Select, SelectItem, Statement};
     use crate::datatype::DataType;
     use crate::error::Result;
 
     #[test]
     fn test_parser_error() {
         let stmt = parse_stmt("SELEC").err().unwrap();
-        assert_eq!(
-            stmt.to_string(),
-            "error: unexpected token line: 0 column: 4"
-        );
+        assert_eq!(stmt.to_string(), "error: unexpected token line: 0 column: 4");
 
         let stmt = parse_stmt("SELECT * FROM").err().unwrap();
         assert_eq!(stmt.to_string(), "error: unexpected EOF line: 0 column: 12");
@@ -1332,9 +1212,7 @@ mod tests {
                         name: "read_csv".to_owned(),
                         args: vec![FunctionArgument {
                             id: None,
-                            value: Expression::Literal(ast::Literal::String(
-                                "path/file.csv".to_owned()
-                            ))
+                            value: Expression::Literal(ast::Literal::String("path/file.csv".to_owned()))
                         }],
                         alias: None,
                     }],
@@ -1364,9 +1242,7 @@ mod tests {
                         name: "read_csv_auto".to_owned(),
                         args: vec![FunctionArgument {
                             id: None,
-                            value: Expression::Literal(ast::Literal::String(
-                                "path/file.csv".to_owned()
-                            ))
+                            value: Expression::Literal(ast::Literal::String("path/file.csv".to_owned()))
                         }],
                         alias: None,
                     }],
@@ -1473,7 +1349,7 @@ mod tests {
             ast::Statement::Update {
                 table: "users".to_owned(),
                 assignments: vec![Assignment {
-                    target: vec!["name".into()],
+                    target: vec!["name"].into(),
                     value: ast::Expression::Literal(ast::Literal::String("name".to_owned()))
                 }],
                 r#where: None,
@@ -1487,7 +1363,7 @@ mod tests {
             ast::Statement::Update {
                 table: "users".to_owned(),
                 assignments: vec![Assignment {
-                    target: vec!["name".into()],
+                    target: vec!["name"].into(),
                     value: ast::Expression::Literal(ast::Literal::String("name".to_owned()))
                 }],
                 r#where: Some(ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
@@ -1505,11 +1381,11 @@ mod tests {
                 table: "users".to_owned(),
                 assignments: vec![
                     Assignment {
-                        target: vec!["name".into()],
+                        target: vec!["name"].into(),
                         value: ast::Expression::Literal(ast::Literal::String("name".to_owned()))
                     },
                     Assignment {
-                        target: vec!["id".into()],
+                        target: vec!["id"].into(),
                         value: ast::Expression::Literal(ast::Literal::Int(1))
                     },
                 ],
@@ -1562,8 +1438,7 @@ mod tests {
             }
         );
 
-        let stmt =
-            parse_stmt("INSERT INTO users (id, name) VALUES (1, 'name'), (2, 'name2');").unwrap();
+        let stmt = parse_stmt("INSERT INTO users (id, name) VALUES (1, 'name'), (2, 'name2');").unwrap();
 
         assert_eq!(
             stmt,
@@ -1590,8 +1465,9 @@ mod tests {
             }
         );
 
-        let stmt = parse_stmt("INSERT INTO users (id, name) VALUES (1, 'name'), (2, 'name2') ON CONFLICT (id) DO NOTHING;")
-            .unwrap();
+        let stmt =
+            parse_stmt("INSERT INTO users (id, name) VALUES (1, 'name'), (2, 'name2') ON CONFLICT (id) DO NOTHING;")
+                .unwrap();
 
         assert_eq!(
             stmt,
@@ -1648,9 +1524,7 @@ mod tests {
                     }],
                     values: vec![ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
                         Box::new(ast::Expression::Identifier("name".into())),
-                        Box::new(ast::Expression::Literal(ast::Literal::String(
-                            "name".to_owned()
-                        ))),
+                        Box::new(ast::Expression::Literal(ast::Literal::String("name".to_owned()))),
                     ))],
                 }),
                 returning: None,
@@ -1688,9 +1562,7 @@ mod tests {
                     values: vec![
                         ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
                             Box::new(ast::Expression::Identifier("name".into())),
-                            Box::new(ast::Expression::Literal(ast::Literal::String(
-                                "name".to_owned()
-                            ))),
+                            Box::new(ast::Expression::Literal(ast::Literal::String("name".to_owned()))),
                         )),
                         ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
                             Box::new(ast::Expression::Identifier("id".into())),
@@ -1733,9 +1605,7 @@ mod tests {
                     values: vec![
                         ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
                             Box::new(ast::Expression::Identifier("name".into())),
-                            Box::new(ast::Expression::Literal(ast::Literal::String(
-                                "name".to_owned()
-                            ))),
+                            Box::new(ast::Expression::Literal(ast::Literal::String("name".to_owned()))),
                         )),
                         ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
                             Box::new(ast::Expression::Identifier("id".into())),
@@ -1780,9 +1650,7 @@ mod tests {
                     values: vec![
                         ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
                             Box::new(ast::Expression::Identifier("name".into())),
-                            Box::new(ast::Expression::Literal(ast::Literal::String(
-                                "name".to_owned()
-                            ))),
+                            Box::new(ast::Expression::Literal(ast::Literal::String("name".to_owned()))),
                         )),
                         ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
                             Box::new(ast::Expression::Identifier("id".into())),
@@ -1791,10 +1659,7 @@ mod tests {
                     ],
                 }),
                 returning: Some(vec![
-                    (ast::SelectItem::ExprWithAlias(
-                        ast::Expression::Identifier("id".into()),
-                        String::from("user_id")
-                    ))
+                    (ast::SelectItem::ExprWithAlias(ast::Expression::Identifier("id".into()), String::from("user_id")))
                 ]),
             }
         );
@@ -1926,9 +1791,7 @@ mod tests {
                 limit: None,
                 offset: None,
                 distinct: None,
-                columns: vec![SelectItem::UnNamedExpr(ast::Expression::Literal(
-                    ast::Literal::Int(1)
-                ))],
+                columns: vec![SelectItem::UnNamedExpr(ast::Expression::Literal(ast::Literal::Int(1)))],
                 from: vec![],
                 r#where: None,
                 group_by: None,
@@ -1948,10 +1811,7 @@ mod tests {
                 distinct: None,
                 columns: vec![
                     SelectItem::UnNamedExpr(ast::Expression::Identifier("id".into())),
-                    SelectItem::UnNamedExpr(ast::Expression::CompoundIdentifier(vec![
-                        "t".into(),
-                        "id".into()
-                    ])),
+                    SelectItem::UnNamedExpr(ast::Expression::CompoundIdentifier(vec!["t".into(), "id".into()])),
                 ],
                 from: vec![ast::From::Table {
                     name: String::from("test"),
@@ -2003,9 +1863,7 @@ mod tests {
                     args: vec![
                         ast::FunctionArgument {
                             id: None,
-                            value: ast::Expression::Literal(ast::Literal::String(
-                                "./test.csv".to_owned()
-                            )),
+                            value: ast::Expression::Literal(ast::Literal::String("./test.csv".to_owned())),
                         },
                         ast::FunctionArgument {
                             id: Some(ast::Ident {
@@ -2027,12 +1885,8 @@ mod tests {
                                 quote_style: None,
                             }),
                             value: ast::Expression::Struct(vec![ast::StructField {
-                                name: ast::Expression::Literal(ast::Literal::String(
-                                    "FlightDate".to_owned()
-                                )),
-                                value: ast::Expression::Literal(ast::Literal::String(
-                                    "DATE".to_owned()
-                                )),
+                                name: ast::Expression::Literal(ast::Literal::String("FlightDate".to_owned())),
+                                value: ast::Expression::Literal(ast::Literal::String("DATE".to_owned())),
                             }]),
                         },
                         ast::FunctionArgument {
@@ -2040,9 +1894,9 @@ mod tests {
                                 value: "force_not_null".to_owned(),
                                 quote_style: None,
                             }),
-                            value: ast::Expression::Array(vec![ast::Expression::Literal(
-                                ast::Literal::String("FlightDate".to_owned())
-                            )]),
+                            value: ast::Expression::Array(vec![ast::Expression::Literal(ast::Literal::String(
+                                "FlightDate".to_owned()
+                            ))]),
                         },
                     ],
                     alias: Some(String::from("t1")),
@@ -2156,14 +2010,8 @@ mod tests {
                         alias: Some(String::from("u2")),
                     }),
                     on: Some(ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
-                        Box::new(ast::Expression::CompoundIdentifier(vec![
-                            "u".into(),
-                            "id".into()
-                        ])),
-                        Box::new(ast::Expression::CompoundIdentifier(vec![
-                            "u2".into(),
-                            "id".into()
-                        ])),
+                        Box::new(ast::Expression::CompoundIdentifier(vec!["u".into(), "id".into()])),
+                        Box::new(ast::Expression::CompoundIdentifier(vec!["u2".into(), "id".into()])),
                     ))),
                 }],
                 r#where: None,
@@ -2194,14 +2042,8 @@ mod tests {
                         alias: Some(String::from("u2")),
                     }),
                     on: Some(ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
-                        Box::new(ast::Expression::CompoundIdentifier(vec![
-                            "u".into(),
-                            "id".into()
-                        ])),
-                        Box::new(ast::Expression::CompoundIdentifier(vec![
-                            "u2".into(),
-                            "id".into()
-                        ])),
+                        Box::new(ast::Expression::CompoundIdentifier(vec!["u".into(), "id".into()])),
+                        Box::new(ast::Expression::CompoundIdentifier(vec!["u2".into(), "id".into()])),
                     ))),
                 }],
                 r#where: None,
@@ -2209,8 +2051,7 @@ mod tests {
             }))
         );
 
-        let stmt =
-            parse_stmt("select * from users u right join users u2 on u.id = u2.id;").unwrap();
+        let stmt = parse_stmt("select * from users u right join users u2 on u.id = u2.id;").unwrap();
 
         assert_eq!(
             stmt,
@@ -2233,14 +2074,8 @@ mod tests {
                         alias: Some(String::from("u2")),
                     }),
                     on: Some(ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
-                        Box::new(ast::Expression::CompoundIdentifier(vec![
-                            "u".into(),
-                            "id".into()
-                        ])),
-                        Box::new(ast::Expression::CompoundIdentifier(vec![
-                            "u2".into(),
-                            "id".into()
-                        ])),
+                        Box::new(ast::Expression::CompoundIdentifier(vec!["u".into(), "id".into()])),
+                        Box::new(ast::Expression::CompoundIdentifier(vec!["u2".into(), "id".into()])),
                     ))),
                 }],
                 r#where: None,
@@ -2248,8 +2083,7 @@ mod tests {
             }))
         );
 
-        let stmt =
-            parse_stmt("select * from users u inner join users u2 on u.id = u2.id;").unwrap();
+        let stmt = parse_stmt("select * from users u inner join users u2 on u.id = u2.id;").unwrap();
 
         assert_eq!(
             stmt,
@@ -2272,14 +2106,8 @@ mod tests {
                         alias: Some(String::from("u2")),
                     }),
                     on: Some(ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
-                        Box::new(ast::Expression::CompoundIdentifier(vec![
-                            "u".into(),
-                            "id".into()
-                        ])),
-                        Box::new(ast::Expression::CompoundIdentifier(vec![
-                            "u2".into(),
-                            "id".into()
-                        ])),
+                        Box::new(ast::Expression::CompoundIdentifier(vec!["u".into(), "id".into()])),
+                        Box::new(ast::Expression::CompoundIdentifier(vec!["u2".into(), "id".into()])),
                     ))),
                 }],
                 r#where: None,
@@ -2310,14 +2138,8 @@ mod tests {
                         alias: Some(String::from("u2")),
                     }),
                     on: Some(ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
-                        Box::new(ast::Expression::CompoundIdentifier(vec![
-                            "u".into(),
-                            "id".into()
-                        ])),
-                        Box::new(ast::Expression::CompoundIdentifier(vec![
-                            "u2".into(),
-                            "id".into()
-                        ])),
+                        Box::new(ast::Expression::CompoundIdentifier(vec!["u".into(), "id".into()])),
+                        Box::new(ast::Expression::CompoundIdentifier(vec!["u2".into(), "id".into()])),
                     ))),
                 }],
                 r#where: None,
@@ -2390,10 +2212,7 @@ mod tests {
             stmt,
             ast::Statement::Select(Box::new(Select {
                 with: None,
-                order_by: Some(vec![(
-                    ast::Expression::Identifier("id".into()),
-                    ast::Order::Asc,
-                )]),
+                order_by: Some(vec![(ast::Expression::Identifier("id".into()), ast::Order::Asc,)]),
                 limit: None,
                 offset: None,
                 having: None,
@@ -2414,10 +2233,7 @@ mod tests {
             stmt,
             ast::Statement::Select(Box::new(Select {
                 with: None,
-                order_by: Some(vec![(
-                    ast::Expression::Identifier("id".into()),
-                    ast::Order::Asc,
-                )]),
+                order_by: Some(vec![(ast::Expression::Identifier("id".into()), ast::Order::Asc,)]),
                 limit: None,
                 offset: None,
                 having: None,
@@ -2463,10 +2279,7 @@ mod tests {
             stmt,
             ast::Statement::Select(Box::new(Select {
                 with: None,
-                order_by: Some(vec![(
-                    ast::Expression::Identifier("id".into()),
-                    ast::Order::Desc,
-                )]),
+                order_by: Some(vec![(ast::Expression::Identifier("id".into()), ast::Order::Desc,)]),
                 limit: None,
                 offset: None,
                 having: None,
@@ -2609,9 +2422,7 @@ mod tests {
                     ast::Expression::Identifier("name".into()),
                     ast::Expression::Identifier("age".into()),
                 ])),
-                columns: vec![SelectItem::UnNamedExpr(ast::Expression::Identifier(
-                    "school".into()
-                ))],
+                columns: vec![SelectItem::UnNamedExpr(ast::Expression::Identifier("school".into()))],
                 from: vec![ast::From::Table {
                     name: String::from("users"),
                     alias: None,
@@ -3134,9 +2945,7 @@ mod tests {
             Statement::Select(Box::new(Select {
                 with: None,
                 distinct: None,
-                columns: vec![SelectItem::UnNamedExpr(Expression::Literal(
-                    ast::Literal::Int(1)
-                ))],
+                columns: vec![SelectItem::UnNamedExpr(Expression::Literal(ast::Literal::Int(1)))],
                 from: vec![],
                 r#where: None,
                 group_by: None,
@@ -3320,9 +3129,9 @@ mod tests {
             (
                 "-a * b",
                 Expression::BinaryOperator(ast::BinaryOperator::Mul(
-                    Box::new(Expression::BinaryOperator(ast::BinaryOperator::Neg(
-                        Box::new(Expression::Identifier("a".into())),
-                    ))),
+                    Box::new(Expression::BinaryOperator(ast::BinaryOperator::Neg(Box::new(
+                        Expression::Identifier("a".into()),
+                    )))),
                     Box::new(Expression::Identifier("b".into())),
                 )),
             ),
@@ -3384,12 +3193,12 @@ mod tests {
             ),
             (
                 "-(5 + 5)",
-                Expression::BinaryOperator(ast::BinaryOperator::Neg(Box::new(
-                    Expression::BinaryOperator(ast::BinaryOperator::Add(
+                Expression::BinaryOperator(ast::BinaryOperator::Neg(Box::new(Expression::BinaryOperator(
+                    ast::BinaryOperator::Add(
                         Box::new(Expression::Literal(ast::Literal::Int(5))),
                         Box::new(Expression::Literal(ast::Literal::Int(5))),
-                    )),
-                ))),
+                    ),
+                )))),
             ),
         ];
 

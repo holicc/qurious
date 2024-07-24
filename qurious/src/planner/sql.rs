@@ -5,7 +5,7 @@ use std::{
 
 use arrow::datatypes::{Field, Schema};
 use sqlparser::ast::{
-    Assignment, BinaryOperator, Cte, Expression, From, Literal, Order, Select, SelectItem, Statement,
+    Assignment, BinaryOperator, Cte, Expression, From, FunctionArgument, Literal, Order, Select, SelectItem, Statement,
 };
 
 use crate::{
@@ -22,8 +22,7 @@ use crate::{
     logical::{
         expr::*,
         plan::{
-            self, CreateMemoryTable, DdlStatement, Delete, DmlStatement, DropTable, Filter, Insert, LogicalPlan,
-            SubqueryAlias, Update, Values,
+            self, CreateMemoryTable, DdlStatement, DmlStatement, DropTable, Filter, LogicalPlan, SubqueryAlias, Values,
         },
         LogicalPlanBuilder,
     },
@@ -144,39 +143,58 @@ impl SqlQueryPlanner {
     ) -> Result<LogicalPlan> {
         let table_source = self.get_table_source(&table)?;
         let table_schema = table_source.schema();
-        let input = LogicalPlanBuilder::scan(table.clone(), table_source, None)?.build();
-        let input = self.filter_expr(input, r#where)?;
+        let input = LogicalPlanBuilder::scan(table.clone(), table_source, None)
+            .map(|builder| builder.build())
+            .and_then(|plan| self.filter_expr(plan, r#where))?;
+        let relations = input.relation();
 
-        let mut exprs = assignments
+        let mut assign_map: HashMap<String, LogicalExpr> = assignments
             .into_iter()
             .map(|assign| {
-                let name = assign.target;
+                let name = assign.target.to_string();
                 let value = self
                     .sql_to_expr(assign.value)
-                    .and_then(|e| normalize_col_with_schemas_and_ambiguity_check(e, &[&table.into()]))?;
-                let index = table_schema.index_of(&name)?;
-                Ok(column(table_schema.field(index).name())
-                    .cast_to(table_schema.field(index).data_type())
-                    .alias(name)
-                    .eq(value))
+                    .and_then(|e| normalize_col_with_schemas_and_ambiguity_check(e, &[&relations]))?;
+                Ok((name, value))
             })
-            .collect::<Result<Vec<LogicalExpr>>>()?;
+            .collect::<Result<_>>()?;
 
-        Ok(LogicalPlan::Dml(DmlStatement::Update(Update {
+        // zip table relation with schema field
+        let exprs = relations
+            .into_iter()
+            .map(|(r, s)| s.fields().iter().map(|f| (r.clone(), f.clone())).collect::<Vec<_>>())
+            .flatten()
+            .map(|(r, f)| match assign_map.remove(f.name()) {
+                Some(expr) => expr.cast_to(f.data_type()).alias(f.name()),
+                None => LogicalExpr::Column(Column {
+                    name: f.name().to_owned(),
+                    relation: Some(r.clone()),
+                }),
+            })
+            .collect::<Vec<_>>();
+
+        let plan = LogicalPlanBuilder::project(input, exprs)?;
+
+        Ok(LogicalPlan::Dml(DmlStatement {
             relation: table.into(),
-            input: Box::new(input),
-        })))
+            op: plan::DmlOperator::Update,
+            schema: table_schema,
+            input: Box::new(plan),
+        }))
     }
 
     fn delete_to_plan(&mut self, table: String, r#where: Option<Expression>) -> Result<LogicalPlan> {
         let table_source = self.get_table_source(&table)?;
+        let table_schema = table_source.schema();
         let plan = LogicalPlanBuilder::scan(table.clone(), table_source, None)?.build();
         let plan = self.filter_expr(plan, r#where)?;
 
-        Ok(LogicalPlan::Dml(DmlStatement::Delete(Delete {
+        Ok(LogicalPlan::Dml(DmlStatement {
             relation: table.into(),
+            op: plan::DmlOperator::Delete,
+            schema: table_schema,
             input: Box::new(plan),
-        })))
+        }))
     }
 
     fn insert_to_plan(
@@ -275,11 +293,12 @@ impl SqlQueryPlanner {
             LogicalPlanBuilder::project(plan, exprs)?
         };
 
-        Ok(LogicalPlan::Dml(DmlStatement::Insert(Insert {
-            table_name: table,
-            table_schema,
+        Ok(LogicalPlan::Dml(DmlStatement {
+            relation: table.into(),
+            op: plan::DmlOperator::Insert,
+            schema: table_schema,
             input: Box::new(input),
-        })))
+        }))
     }
 
     fn drop_table_to_plan(&mut self, table: String, check_exists: bool) -> Result<LogicalPlan> {
@@ -468,7 +487,7 @@ impl SqlQueryPlanner {
         }
     }
 
-    fn table_func_to_plan(&mut self, name: String, args: Vec<Assignment>) -> Result<LogicalPlan> {
+    fn table_func_to_plan(&mut self, name: String, args: Vec<FunctionArgument>) -> Result<LogicalPlan> {
         let (table_name, source) = match name.to_lowercase().as_str() {
             "read_csv" => {
                 let (path, options) = self.parse_csv_options(args)?;
@@ -476,7 +495,7 @@ impl SqlQueryPlanner {
             }
             "read_parquet" => {
                 let path = match args.get(0) {
-                    Some(Assignment {
+                    Some(FunctionArgument {
                         value: Expression::Literal(Literal::String(s)),
                         ..
                     }) => s,
@@ -536,7 +555,7 @@ impl SqlQueryPlanner {
         }
     }
 
-    fn parse_csv_options(&self, mut args: Vec<Assignment>) -> Result<(String, CsvReadOptions)> {
+    fn parse_csv_options(&self, mut args: Vec<FunctionArgument>) -> Result<(String, CsvReadOptions)> {
         if args.len() == 0 {
             return Err(Error::InternalError(
                 "read_csv function requires at least one argument".to_owned(),
@@ -909,9 +928,9 @@ mod tests {
 
     #[test]
     fn test_update() {
-        quick_test("UPDATE tbl SET i=0 WHERE i IS NULL;", "Dml: op=[Update] table=[tbl]\n  Filter: tbl.i IS NULL\n    Projection: (CAST(Int64(0) AS Int32) AS i, CAST(Utf8(default_name) AS Utf8) AS name, CAST(null AS Int32) AS age)\n      TableScan: tbl\n");
+        quick_test("UPDATE tbl SET id=0 WHERE id IS NULL;", "Dml: op=[Update] table=[tbl]\n  Projection: (CAST(Int64(0) AS Int32) AS id, tbl.name, tbl.age)\n    Filter: tbl.id\n      TableScan: tbl\n");
 
-        quick_test("UPDATE tbl SET i=1, j = 2;", "Dml: op=[Update] table=[tbl]\n  Projection: (CAST(Int64(1) AS Int32) AS i, CAST(Int64(2) AS Int32) AS j, CAST(Utf8(default_name) AS Utf8) AS name, CAST(null AS Int32) AS age)\n    TableScan: tbl\n");
+        quick_test("UPDATE tbl SET id = 1, name = 2;", "Dml: op=[Update] table=[tbl]\n  Projection: (CAST(Int64(1) AS Int32) AS id, CAST(Int64(2) AS Utf8) AS name, tbl.age)\n    TableScan: tbl\n");
     }
 
     #[test]

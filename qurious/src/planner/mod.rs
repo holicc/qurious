@@ -10,7 +10,7 @@ use crate::{
     error::{Error, Result},
     logical::{
         expr::{alias::Alias, AggregateExpr, AggregateOperator, BinaryExpr, CastExpr, Column, LogicalExpr, SortExpr},
-        plan::{Aggregate, CrossJoin, EmptyRelation, Filter, Join, LogicalPlan, Projection, Sort, TableScan},
+        plan::{Aggregate, CrossJoin, EmptyRelation, Filter, Join, LogicalPlan, Projection, TableScan},
     },
     physical::{
         self,

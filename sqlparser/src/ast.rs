@@ -1,6 +1,5 @@
-use std::fmt::{Display, Formatter};
-
 use crate::{datatype::DataType, error::Error};
+use std::fmt::{Display, Formatter};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Statement {
@@ -69,10 +68,7 @@ impl Display for Select {
                 Distinct::DISTINCT(e) => write!(
                     f,
                     "DISTINCT {}",
-                    e.iter()
-                        .map(|e| e.to_string())
-                        .collect::<Vec<String>>()
-                        .join(", ")
+                    e.iter().map(|e| e.to_string()).collect::<Vec<String>>().join(", ")
                 )?,
             }
         }
@@ -103,10 +99,7 @@ impl Display for Select {
             write!(
                 f,
                 " GROUP BY {}",
-                g.iter()
-                    .map(|e| e.to_string())
-                    .collect::<Vec<String>>()
-                    .join(", ")
+                g.iter().map(|e| e.to_string()).collect::<Vec<String>>().join(", ")
             )?;
         }
         if let Some(h) = &self.having {
@@ -275,18 +268,11 @@ impl Display for OnConflict {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             OnConflict::DoNothing => write!(f, "DO NOTHING"),
-            OnConflict::DoUpdate {
-                constraints,
-                values,
-            } => {
+            OnConflict::DoUpdate { constraints, values } => {
                 write!(
                     f,
                     "DO UPDATE SET {}",
-                    values
-                        .iter()
-                        .map(|e| e.to_string())
-                        .collect::<Vec<String>>()
-                        .join(", ")
+                    values.iter().map(|e| e.to_string()).collect::<Vec<String>>().join(", ")
                 )?;
                 if !constraints.is_empty() {
                     write!(
@@ -335,10 +321,7 @@ impl Display for Statement {
                     write!(
                         f,
                         "({}) ",
-                        c.iter()
-                            .map(|c| c.to_string())
-                            .collect::<Vec<String>>()
-                            .join(", ")
+                        c.iter().map(|c| c.to_string()).collect::<Vec<String>>().join(", ")
                     )?;
                 }
                 write!(
@@ -349,10 +332,7 @@ impl Display for Statement {
                         .map(|v| {
                             format!(
                                 "({})",
-                                v.iter()
-                                    .map(|e| e.to_string())
-                                    .collect::<Vec<String>>()
-                                    .join(", ")
+                                v.iter().map(|e| e.to_string()).collect::<Vec<String>>().join(", ")
                             )
                         })
                         .collect::<Vec<String>>()
@@ -365,10 +345,7 @@ impl Display for Statement {
                     write!(
                         f,
                         " RETURNING {}",
-                        r.iter()
-                            .map(|r| r.to_string())
-                            .collect::<Vec<String>>()
-                            .join(", ")
+                        r.iter().map(|r| r.to_string()).collect::<Vec<String>>().join(", ")
                     )?;
                 }
                 if let Some(q) = query {
@@ -386,16 +363,7 @@ impl Display for Statement {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(
-                        f,
-                        "{} = {}",
-                        a.target
-                            .iter()
-                            .map(|v| v.to_string())
-                            .collect::<Vec<String>>()
-                            .join("."),
-                        a.value
-                    )?;
+                    write!(f, "{} = {}", a.target, a.value)?;
                 }
                 if let Some(w) = r#where {
                     write!(f, " WHERE {}", w)?;
@@ -409,20 +377,14 @@ impl Display for Statement {
                 }
                 Ok(())
             }
-            Statement::CreateSchema {
-                schema,
-                check_exists,
-            } => {
+            Statement::CreateSchema { schema, check_exists } => {
                 write!(f, "CREATE SCHEMA ")?;
                 if *check_exists {
                     write!(f, "IF NOT EXISTS ")?;
                 }
                 write!(f, "{}", schema)
             }
-            Statement::DropSchema {
-                schema,
-                check_exists,
-            } => {
+            Statement::DropSchema { schema, check_exists } => {
                 write!(f, "DROP SCHEMA ")?;
                 if *check_exists {
                     write!(f, "IF EXISTS ")?;
@@ -452,10 +414,7 @@ impl Display for Statement {
                 }
                 Ok(())
             }
-            Statement::DropTable {
-                table,
-                check_exists,
-            } => {
+            Statement::DropTable { table, check_exists } => {
                 write!(f, "DROP TABLE ")?;
                 if *check_exists {
                     write!(f, "IF EXISTS ")?;
@@ -603,11 +562,7 @@ impl Display for Expression {
                         .join(", ")
                 )
             }
-            Expression::InList {
-                field,
-                list,
-                negated,
-            } => {
+            Expression::InList { field, list, negated } => {
                 write!(
                     f,
                     "{} {} IN ({})",
@@ -619,18 +574,8 @@ impl Display for Expression {
                         .join(", ")
                 )
             }
-            Expression::InSubQuery {
-                field,
-                query,
-                negated,
-            } => {
-                write!(
-                    f,
-                    "{} {} IN ({})",
-                    field,
-                    if *negated { "NOT" } else { "" },
-                    query
-                )
+            Expression::InSubQuery { field, query, negated } => {
+                write!(f, "{} {} IN ({})", field, if *negated { "NOT" } else { "" }, query)
             }
             Expression::Identifier(i) => write!(f, "{}", i),
             Expression::Struct(s) => write!(
@@ -644,19 +589,12 @@ impl Display for Expression {
             Expression::Array(a) => write!(
                 f,
                 "[{}]",
-                a.iter()
-                    .map(|e| e.to_string())
-                    .collect::<Vec<String>>()
-                    .join(", ")
+                a.iter().map(|e| e.to_string()).collect::<Vec<String>>().join(", ")
             ),
             Expression::CompoundIdentifier(idents) => write!(
                 f,
                 "{}",
-                idents
-                    .iter()
-                    .map(|i| i.to_string())
-                    .collect::<Vec<String>>()
-                    .join(".")
+                idents.iter().map(|i| i.to_string()).collect::<Vec<String>>().join(".")
             ),
         }
     }
@@ -669,8 +607,37 @@ pub struct StructField {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+pub struct ObjectName(pub Vec<Ident>);
+
+impl<T> std::convert::From<Vec<T>> for ObjectName
+where
+    T: Display,
+{
+    fn from(v: Vec<T>) -> Self {
+        ObjectName(
+            v.iter()
+                .map(|s| Ident {
+                    value: s.to_string(),
+                    quote_style: None,
+                })
+                .collect(),
+        )
+    }
+}
+
+impl Display for ObjectName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.0.iter().map(|i| i.to_string()).collect::<Vec<String>>().join(".")
+        )
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct Assignment {
-    pub target: Vec<Ident>,
+    pub target: ObjectName,
     pub value: Expression,
 }
 
