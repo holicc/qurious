@@ -2,15 +2,22 @@ pub mod sql;
 
 use std::{fmt::Debug, sync::Arc};
 
-use arrow::datatypes::{SchemaBuilder, SchemaRef};
+use arrow::{
+    compute::SortOptions,
+    datatypes::{SchemaBuilder, SchemaRef},
+};
 
 use crate::{
     common::table_relation::TableRelation,
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
+    execution::session::TableRegistryRef,
     logical::{
         expr::{alias::Alias, AggregateExpr, AggregateOperator, BinaryExpr, CastExpr, Column, LogicalExpr, SortExpr},
-        plan::{Aggregate, CrossJoin, EmptyRelation, Filter, Join, LogicalPlan, Projection, TableScan},
+        plan::{
+            Aggregate, CreateMemoryTable, CrossJoin, DdlStatement, DmlOperator, DmlStatement, DropTable, EmptyRelation,
+            Filter, Join, LogicalPlan, Projection, Sort, SubqueryAlias, TableScan, Values,
+        },
     },
     physical::{
         self,
@@ -19,14 +26,91 @@ use crate::{
     },
 };
 
-pub trait QueryPlanner: Debug + Sync + Send {
-    fn create_physical_plan(&self, logical_plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>>;
-
-    fn create_physical_expr(&self, schema: &SchemaRef, expr: &LogicalExpr) -> Result<Arc<dyn PhysicalExpr>>;
+pub trait QueryPlanner: Debug + Send + Sync {
+    fn create_physical_plan(&self, plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>>;
 }
 
 #[derive(Debug)]
-pub struct DefaultQueryPlanner;
+pub struct DefaultQueryPlanner {
+    table_registry: TableRegistryRef,
+}
+
+impl QueryPlanner for DefaultQueryPlanner {
+    fn create_physical_plan(&self, plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>> {
+        match plan {
+            LogicalPlan::Projection(p) => self.physical_plan_projection(p),
+            LogicalPlan::Filter(f) => self.physical_plan_filter(f),
+            LogicalPlan::Aggregate(a) => self.physical_plan_aggregate(a),
+            LogicalPlan::TableScan(t) => self.physical_plan_table_scan(t),
+            LogicalPlan::EmptyRelation(v) => self.physical_empty_relation(v),
+            LogicalPlan::CrossJoin(j) => self.physical_plan_cross_join(j),
+            LogicalPlan::Join(join) => self.physical_plan_join(join),
+            LogicalPlan::SubqueryAlias(SubqueryAlias { input, .. }) => self.create_physical_plan(input),
+            LogicalPlan::Sort(sort) => self.physical_plan_sort(sort),
+            LogicalPlan::Limit(limit) => Ok(Arc::new(physical::plan::Limit::new(
+                self.create_physical_plan(&limit.input)?,
+                limit.fetch,
+                limit.skip,
+            ))),
+            LogicalPlan::Values(Values { values, schema }) => values
+                .iter()
+                .map(|exprs| {
+                    exprs
+                        .iter()
+                        .map(|e| self.create_physical_expr(schema, e))
+                        .collect::<Result<Vec<_>>>()
+                })
+                .collect::<Result<Vec<_>>>()
+                .map(|exprs| Arc::new(physical::plan::Values::new(schema.clone(), exprs)) as Arc<dyn PhysicalPlan>),
+            // DDL
+            LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(CreateMemoryTable { schema, name, input })) => {
+                self.create_physical_plan(input).map(|input| {
+                    Arc::new(physical::plan::ddl::CreateTable::new(
+                        name.clone(),
+                        schema.clone(),
+                        input,
+                    )) as Arc<dyn PhysicalPlan>
+                })
+            }
+            LogicalPlan::Ddl(DdlStatement::DropTable(DropTable { name, if_exists })) => {
+                Ok(Arc::new(physical::plan::ddl::DropTable::new(name.clone(), *if_exists)) as Arc<dyn PhysicalPlan>)
+            }
+            // DML
+            LogicalPlan::Dml(DmlStatement {
+                relation, op, input, ..
+            }) => {
+                let source = self
+                    .table_registry
+                    .read()
+                    .map_err(|e| Error::InternalError(e.to_string()))
+                    .and_then(|x| x.get_table_source(&relation.to_quanlify_name()))?;
+                let input = self.create_physical_plan(input)?;
+
+                match op {
+                    DmlOperator::Insert => source.insert_into(input),
+                    DmlOperator::Update => source.update(input),
+                    DmlOperator::Delete => source.delete(input),
+                }
+            }
+        }
+    }
+}
+
+impl DefaultQueryPlanner {
+    pub fn new(table_registry: TableRegistryRef) -> Self {
+        Self { table_registry }
+    }
+
+    pub fn create_physical_expr(&self, input_schema: &SchemaRef, expr: &LogicalExpr) -> Result<Arc<dyn PhysicalExpr>> {
+        match expr {
+            LogicalExpr::Column(c) => self.physical_expr_column(input_schema, c),
+            LogicalExpr::Literal(v) => self.physical_expr_literal(v),
+            LogicalExpr::BinaryExpr(b) => self.physical_expr_binary(input_schema, b),
+            LogicalExpr::Cast(c) => self.physical_expr_cast(input_schema, c),
+            _ => unimplemented!("unsupported logical expression: {:?}", expr),
+        }
+    }
+}
 
 impl DefaultQueryPlanner {
     fn physical_plan_projection(&self, projection: &Projection) -> Result<Arc<dyn PhysicalPlan>> {
@@ -158,35 +242,21 @@ impl DefaultQueryPlanner {
             empty.produce_one_row,
         )))
     }
-}
 
-impl QueryPlanner for DefaultQueryPlanner {
-    fn create_physical_plan(&self, plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>> {
-        match plan {
-            LogicalPlan::Projection(p) => self.physical_plan_projection(p),
-            LogicalPlan::Filter(f) => self.physical_plan_filter(f),
-            LogicalPlan::Aggregate(a) => self.physical_plan_aggregate(a),
-            LogicalPlan::TableScan(t) => self.physical_plan_table_scan(t),
-            LogicalPlan::EmptyRelation(v) => self.physical_empty_relation(v),
-            LogicalPlan::CrossJoin(j) => self.physical_plan_cross_join(j),
-            LogicalPlan::SubqueryAlias(_) => todo!(),
-            LogicalPlan::Join(join) => self.physical_plan_join(join),
-            LogicalPlan::Sort(_) => todo!(),
-            LogicalPlan::Limit(_) => todo!(),
-            LogicalPlan::Ddl(_) => todo!(),
-            LogicalPlan::Dml(_) => todo!(),
-            LogicalPlan::Values(_) => todo!(),
-        }
-    }
-
-    fn create_physical_expr(&self, input_schema: &SchemaRef, expr: &LogicalExpr) -> Result<Arc<dyn PhysicalExpr>> {
-        match expr {
-            LogicalExpr::Column(c) => self.physical_expr_column(input_schema, c),
-            LogicalExpr::Literal(v) => self.physical_expr_literal(v),
-            LogicalExpr::BinaryExpr(b) => self.physical_expr_binary(input_schema, b),
-            LogicalExpr::Cast(c) => self.physical_expr_cast(input_schema, c),
-            _ => unimplemented!("unsupported logical expression: {:?}", expr),
-        }
+    fn physical_plan_sort(&self, sort: &Sort) -> Result<Arc<dyn PhysicalPlan>> {
+        let input = self.create_physical_plan(&sort.input)?;
+        sort.exprs
+            .iter()
+            .map(|expr| {
+                let options = SortOptions {
+                    descending: !expr.asc,
+                    nulls_first: true,
+                };
+                let expr = self.create_physical_expr(&input.schema(), &expr.expr)?;
+                Ok(physical::plan::PhyscialSortExpr::new(expr, options))
+            })
+            .collect::<Result<_>>()
+            .map(|exprs| Arc::new(physical::plan::Sort::new(exprs, input)) as Arc<dyn PhysicalPlan>)
     }
 }
 

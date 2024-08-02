@@ -2321,6 +2321,27 @@ mod tests {
 
     #[test]
     fn test_parse_limit_offset() {
+        let stmt = parse_stmt("SELECT * FROM users OFFSET 10;").unwrap();
+
+        assert_eq!(
+            stmt,
+            ast::Statement::Select(Box::new(Select {
+                with: None,
+                order_by: None,
+                limit: None,
+                offset: Some(ast::Expression::Literal(ast::Literal::Int(10))),
+                having: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: String::from("users"),
+                    alias: None,
+                }],
+                r#where: None,
+                group_by: None,
+            }))
+        );
+
         let stmt = parse_stmt("SELECT * FROM users LIMIT 10;").unwrap();
 
         assert_eq!(

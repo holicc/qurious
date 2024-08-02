@@ -6,6 +6,9 @@ mod limit;
 mod projection;
 mod scan;
 mod sort;
+mod values;
+
+pub mod ddl;
 
 pub use aggregate::HashAggregate;
 pub use empty::EmptyRelation;
@@ -14,12 +17,12 @@ pub use join::{join_schema, ColumnIndex, CrossJoin, Join, JoinFilter, JoinSide};
 pub use limit::Limit;
 pub use projection::Projection;
 pub use scan::Scan;
-
-use std::sync::Arc;
-
-use arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
+pub use sort::*;
+pub use values::*;
 
 use crate::error::Result;
+use arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
+use std::sync::Arc;
 
 pub trait PhysicalPlan {
     fn schema(&self) -> SchemaRef;

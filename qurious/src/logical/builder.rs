@@ -114,12 +114,12 @@ impl LogicalPlanBuilder {
             })
     }
 
-    pub fn limit(self, limit: i64, offset: i64) -> Self {
+    pub fn limit(self, fetch: Option<usize>, skip: usize) -> Self {
         LogicalPlanBuilder {
             plan: LogicalPlan::Limit(Limit {
                 input: Box::new(self.plan),
-                fetch: limit as usize,
-                offset: offset as usize,
+                fetch,
+                skip,
             }),
         }
     }

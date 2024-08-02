@@ -413,15 +413,26 @@ impl SqlQueryPlanner {
             plan
         };
 
-        // process the LIMIT clause
-        if let (Some(limit), Some(offset)) = (select.limit, select.offset) {
-            let limit = self.sql_to_expr(limit).and_then(get_expr_value)?;
-            let offset = self.sql_to_expr(offset).and_then(get_expr_value)?;
-
-            Ok(LogicalPlanBuilder::from(plan).limit(limit, offset).build())
-        } else {
-            Ok(plan)
+        if select.limit.is_none() && select.offset.is_none() {
+            return Ok(plan);
         }
+
+        // process the LIMIT clause
+        let fetch = select.limit.and_then(|l| {
+            self.sql_to_expr(l)
+                .and_then(|v| get_expr_value(v).map(|v| v as usize))
+                .ok()
+        });
+        let skip = select
+            .offset
+            .and_then(|o| {
+                self.sql_to_expr(o)
+                    .and_then(|v| get_expr_value(v).map(|v| v as usize))
+                    .ok()
+            })
+            .unwrap_or_default();
+
+        Ok(LogicalPlanBuilder::from(plan).limit(fetch, skip).build())
     }
 
     fn table_scan_to_plan(&mut self, mut froms: Vec<From>) -> Result<LogicalPlan> {
@@ -1148,12 +1159,18 @@ mod tests {
 
     #[test]
     fn test_limit() {
-        let sql = "select id from person where person.id > 100 LIMIT 5 OFFSET 0;";
-        let expected = "Limit: fetch=5, offset=0\n  Filter: person.id > Int64(100)\n    TableScan: person\n";
-        quick_test(sql, expected);
+        quick_test(
+            "select id from person where person.id > 100 LIMIT 5;",
+            "Limit: fetch=5, skip=0\n  Projection: (person.id)\n    Filter: person.id > Int64(100)\n      TableScan: person\n",
+        );
 
-        let sql = "SELECT id FROM person WHERE person.id > 100 OFFSET 0 LIMIT 5;";
-        quick_test(sql, expected);
+        quick_test("SELECT id FROM person WHERE person.id > 100 OFFSET 10 LIMIT 5;", 
+        "Limit: fetch=5, skip=10\n  Projection: (person.id)\n    Filter: person.id > Int64(100)\n      TableScan: person\n");
+
+        quick_test(
+            "SELECT id FROM person WHERE person.id > 100 OFFSET 5;",
+            "Limit: fetch=None, skip=5\n  Projection: (person.id)\n    Filter: person.id > Int64(100)\n      TableScan: person\n",
+        )
     }
 
     fn quick_test(sql: &str, expected: &str) {

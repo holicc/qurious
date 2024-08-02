@@ -10,23 +10,24 @@ use crate::datasource::DataSource;
 use crate::error::Error;
 use crate::execution::registry::DefaultTableRegistry;
 use crate::logical::plan::LogicalPlan;
-use crate::optimizer::Optimzier;
 use crate::planner::sql::SqlQueryPlanner;
 use crate::planner::QueryPlanner;
 use crate::{error::Result, planner::DefaultQueryPlanner};
 
+pub type TableRegistryRef = Arc<RwLock<dyn TableRegistry>>;
+
 pub struct ExecuteSession {
-    table_registry: Arc<RwLock<dyn TableRegistry>>,
-    query_planner: Box<dyn QueryPlanner>,
-    optimizer: Optimzier,
+    planner: Arc<dyn QueryPlanner>,
+    table_registry: TableRegistryRef,
 }
 
 impl Default for ExecuteSession {
     fn default() -> Self {
+        let table_registry = Arc::new(RwLock::new(DefaultTableRegistry::default()));
+
         Self {
-            table_registry: Arc::new(RwLock::new(DefaultTableRegistry::default())),
-            query_planner: Box::new(DefaultQueryPlanner),
-            optimizer: Optimzier::new(),
+            planner: Arc::new(DefaultQueryPlanner::new(table_registry.clone())),
+            table_registry,
         }
     }
 }
@@ -45,7 +46,7 @@ impl ExecuteSession {
 
     pub fn execute_logical_plan(&self, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
         // let plan = self.optimizer.optimize(plan)?;
-        self.query_planner.create_physical_plan(&plan)?.execute()
+        self.planner.create_physical_plan(&plan)?.execute()
     }
 
     pub fn register_table(&mut self, name: &str, table: Arc<dyn DataSource>) -> Result<()> {

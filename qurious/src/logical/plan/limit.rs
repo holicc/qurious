@@ -7,22 +7,27 @@ use crate::logical::plan::LogicalPlan;
 #[derive(Debug, Clone)]
 pub struct Limit {
     pub input: Box<LogicalPlan>,
-    pub fetch: usize,
-    pub offset: usize,
+    pub fetch: Option<usize>,
+    pub skip: usize,
 }
 
 impl Display for Limit {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Limit: fetch={}, offset={}", self.fetch, self.offset)
+        write!(
+            f,
+            "Limit: fetch={}, skip={}",
+            self.fetch.map(|x| x.to_string()).unwrap_or("None".to_owned()),
+            self.skip
+        )
     }
 }
 
 impl Limit {
-    pub fn new(input: LogicalPlan, fetch: usize, offset: usize) -> Self {
+    pub fn new(input: LogicalPlan, fetch: Option<usize>, skip: usize) -> Self {
         Self {
             input: Box::new(input),
             fetch,
-            offset,
+            skip,
         }
     }
 
@@ -31,6 +36,6 @@ impl Limit {
     }
 
     pub fn children(&self) -> Option<Vec<&LogicalPlan>> {
-        self.input.children()
+        Some(vec![&self.input])
     }
 }

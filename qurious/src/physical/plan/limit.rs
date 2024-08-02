@@ -5,20 +5,17 @@ use crate::error::Result;
 use crate::physical::plan::PhysicalPlan;
 
 use std::sync::Arc;
+use std::usize;
 
 pub struct Limit {
     pub input: Arc<dyn PhysicalPlan>,
-    pub fetch: usize,
-    pub offset: usize,
+    pub fetch: Option<usize>,
+    pub skip: usize,
 }
 
 impl Limit {
-    pub fn new(input: Arc<dyn PhysicalPlan>, fetch: usize, offset: Option<usize>) -> Self {
-        Self {
-            input,
-            fetch,
-            offset: offset.unwrap_or_default(),
-        }
+    pub fn new(input: Arc<dyn PhysicalPlan>, fetch: Option<usize>, skip: usize) -> Self {
+        Self { input, fetch, skip }
     }
 }
 
@@ -28,12 +25,36 @@ impl PhysicalPlan for Limit {
     }
 
     fn execute(&self) -> Result<Vec<RecordBatch>> {
-        Ok(self
-            .input
-            .execute()?
-            .into_iter()
-            .map(|batch| batch.slice(self.offset, self.fetch))
-            .collect())
+        let max_fetch = self.fetch.unwrap_or(usize::MAX);
+        let batchs = self.input.execute()?;
+
+        let mut results = vec![];
+        let mut fetched = 0;
+        let mut skip = self.skip;
+
+        for batch in batchs {
+            let rows = batch.num_rows();
+
+            if rows <= skip {
+                skip -= rows;
+                continue;
+            }
+
+            let new_batch = batch.slice(skip, rows - skip);
+
+            let new_rows = new_batch.num_rows();
+            let remaining = max_fetch - fetched;
+
+            if new_rows <= remaining {
+                results.push(new_batch);
+                fetched += new_rows;
+            } else {
+                results.push(new_batch.slice(0, remaining));
+                break;
+            }
+        }
+
+        Ok(results)
     }
 
     fn children(&self) -> Option<Vec<Arc<dyn PhysicalPlan>>> {
@@ -55,7 +76,7 @@ mod test {
             ("c", UInt64Type, DataType::UInt64, vec![1, 2, 3, 4]),
         );
 
-        let limit = Limit::new(input, 3, Some(1));
+        let limit = Limit::new(input, Some(3), 1);
 
         let reuslts = limit.execute().unwrap();
 

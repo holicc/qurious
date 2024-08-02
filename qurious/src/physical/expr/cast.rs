@@ -3,7 +3,7 @@ use std::{fmt::Display, sync::Arc};
 use crate::error::Result;
 use crate::physical::expr::PhysicalExpr;
 use arrow::{
-    array::{new_null_array, Array, ArrayRef, AsArray, GenericStringBuilder, OffsetSizeTrait, RecordBatch},
+    array::{new_null_array, Array, ArrayRef, GenericStringBuilder, OffsetSizeTrait, RecordBatch},
     datatypes::DataType::{self, *},
     util::display::{ArrayFormatter, FormatOptions},
 };
