@@ -15,8 +15,8 @@ use crate::{
     logical::{
         expr::{alias::Alias, AggregateExpr, AggregateOperator, BinaryExpr, CastExpr, Column, LogicalExpr, SortExpr},
         plan::{
-            Aggregate, CreateMemoryTable, CrossJoin, DdlStatement, DmlOperator, DmlStatement, DropTable, EmptyRelation,
-            Filter, Join, LogicalPlan, Projection, Sort, SubqueryAlias, TableScan, Values,
+            Aggregate, CrossJoin, DmlOperator, DmlStatement, EmptyRelation, Filter, Join, LogicalPlan, Projection,
+            Sort, SubqueryAlias, TableScan, Values,
         },
     },
     physical::{
@@ -62,19 +62,10 @@ impl QueryPlanner for DefaultQueryPlanner {
                 })
                 .collect::<Result<Vec<_>>>()
                 .map(|exprs| Arc::new(physical::plan::Values::new(schema.clone(), exprs)) as Arc<dyn PhysicalPlan>),
-            // DDL
-            LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(CreateMemoryTable { schema, name, input })) => {
-                self.create_physical_plan(input).map(|input| {
-                    Arc::new(physical::plan::ddl::CreateTable::new(
-                        name.clone(),
-                        schema.clone(),
-                        input,
-                    )) as Arc<dyn PhysicalPlan>
-                })
-            }
-            LogicalPlan::Ddl(DdlStatement::DropTable(DropTable { name, if_exists })) => {
-                Ok(Arc::new(physical::plan::ddl::DropTable::new(name.clone(), *if_exists)) as Arc<dyn PhysicalPlan>)
-            }
+            // DDL not supported here, should handle in the higher level at ExecuteSession
+            LogicalPlan::Ddl(_) => Err(Error::InternalError(
+                "DDL Statement not supported here should be handled in ExecuteSession".to_string(),
+            )),
             // DML
             LogicalPlan::Dml(DmlStatement {
                 relation, op, input, ..

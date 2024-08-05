@@ -8,8 +8,6 @@ mod scan;
 mod sort;
 mod values;
 
-pub mod ddl;
-
 pub use aggregate::HashAggregate;
 pub use empty::EmptyRelation;
 pub use filter::Filter;

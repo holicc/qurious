@@ -6,10 +6,11 @@ use sqlparser::parser::Parser;
 
 use super::registry::TableRegistry;
 use crate::common::table_relation::TableRelation;
+use crate::datasource::memory::MemoryDataSource;
 use crate::datasource::DataSource;
 use crate::error::Error;
 use crate::execution::registry::DefaultTableRegistry;
-use crate::logical::plan::LogicalPlan;
+use crate::logical::plan::{CreateMemoryTable, DdlStatement, DropTable, LogicalPlan};
 use crate::planner::sql::SqlQueryPlanner;
 use crate::planner::QueryPlanner;
 use crate::{error::Result, planner::DefaultQueryPlanner};
@@ -46,7 +47,10 @@ impl ExecuteSession {
 
     pub fn execute_logical_plan(&self, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
         // let plan = self.optimizer.optimize(plan)?;
-        self.planner.create_physical_plan(&plan)?.execute()
+        match plan {
+            LogicalPlan::Ddl(ddl) => self.execute_ddl(ddl),
+            plan => self.planner.create_physical_plan(&plan)?.execute(),
+        }
     }
 
     pub fn register_table(&mut self, name: &str, table: Arc<dyn DataSource>) -> Result<()> {
@@ -68,6 +72,34 @@ impl ExecuteSession {
                     .map(|table| (relation, table))
             })
             .collect::<Result<_>>()
+    }
+}
+
+impl ExecuteSession {
+    fn execute_ddl(&self, ddl: &DdlStatement) -> Result<Vec<RecordBatch>> {
+        let mut table_registry = self
+            .table_registry
+            .write()
+            .map_err(|e| Error::InternalError(e.to_string()))?;
+
+        match ddl {
+            DdlStatement::CreateMemoryTable(CreateMemoryTable { schema, name, input }) => {
+                let batch = self.execute_logical_plan(input)?;
+                let table = Arc::new(MemoryDataSource::new(schema.clone(), batch));
+                table_registry.register_table(name, table)?;
+
+                Ok(vec![])
+            }
+            DdlStatement::DropTable(DropTable { name, if_exists }) => {
+                let r = table_registry.deregister_table(name);
+
+                if *if_exists && r.is_err() {
+                    return Ok(vec![]);
+                }
+
+                r.map(|_| vec![])
+            }
+        }
     }
 }
 
