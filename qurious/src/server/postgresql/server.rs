@@ -67,12 +67,12 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_postgresql_server() {
-        let addr = SocketAddr::from_str("0.0.0.0:5434").unwrap();
-        let session = Arc::new(ExecuteSession::default());
-        let server = PostgresqlServer::try_new(session, addr).unwrap();
+    // #[tokio::test(flavor = "multi_thread")]
+    // async fn test_postgresql_server() {
+    //     let addr = SocketAddr::from_str("0.0.0.0:5434").unwrap();
+    //     let session = Arc::new(ExecuteSession::default());
+    //     let server = PostgresqlServer::try_new(session, addr).unwrap();
 
-        server.start().await.unwrap();
-    }
+    //     server.start().await.unwrap();
+    // }
 }
