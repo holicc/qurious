@@ -9,17 +9,16 @@ use crate::datatypes::scalar::ScalarValue;
 use crate::error::Error;
 use crate::error::Result;
 use crate::logical::expr::LogicalExpr;
-
-use super::DataSource;
+use crate::provider::table::TableProvider;
 
 #[derive(Clone, Debug)]
-pub struct MemoryDataSource {
+pub struct MemoryTable {
     schema: SchemaRef,
     data: Vec<RecordBatch>,
     column_defaults: HashMap<String, ScalarValue>,
 }
 
-impl MemoryDataSource {
+impl MemoryTable {
     pub fn new(schema: SchemaRef, data: Vec<RecordBatch>) -> Self {
         Self {
             schema,
@@ -36,7 +35,7 @@ impl MemoryDataSource {
     }
 }
 
-impl Default for MemoryDataSource {
+impl Default for MemoryTable {
     fn default() -> Self {
         Self {
             schema: Arc::new(Schema::empty()),
@@ -46,7 +45,7 @@ impl Default for MemoryDataSource {
     }
 }
 
-impl DataSource for MemoryDataSource {
+impl TableProvider for MemoryTable {
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }

@@ -5,9 +5,9 @@ use std::sync::Arc;
 use arrow::csv::reader::Format;
 use arrow::csv::ReaderBuilder;
 
-use crate::datasource::memory::MemoryDataSource;
-use crate::datasource::DataSource;
+use crate::datasource::memory::MemoryTable;
 use crate::error::{Error, Result};
+use crate::provider::table::TableProvider;
 
 use super::DataFilePath;
 
@@ -29,7 +29,7 @@ impl Default for CsvReadOptions {
     }
 }
 
-pub fn read_csv<T: DataFilePath>(path: T, options: CsvReadOptions) -> Result<Arc<dyn DataSource>> {
+pub fn read_csv<T: DataFilePath>(path: T, options: CsvReadOptions) -> Result<Arc<dyn TableProvider>> {
     let url = path.to_url()?;
 
     match url.scheme() {
@@ -62,7 +62,7 @@ pub fn read_csv<T: DataFilePath>(path: T, options: CsvReadOptions) -> Result<Arc
                 .with_format(format)
                 .build(file)
                 .and_then(|reader| reader.into_iter().collect())
-                .map(|data| Arc::new(MemoryDataSource::new(schema, data)) as Arc<dyn DataSource>)
+                .map(|data| Arc::new(MemoryTable::new(schema, data)) as Arc<dyn TableProvider>)
                 .map_err(|e| Error::ArrowError(e))
         }
         _ => unimplemented!(),

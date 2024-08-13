@@ -1,3 +1,5 @@
+pub mod list_file_factory;
+
 use crate::datasource::file::csv::CsvReadOptions;
 use crate::datasource::file::json::JsonReadOptions;
 use crate::datasource::{file, DataSource};
@@ -17,6 +19,7 @@ pub trait TableRegistry: Debug + Sync + Send {
 pub trait TableSourceFactory: Debug + Sync + Send {
     fn create(&self, name: &str) -> Result<Arc<dyn DataSource>>;
 }
+
 
 #[derive(Debug)]
 pub struct DefaultTableRegistry {
@@ -61,29 +64,5 @@ impl TableRegistry for DefaultTableRegistry {
         }
         // try to create a dynamic table
         self.factory.create(name)
-    }
-}
-
-#[derive(Debug)]
-pub struct DefaultTableSourceFactory;
-
-impl TableSourceFactory for DefaultTableSourceFactory {
-    fn create(&self, name: &str) -> Result<Arc<dyn DataSource>> {
-        let url = file::parse_path(name)
-            .map_err(|e| Error::PlanError(format!("No table named '{}' found, cause: {}", name, e.to_string())))?;
-
-        if url.scheme() != "file" {
-            return Err(Error::InternalError(format!("Unsupported table source: {}", name)));
-        }
-
-        let path = url.path().to_string();
-        let ext = path.split('.').last().unwrap_or_default();
-
-        match ext {
-            "csv" => file::csv::read_csv(path, CsvReadOptions::default()),
-            "json" => file::json::read_json(path, JsonReadOptions::default()),
-            "parquet" => file::parquet::read_parquet(path),
-            _ => return Err(Error::InternalError(format!("Unsupported file format: {}", name))),
-        }
     }
 }

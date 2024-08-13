@@ -4,9 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 
-[features]
-default = []
-postgresql = ["dep:pgwire", "dep:chrono"]
+
 
 [dependencies]
 sqlparser = { workspace = true }
@@ -17,9 +15,8 @@ tokio = { workspace = true }
 async-trait = { workspace = true }
 tokio-stream = { workspace = true }
 log = { workspace = true }
-# postgres
-pgwire = { version = "0.23.0", optional = true }
-chrono = { version = "0.4.38", optional = true }
+dashmap = "6.0.1"
+
 
 
 [dev-dependencies]

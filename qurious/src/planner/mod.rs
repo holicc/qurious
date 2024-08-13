@@ -11,12 +11,11 @@ use crate::{
     common::table_relation::TableRelation,
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
-    execution::session::TableRegistryRef,
     logical::{
         expr::{alias::Alias, AggregateExpr, AggregateOperator, BinaryExpr, CastExpr, Column, LogicalExpr, SortExpr},
         plan::{
-            Aggregate, CrossJoin, DmlOperator, DmlStatement, EmptyRelation, Filter, Join, LogicalPlan, Projection,
-            Sort, SubqueryAlias, TableScan, Values,
+            Aggregate, CrossJoin, EmptyRelation, Filter, Join, LogicalPlan, Projection, Sort, SubqueryAlias, TableScan,
+            Values,
         },
     },
     physical::{
@@ -30,10 +29,8 @@ pub trait QueryPlanner: Debug + Send + Sync {
     fn create_physical_plan(&self, plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>>;
 }
 
-#[derive(Debug)]
-pub struct DefaultQueryPlanner {
-    table_registry: TableRegistryRef,
-}
+#[derive(Default, Debug)]
+pub struct DefaultQueryPlanner;
 
 impl QueryPlanner for DefaultQueryPlanner {
     fn create_physical_plan(&self, plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>> {
@@ -62,36 +59,16 @@ impl QueryPlanner for DefaultQueryPlanner {
                 })
                 .collect::<Result<Vec<_>>>()
                 .map(|exprs| Arc::new(physical::plan::Values::new(schema.clone(), exprs)) as Arc<dyn PhysicalPlan>),
-            // DDL not supported here, should handle in the higher level at ExecuteSession
-            LogicalPlan::Ddl(_) => Err(Error::InternalError(
-                "DDL Statement not supported here should be handled in ExecuteSession".to_string(),
-            )),
-            // DML
-            LogicalPlan::Dml(DmlStatement {
-                relation, op, input, ..
-            }) => {
-                let source = self
-                    .table_registry
-                    .read()
-                    .map_err(|e| Error::InternalError(e.to_string()))
-                    .and_then(|x| x.get_table_source(&relation.to_quanlify_name()))?;
-                let input = self.create_physical_plan(input)?;
 
-                match op {
-                    DmlOperator::Insert => source.insert_into(input),
-                    DmlOperator::Update => source.update(input),
-                    DmlOperator::Delete => source.delete(input),
-                }
-            }
+            stmt => Err(Error::InternalError(format!(
+                "[{}] Statement not supported here should be handled in ExecuteSession",
+                stmt
+            ))),
         }
     }
 }
 
 impl DefaultQueryPlanner {
-    pub fn new(table_registry: TableRegistryRef) -> Self {
-        Self { table_registry }
-    }
-
     pub fn create_physical_expr(&self, input_schema: &SchemaRef, expr: &LogicalExpr) -> Result<Arc<dyn PhysicalExpr>> {
         match expr {
             LogicalExpr::Column(c) => self.physical_expr_column(input_schema, c),

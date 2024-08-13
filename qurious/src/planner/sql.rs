@@ -10,13 +10,7 @@ use sqlparser::ast::{
 
 use crate::{
     common::{join_type::JoinType, table_relation::TableRelation},
-    datasource::{
-        file::{
-            csv::{self, CsvReadOptions},
-            parquet::read_parquet,
-        },
-        DataSource,
-    },
+    datasource::file::csv::CsvReadOptions,
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
     logical::{
@@ -26,6 +20,7 @@ use crate::{
         },
         LogicalPlanBuilder,
     },
+    provider::table::TableProvider,
     utils,
 };
 
@@ -35,13 +30,20 @@ use crate::planner::normalize_col_with_schemas_and_ambiguity_check;
 
 pub struct SqlQueryPlanner {
     ctes: HashMap<String, Arc<LogicalPlan>>,
-    relations: HashMap<TableRelation, Arc<dyn DataSource>>,
+    relations: HashMap<TableRelation, Arc<dyn TableProvider>>,
 }
 
 impl SqlQueryPlanner {
+    pub fn new(relations: HashMap<TableRelation, Arc<dyn TableProvider>>) -> Self {
+        SqlQueryPlanner {
+            ctes: HashMap::default(),
+            relations,
+        }
+    }
+
     pub fn create_logical_plan(
         stmt: Statement,
-        relations: HashMap<TableRelation, Arc<dyn DataSource>>,
+        relations: HashMap<TableRelation, Arc<dyn TableProvider>>,
     ) -> Result<LogicalPlan> {
         let mut planner = SqlQueryPlanner {
             ctes: HashMap::default(),
@@ -134,7 +136,9 @@ impl SqlQueryPlanner {
             _ => todo!(),
         }
     }
+}
 
+impl SqlQueryPlanner {
     fn update_to_plan(
         &mut self,
         table: String,
@@ -498,32 +502,23 @@ impl SqlQueryPlanner {
         }
     }
 
-    fn table_func_to_plan(&mut self, name: String, args: Vec<FunctionArgument>) -> Result<LogicalPlan> {
-        let (table_name, source) = match name.to_lowercase().as_str() {
-            "read_csv" => {
-                let (path, options) = self.parse_csv_options(args)?;
-                ("tmp_csv_table", csv::read_csv(path, options)?)
-            }
-            "read_parquet" => {
-                let path = match args.get(0) {
-                    Some(FunctionArgument {
-                        value: Expression::Literal(Literal::String(s)),
-                        ..
-                    }) => s,
-                    _ => {
-                        return Err(Error::InternalError(
-                            "read_parquet function requires the first argument to be a string".to_owned(),
-                        ))
-                    }
-                };
+    fn table_func_to_plan(&mut self, name: String, mut args: Vec<FunctionArgument>) -> Result<LogicalPlan> {
+        let (table_name, provider) = match name.to_lowercase().as_str() {
+            "read_csv" | "read_parquet" | "read_json" => {
+                let path = parse_file_path(&mut args)?;
+                let relation = TableRelation::parse_file_path(&path);
+                let provider = self
+                    .relations
+                    .get(&relation)
+                    .cloned()
+                    .ok_or(Error::TableNotFound(path))?;
 
-                ("tmp_parquet_table", read_parquet(path)?)
+                (relation, provider)
             }
-            "read_json" => todo!(),
             _ => todo!(),
         };
 
-        LogicalPlanBuilder::scan(table_name, source.clone(), None).map(|builder| builder.build())
+        LogicalPlanBuilder::scan(table_name, provider, None).map(|builder| builder.build())
     }
 
     fn filter_expr(&self, mut plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {
@@ -564,76 +559,6 @@ impl SqlQueryPlanner {
             }
             _ => Ok(plan),
         }
-    }
-
-    fn parse_csv_options(&self, mut args: Vec<FunctionArgument>) -> Result<(String, CsvReadOptions)> {
-        if args.len() == 0 {
-            return Err(Error::InternalError(
-                "read_csv function requires at least one argument".to_owned(),
-            ));
-        }
-
-        // first argument is the path
-        let path = match args.remove(0).value {
-            Expression::Literal(Literal::String(s)) => s,
-            _ => {
-                return Err(Error::InternalError(
-                    "read_csv function requires the first argument to be a string".to_owned(),
-                ))
-            }
-        };
-
-        let mut options = CsvReadOptions::default();
-
-        let extract_literal = |expr: Expression| -> Result<u8> {
-            match expr {
-                Expression::Literal(Literal::String(s)) => {
-                    if s.len() != 1 {
-                        return Err(Error::InternalError("Expected a single character".to_owned()));
-                    }
-                    Ok(s.as_bytes()[0])
-                }
-                _ => Err(Error::InternalError("Expected a string literal".to_owned())),
-            }
-        };
-        let extract_value = |expr: Expression| -> Result<Literal> {
-            match expr {
-                Expression::Literal(lit) => Ok(lit),
-                _ => Err(Error::InternalError("Expected a boolean literal".to_owned())),
-            }
-        };
-
-        while let Some(arg) = args.pop() {
-            let opt_name = &arg
-                .id
-                .ok_or(Error::InternalError(format!(
-                    "Parse CsvOptions error, expected identifier, but it's empty"
-                )))?
-                .value
-                .to_lowercase();
-            let value = arg.value;
-
-            match opt_name.as_str() {
-                "delim" => options.delimiter = extract_literal(value)?,
-                "escape" => options.escape = extract_literal(value).ok(),
-                "quote" => options.quote = extract_literal(value).ok(),
-                "header" => {
-                    options.has_header = extract_value(value).and_then(|a| {
-                        a.try_into()
-                            .map_err(|e| Error::InternalError(format!("Parse CsvOptions error, {}", e)))
-                    })?
-                }
-                "columns" => todo!(),
-                _ => {
-                    return Err(Error::InternalError(format!(
-                        "Unknown option {} for read_csv function",
-                        opt_name
-                    )))
-                }
-            }
-        }
-
-        Ok((path, options))
     }
 
     fn aggregate_plan(
@@ -875,17 +800,8 @@ impl SqlQueryPlanner {
             }
         }
     }
-}
 
-impl SqlQueryPlanner {
-    pub fn new(relations: HashMap<TableRelation, Arc<dyn DataSource>>) -> Self {
-        SqlQueryPlanner {
-            ctes: HashMap::default(),
-            relations,
-        }
-    }
-
-    fn get_table_source(&self, table_name: &str) -> Result<Arc<dyn DataSource>> {
+    fn get_table_source(&self, table_name: &str) -> Result<Arc<dyn TableProvider>> {
         self.relations
             .get(&table_name.into())
             .map(|a| a.clone())
@@ -895,6 +811,77 @@ impl SqlQueryPlanner {
     fn get_cte_table(&self, name: &str) -> Option<LogicalPlan> {
         self.ctes.get(name).map(|a| a.as_ref().clone())
     }
+}
+
+pub(crate) fn parse_file_path(args: &mut Vec<FunctionArgument>) -> Result<String> {
+    if args.len() == 0 {
+        return Err(Error::InternalError(
+            "table function requires at least one argument".to_owned(),
+        ));
+    }
+
+    match args.remove(0).value {
+        Expression::Literal(Literal::String(s)) => Ok(s),
+        _ => {
+            return Err(Error::InternalError(
+                "read_csv function requires the first argument to be a string".to_owned(),
+            ))
+        }
+    }
+}
+
+pub(crate) fn parse_csv_options(mut args: Vec<FunctionArgument>) -> Result<CsvReadOptions> {
+    let mut options = CsvReadOptions::default();
+
+    let extract_literal = |expr: Expression| -> Result<u8> {
+        match expr {
+            Expression::Literal(Literal::String(s)) => {
+                if s.len() != 1 {
+                    return Err(Error::InternalError("Expected a single character".to_owned()));
+                }
+                Ok(s.as_bytes()[0])
+            }
+            _ => Err(Error::InternalError("Expected a string literal".to_owned())),
+        }
+    };
+    let extract_value = |expr: Expression| -> Result<Literal> {
+        match expr {
+            Expression::Literal(lit) => Ok(lit),
+            _ => Err(Error::InternalError("Expected a boolean literal".to_owned())),
+        }
+    };
+
+    while let Some(arg) = args.pop() {
+        let opt_name = &arg
+            .id
+            .ok_or(Error::InternalError(format!(
+                "Parse CsvOptions error, expected identifier, but it's empty"
+            )))?
+            .value
+            .to_lowercase();
+        let value = arg.value;
+
+        match opt_name.as_str() {
+            "delim" => options.delimiter = extract_literal(value)?,
+            "escape" => options.escape = extract_literal(value).ok(),
+            "quote" => options.quote = extract_literal(value).ok(),
+            "header" => {
+                options.has_header = extract_value(value).and_then(|a| {
+                    a.try_into()
+                        .map_err(|e| Error::InternalError(format!("Parse CsvOptions error, {}", e)))
+                })?
+            }
+            "columns" => todo!(),
+            _ => {
+                return Err(Error::InternalError(format!(
+                    "Unknown option {} for read_csv function",
+                    opt_name
+                )))
+            }
+        }
+    }
+
+    Ok(options)
 }
 
 fn sql_to_arrow_data_type(data_type: &sqlparser::datatype::DataType) -> arrow::datatypes::DataType {
@@ -913,7 +900,13 @@ mod tests {
 
     use sqlparser::parser::Parser;
 
-    use crate::{build_mem_datasource, datatypes::scalar::ScalarValue, utils};
+    use crate::{
+        build_mem_datasource,
+        common::table_relation::TableRelation,
+        datasource::file::{self, csv::CsvReadOptions},
+        datatypes::scalar::ScalarValue,
+        utils,
+    };
 
     use super::SqlQueryPlanner;
 
@@ -979,24 +972,30 @@ mod tests {
             "CreateMemoryTable: [t1]\n  Projection: (Int64(42) AS i, Int64(84) AS j)\n    Empty Relation\n",
         );
         // create a table from a CSV file using AUTO-DETECT (i.e., automatically detecting column names and types)
-        quick_test("CREATE TABLE t1 AS SELECT * FROM read_csv('./tests/testdata/file/case1.csv');", "CreateMemoryTable: [t1]\n  Projection: (tmp_csv_table.id, tmp_csv_table.localtion, tmp_csv_table.name)\n    TableScan: tmp_csv_table\n");
+        quick_test(
+            "CREATE TABLE t1 AS SELECT * FROM read_csv('./tests/testdata/file/case1.csv');", 
+    "CreateMemoryTable: [t1]\n  Projection: (tmp_table(b563e59).id, tmp_table(b563e59).localtion, tmp_table(b563e59).name)\n    TableScan: tmp_table(b563e59)\n"
+        );
         // omit 'SELECT *'
-        quick_test("CREATE TABLE t1 AS FROM read_csv('./tests/testdata/file/case1.csv');", "CreateMemoryTable: [t1]\n  Projection: (tmp_csv_table.id, tmp_csv_table.localtion, tmp_csv_table.name)\n    TableScan: tmp_csv_table\n");
+        quick_test(
+            "CREATE TABLE t1 AS FROM read_csv('./tests/testdata/file/case1.csv');", 
+            "CreateMemoryTable: [t1]\n  Projection: (tmp_table(b563e59).id, tmp_table(b563e59).localtion, tmp_table(b563e59).name)\n    TableScan: tmp_table(b563e59)\n"
+        );
     }
 
     #[test]
     fn test_read_parquet() {
         quick_test(
             "select * from read_parquet('./tests/testdata/file/case2.parquet') where counter_id = '1'",
-            "Projection: (tmp_parquet_table.counter_id, tmp_parquet_table.currency, tmp_parquet_table.market, tmp_parquet_table.type)\n  Filter: tmp_parquet_table.counter_id = CAST(Utf8(1) AS LargeUtf8)\n    TableScan: tmp_parquet_table\n",
+            "Projection: (tmp_table(17b774f).counter_id, tmp_table(17b774f).currency, tmp_table(17b774f).market, tmp_table(17b774f).type)\n  Filter: tmp_table(17b774f).counter_id = CAST(Utf8(1) AS LargeUtf8)\n    TableScan: tmp_table(17b774f)\n",
         );
     }
 
     #[test]
-    fn test_table_function() {
+    fn test_read_csv() {
         quick_test(
-            "SELECT * FROM read_csv('tests/testdata/file/case1.csv')",
-            "Projection: (tmp_csv_table.id, tmp_csv_table.localtion, tmp_csv_table.name)\n  TableScan: tmp_csv_table\n",
+            "SELECT * FROM read_csv('./tests/testdata/file/case1.csv')",
+            "Projection: (tmp_table(b563e59).id, tmp_table(b563e59).localtion, tmp_table(b563e59).name)\n  TableScan: tmp_table(b563e59)\n",
         );
     }
 
@@ -1224,6 +1223,16 @@ mod tests {
                 ("name", DataType::Utf8, false),
                 ("age", DataType::Int32, true),
             ),
+        );
+
+        tables.insert(
+            TableRelation::parse_file_path("./tests/testdata/file/case1.csv"),
+            file::csv::read_csv("./tests/testdata/file/case1.csv", CsvReadOptions::default()).unwrap(),
+        );
+
+        tables.insert(
+            TableRelation::parse_file_path("./tests/testdata/file/case2.parquet"),
+            file::parquet::read_parquet("./tests/testdata/file/case2.parquet").unwrap(),
         );
 
         let stmt = Parser::new(sql).parse().unwrap();

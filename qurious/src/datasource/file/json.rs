@@ -5,14 +5,15 @@ use std::sync::Arc;
 use arrow::json::reader::infer_json_schema_from_seekable;
 use arrow::json::ReaderBuilder;
 
-use crate::datasource::memory::MemoryDataSource;
-use crate::datasource::{file::DataFilePath, DataSource};
+use crate::datasource::file::DataFilePath;
+use crate::datasource::memory::MemoryTable;
 use crate::error::{Error, Result};
+use crate::provider::table::TableProvider;
 
 #[derive(Default)]
 pub struct JsonReadOptions {}
 
-pub fn read_json<T: DataFilePath>(path: T, _options: JsonReadOptions) -> Result<Arc<dyn DataSource>> {
+pub fn read_json<T: DataFilePath>(path: T) -> Result<Arc<dyn TableProvider>> {
     let url = path.to_url()?;
     let file = File::open(url.path())?;
     let mut reader = BufReader::new(file);
@@ -22,7 +23,7 @@ pub fn read_json<T: DataFilePath>(path: T, _options: JsonReadOptions) -> Result<
     ReaderBuilder::new(schema.clone())
         .build(reader)
         .and_then(|builder| builder.into_iter().collect())
-        .map(|data| Arc::new(MemoryDataSource::new(schema, data)) as Arc<dyn DataSource>)
+        .map(|data| Arc::new(MemoryTable::new(schema, data)) as Arc<dyn TableProvider>)
         .map_err(|e| Error::ArrowError(e))
 }
 
@@ -33,7 +34,7 @@ mod tests {
 
     #[test]
     fn test_read_json() {
-        let source = read_json("tests/testdata/file/case1.json", JsonReadOptions::default()).unwrap();
+        let source = read_json("tests/testdata/file/case1.json").unwrap();
 
         println!(
             "{}",

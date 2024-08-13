@@ -8,16 +8,23 @@ use crate::{
     token::{Keyword, Token, TokenType},
 };
 
+#[derive(Debug, PartialEq)]
+pub struct TableInfo {
+    pub name: String,
+    pub alias: Option<String>,
+    pub args: Vec<FunctionArgument>,
+}
+
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
-    /// all relations in the query
-    pub relations: Vec<String>,
+
+    pub tables: Vec<TableInfo>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(sql: &'a str) -> Parser<'a> {
         Parser {
-            relations: Vec::new(),
+            tables: Vec::new(),
             lexer: Lexer::new(sql),
         }
     }
@@ -623,7 +630,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_table_reference(&mut self) -> Result<ast::From> {
-        let mut table_name = self.next_ident()?;
+        let mut table_name = self.next_token().map(|i| i.literal)?;
         let mut is_table_function = false;
         let mut args = Vec::new();
 
@@ -643,22 +650,26 @@ impl<'a> Parser<'a> {
 
         let alias = self.parse_alias()?;
 
-        if !is_table_function {
-            self.relations.push(table_name.clone());
-        }
+        self.tables.push(TableInfo {
+            name: table_name.clone(),
+            alias: alias.clone(),
+            args: args.clone(),
+        });
 
-        if is_table_function {
-            return Ok(ast::From::TableFunction {
+        let table = if is_table_function {
+            ast::From::TableFunction {
                 name: table_name,
                 args,
                 alias,
-            });
-        }
+            }
+        } else {
+            ast::From::Table {
+                name: table_name,
+                alias,
+            }
+        };
 
-        Ok(ast::From::Table {
-            name: table_name,
-            alias,
-        })
+        Ok(table)
     }
 
     fn parse_alias(&mut self) -> Result<Option<String>> {
@@ -1029,6 +1040,49 @@ mod tests {
     use crate::ast::{self, Assignment, Expression, FunctionArgument, Select, SelectItem, Statement};
     use crate::datatype::DataType;
     use crate::error::Result;
+    use crate::parser::TableInfo;
+
+    #[test]
+    fn test_collect_tables() {
+        let mut parser = Parser::new("SELECT * FROM person");
+        let _ = parser.parse().unwrap();
+
+        assert_eq!(
+            parser.tables,
+            vec![TableInfo {
+                name: "person".to_owned(),
+                alias: None,
+                args: vec![]
+            }]
+        );
+
+        let mut parser = Parser::new("SELECT * FROM read_csv('./test.csv')");
+        let _ = parser.parse().unwrap();
+
+        assert_eq!(
+            parser.tables,
+            vec![TableInfo {
+                name: "read_csv".to_owned(),
+                alias: None,
+                args: vec![FunctionArgument {
+                    id: None,
+                    value: Expression::Literal(ast::Literal::String("./test.csv".to_owned()))
+                }]
+            }]
+        );
+
+        let mut parser = Parser::new("SELECT * FROM './tests/test.csv'");
+        let _ = parser.parse().unwrap();
+
+        assert_eq!(
+            parser.tables,
+            vec![TableInfo {
+                name: "./tests/test.csv".to_owned(),
+                alias: None,
+                args: vec![]
+            }]
+        );
+    }
 
     #[test]
     fn test_parser_error() {

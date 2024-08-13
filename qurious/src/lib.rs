@@ -8,8 +8,8 @@ pub mod logical;
 pub mod optimizer;
 pub mod physical;
 pub mod planner;
-pub mod server;
 pub mod utils;
+pub mod provider;
 
 #[cfg(test)]
 pub mod test_utils;

@@ -6,7 +6,8 @@ use super::{
     plan::{Aggregate, CrossJoin, EmptyRelation, Join, Limit, LogicalPlan, Projection, Sort, TableScan},
 };
 use crate::{
-    common::join_type::JoinType, datasource::DataSource, planner::normalize_col_with_schemas_and_ambiguity_check,
+    common::join_type::JoinType, planner::normalize_col_with_schemas_and_ambiguity_check,
+    provider::table::TableProvider,
 };
 use crate::{common::table_relation::TableRelation, error::Result};
 
@@ -40,7 +41,7 @@ impl LogicalPlanBuilder {
 
     pub fn scan(
         relation: impl Into<TableRelation>,
-        table_source: Arc<dyn DataSource>,
+        table_source: Arc<dyn TableProvider>,
         filter: Option<LogicalExpr>,
     ) -> Result<Self> {
         TableScan::try_new(relation.into(), table_source, None, filter)

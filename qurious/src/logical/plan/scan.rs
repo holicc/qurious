@@ -4,14 +4,15 @@ use arrow::datatypes::{Schema, SchemaRef};
 
 use crate::common::table_relation::TableRelation;
 use crate::error::{Error, Result};
-use crate::{datasource::DataSource, logical::expr::LogicalExpr};
+use crate::logical::expr::LogicalExpr;
+use crate::provider::table::TableProvider;
 
 use super::LogicalPlan;
 
 #[derive(Debug, Clone)]
 pub struct TableScan {
     pub relation: TableRelation,
-    pub source: Arc<dyn DataSource>,
+    pub source: Arc<dyn TableProvider>,
     pub projections: Option<Vec<String>>,
     pub projected_schema: SchemaRef,
     pub filter: Option<LogicalExpr>,
@@ -20,7 +21,7 @@ pub struct TableScan {
 impl TableScan {
     pub fn try_new(
         relation: impl Into<TableRelation>,
-        source: Arc<dyn DataSource>,
+        source: Arc<dyn TableProvider>,
         projections: Option<Vec<String>>,
         filter: Option<LogicalExpr>,
     ) -> Result<Self> {

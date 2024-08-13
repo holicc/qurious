@@ -31,7 +31,7 @@ pub trait PhysicalPlan {
 #[cfg(test)]
 mod tests {
     use super::{PhysicalPlan, Scan};
-    use crate::datasource::memory::MemoryDataSource;
+    use crate::datasource::memory::MemoryTable;
     use arrow::{
         array::{Array, Int32Array, RecordBatch},
         datatypes::{DataType, Field, Schema},
@@ -53,7 +53,7 @@ mod tests {
 
         let record_batch = RecordBatch::try_new(Arc::new(schema.clone()), columns).unwrap();
 
-        let datasource = MemoryDataSource::new(Arc::new(schema.clone()), vec![record_batch]);
+        let datasource = MemoryTable::new(Arc::new(schema.clone()), vec![record_batch]);
 
         Arc::new(Scan::new(Arc::new(schema), Arc::new(datasource), None))
     }

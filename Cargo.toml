@@ -1,5 +1,5 @@
 [workspace]
-members = ["qurious", "sqlparser"]
+members = ["qurious", "server", "sqlparser"]
 resolver = "2"
 
 

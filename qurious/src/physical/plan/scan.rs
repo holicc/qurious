@@ -3,19 +3,19 @@ use std::sync::Arc;
 use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;
 
-use crate::datasource::DataSource;
 use crate::error::Result;
+use crate::provider::table::TableProvider;
 
 use super::PhysicalPlan;
 
 pub struct Scan {
     schema: SchemaRef,
-    datasource: Arc<dyn DataSource>,
+    datasource: Arc<dyn TableProvider>,
     projections: Option<Vec<String>>,
 }
 
 impl Scan {
-    pub fn new(schema: SchemaRef, datasource: Arc<dyn DataSource>, projections: Option<Vec<String>>) -> Self {
+    pub fn new(schema: SchemaRef, datasource: Arc<dyn TableProvider>, projections: Option<Vec<String>>) -> Self {
         Self {
             schema,
             datasource,
