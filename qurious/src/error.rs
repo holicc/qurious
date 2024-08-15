@@ -3,6 +3,16 @@ use std::fmt::Display;
 use arrow::error::ArrowError;
 use parquet::errors::ParquetError;
 
+macro_rules! impl_from_error {
+    ($error_type:ty) => {
+        impl From<$error_type> for Error {
+            fn from(value: $error_type) -> Self {
+                Error::InternalError(value.to_string())
+            }
+        }
+    };
+}
+
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug)]
@@ -26,17 +36,11 @@ impl From<ArrowError> for Error {
     }
 }
 
-impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self {
-        Error::InternalError(value.to_string())
-    }
-}
-
-impl From<ParquetError> for Error {
-    fn from(value: ParquetError) -> Self {
-        Error::InternalError(value.to_string())
-    }
-}
+impl_from_error!(std::io::Error);
+impl_from_error!(ParquetError);
+impl_from_error!(std::num::ParseIntError);
+impl_from_error!(std::num::ParseFloatError);
+impl_from_error!(std::str::ParseBoolError);
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

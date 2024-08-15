@@ -5,14 +5,14 @@ use crate::error::Result;
 use crate::{datatypes::scalar::ScalarValue, logical::expr::LogicalExpr, physical::plan::PhysicalPlan};
 use arrow::{array::RecordBatch, datatypes::SchemaRef};
 
-pub trait TableProvider: Debug {
+pub trait TableProvider: Debug + Send + Sync {
     fn schema(&self) -> SchemaRef;
 
     /// Perform a scan of the data source and return the results as RecordBatch
     fn scan(&self, projection: Option<Vec<String>>, filters: &[LogicalExpr]) -> Result<Vec<RecordBatch>>;
 
     /// Get the default value for a column, if available.
-    fn get_column_default(&self, _column: &str) -> Option<&ScalarValue> {
+    fn get_column_default(&self, _column: &str) -> Option<ScalarValue> {
         None
     }
 

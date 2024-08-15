@@ -4,19 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 
-
-
 [dependencies]
 sqlparser = { workspace = true }
 parquet = { workspace = true }
 arrow = { workspace = true }
 url = { workspace = true }
-tokio = { workspace = true }
-async-trait = { workspace = true }
-tokio-stream = { workspace = true }
-log = { workspace = true }
-dashmap = "6.0.1"
-
+dashmap = { workspace = true }
+connectorx = { workspace = true, features = ["src_postgres", "dst_arrow"] }
+postgres = "0.19.8"
+itertools = "0.13.0"
+rayon = "1.10.0"
 
 
 [dev-dependencies]

@@ -9,6 +9,6 @@ services:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: root
     volumes:
-      - ./tests/testdata/db/pg/migration.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./tests/db/pg:/docker-entrypoint-initdb.d
     ports:
       - 5433:5432

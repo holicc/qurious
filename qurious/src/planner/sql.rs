@@ -284,11 +284,9 @@ impl SqlQueryPlanner {
                                     target_field.name()
                                 )));
                             }
-                            Ok(
-                                LogicalExpr::Literal(default_value.cloned().unwrap_or(ScalarValue::Null))
-                                    .cast_to(target_field.data_type())
-                                    .alias(target_field.name()),
-                            )
+                            Ok(LogicalExpr::Literal(default_value.unwrap_or(ScalarValue::Null))
+                                .cast_to(target_field.data_type())
+                                .alias(target_field.name()))
                         }
                     }
                 })
@@ -781,7 +779,7 @@ impl SqlQueryPlanner {
                 if self.relations.contains_key(&quanlified_prefix) {
                     return // expand schema
                         plan.schema()
-                            .all_fields()
+                            .flattened_fields()
                             .into_iter()
                             .map(|field| {
                                 Ok(column(field.name()))

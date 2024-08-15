@@ -68,7 +68,7 @@ impl TableProvider for MemoryTable {
         }
     }
 
-    fn get_column_default(&self, column: &str) -> Option<&ScalarValue> {
-        self.column_defaults.get(column)
+    fn get_column_default(&self, column: &str) -> Option<ScalarValue> {
+        self.column_defaults.get(column).map(|v| v.clone())
     }
 }

@@ -23,6 +23,8 @@ tokio = { version = "1.37.0", features = ["full"] }
 async-trait = "0.1.80"
 tokio-stream = "0.1.15"
 log = "0.4.21"
+dashmap = "6.0.1"
+connectorx = { git = "https://github.com/holicc/connector-x.git" }
 
 
 [workspace.lints.rust]

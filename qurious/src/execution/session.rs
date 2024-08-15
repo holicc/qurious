@@ -85,6 +85,10 @@ impl ExecuteSession {
             .register_table(table.table().to_owned(), table_provider)
             .map(|_| ())
     }
+
+    pub fn register_catalog(&self, name: &str, catalog_provider: Arc<dyn CatalogProvider>) -> Result<()> {
+        self.catalog_list.register_catalog(name, catalog_provider).map(|_| ())
+    }
 }
 
 impl ExecuteSession {
@@ -187,8 +191,15 @@ impl ExecuteSession {
 
 #[cfg(test)]
 mod tests {
-    use crate::{build_schema, datasource::memory::MemoryTable, test_utils::assert_batch_eq};
-    use arrow::array::{Int32Array, StringArray};
+    use crate::{
+        build_schema,
+        datasource::{connectorx::postgres::PostgresCatalogProvider, memory::MemoryTable},
+        test_utils::assert_batch_eq,
+    };
+    use arrow::{
+        array::{Int32Array, StringArray},
+        util::pretty::print_batches,
+    };
 
     use super::*;
 
@@ -265,6 +276,30 @@ mod tests {
                 "+------------+----------+--------+-------+",
                 "| ST/SZ/001  | HKD      | SZ     | STOCK |",
                 "+------------+----------+--------+-------+",
+            ],
+        );
+    }
+
+    #[test]
+    fn test_postgres() {
+        let session = ExecuteSession::new().unwrap();
+
+        let catalog = PostgresCatalogProvider::try_new("postgresql://root:root@localhost:5433/qurious").unwrap();
+
+        session.register_catalog("qurious", Arc::new(catalog)).unwrap();
+
+        let data = session
+            .sql("SELECT * FROM qurious.public.schools WHERE id = 1")
+            .unwrap();
+
+        assert_batch_eq(
+            &data,
+            vec![
+                "+----+--------------------+",
+                "| id | name               |",
+                "+----+--------------------+",
+                "| 1  | BeiJing University |",
+                "+----+--------------------+",
             ],
         );
     }
