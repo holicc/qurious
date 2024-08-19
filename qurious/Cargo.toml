@@ -11,6 +11,7 @@ arrow = { workspace = true }
 url = { workspace = true }
 dashmap = { workspace = true }
 connectorx = { workspace = true, features = ["src_postgres", "dst_arrow"] }
+log = { workspace = true }
 postgres = "0.19.8"
 itertools = "0.13.0"
 rayon = "1.10.0"
@@ -18,3 +19,11 @@ rayon = "1.10.0"
 
 [dev-dependencies]
 arrow = { version = "52.0.0", features = ["prettyprint", "test_utils"] }
+async-trait = "0.1.81"
+env_logger = "0.11.5"
+sqllogictest = "0.21.0"
+
+[[test]]
+harness = false
+name = "sqllogictests"
+path = "tests/sqllogictests.rs"

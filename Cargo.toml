@@ -1,5 +1,5 @@
 [workspace]
-members = ["qurious", "server", "sqlparser"]
+members = ["qurious", "sqlparser"]
 resolver = "2"
 
 
@@ -19,10 +19,7 @@ sqlparser = { path = "sqlparser" }
 parquet = "52.0.0"
 arrow = "52.0.0"
 url = "2.5.0"
-tokio = { version = "1.37.0", features = ["full"] }
-async-trait = "0.1.80"
-tokio-stream = "0.1.15"
-log = "0.4.21"
+log = "^0.4"
 dashmap = "6.0.1"
 connectorx = { git = "https://github.com/holicc/connector-x.git" }
 

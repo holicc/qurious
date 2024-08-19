@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::error::Result;
 use crate::provider::schema::SchemaProvider;
 
-pub trait CatalogProvider {
+pub trait CatalogProvider : Send + Sync {
     fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>>;
 
     fn register_schema(&self, name: &str, schema: Arc<dyn SchemaProvider>) -> Result<Option<Arc<dyn SchemaProvider>>> {

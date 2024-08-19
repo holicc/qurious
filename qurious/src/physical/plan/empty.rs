@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::error::Result;
 use crate::physical::plan::PhysicalPlan;
-use arrow::array::{ArrayRef, NullArray, RecordBatch, RecordBatchOptions};
+use arrow::array::{make_array, new_empty_array, ArrayData, ArrayRef, NullArray, RecordBatch, RecordBatchOptions};
 use arrow::datatypes::{DataType, Field, Fields, Schema, SchemaRef};
 
 pub struct EmptyRelation {
@@ -20,18 +20,12 @@ impl EmptyRelation {
 
     fn data(&self) -> Result<Vec<RecordBatch>> {
         Ok({
-            let n_field = self.schema.fields.len();
             vec![RecordBatch::try_new_with_options(
-                Arc::new(Schema::new(
-                    (0..n_field)
-                        .map(|i| Field::new(format!("placeholder_{i}"), DataType::Null, true))
-                        .collect::<Fields>(),
-                )),
-                (0..n_field)
-                    .map(|_i| {
-                        let ret: ArrayRef = Arc::new(NullArray::new(1));
-                        ret
-                    })
+                self.schema.clone(),
+                self.schema
+                    .flattened_fields()
+                    .iter()
+                    .map(|field| Arc::new(make_array(ArrayData::new_null(field.data_type(), 1))) as ArrayRef)
                     .collect(),
                 // Even if column number is empty we can generate single row.
                 &RecordBatchOptions::new().with_row_count(Some(1)),

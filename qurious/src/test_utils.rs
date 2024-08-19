@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use arrow::{
     array::{Array, Int32Array, RecordBatch},
-    datatypes::SchemaRef,
+    datatypes::{DataType, Field, Schema, SchemaRef},
     util,
 };
+
+use crate::{datasource::memory::MemoryTable, physical::plan::{PhysicalPlan, Scan}};
 
 #[macro_export]
 macro_rules! build_mem_datasource {
@@ -42,7 +44,7 @@ macro_rules! build_mem_datasource {
             ]).unwrap()];
 
             Arc::new(
-                MemoryTable::new(schema, data)
+                MemoryTable::try_new(schema, data).unwrap()
                     .with_default_values($default_values)
             ) as Arc<dyn TableProvider>
         }
@@ -92,14 +94,14 @@ macro_rules! build_table_scan {
 
         let batch = RecordBatch::try_new(Arc::new(schema.clone()), columns).unwrap();
 
-        let source = MemoryTable::new(Arc::new(schema.clone()), vec![batch]);
+        let source = MemoryTable::try_new(Arc::new(schema.clone()), vec![batch]).unwrap();
 
         Arc::new(Scan::new(Arc::new(schema), Arc::new(source), None))
        }
     };
 }
 
-pub(crate) fn assert_batch_eq(actual: &[RecordBatch], except: Vec<&str>) {
+pub fn assert_batch_eq(actual: &[RecordBatch], except: Vec<&str>) {
     let str = util::pretty::pretty_format_batches(actual).unwrap().to_string();
     let actual = str.split('\n').collect::<Vec<&str>>();
 
@@ -112,7 +114,7 @@ pub(crate) fn assert_batch_eq(actual: &[RecordBatch], except: Vec<&str>) {
     );
 }
 
-pub(crate) fn build_record_i32(schema: SchemaRef, ary: Vec<Vec<i32>>) -> Vec<RecordBatch> {
+pub fn build_record_i32(schema: SchemaRef, ary: Vec<Vec<i32>>) -> Vec<RecordBatch> {
     ary.into_iter()
         .map(|v| {
             let columns = v
@@ -122,4 +124,24 @@ pub(crate) fn build_record_i32(schema: SchemaRef, ary: Vec<Vec<i32>>) -> Vec<Rec
             RecordBatch::try_new(schema.clone(), columns).unwrap()
         })
         .collect()
+}
+
+pub fn build_table_scan_i32(fields: Vec<(&str, Vec<i32>)>) -> Arc<dyn PhysicalPlan> {
+    let schema = Schema::new(
+        fields
+            .iter()
+            .map(|(name, _)| Field::new(name.to_string(), DataType::Int32, true))
+            .collect::<Vec<_>>(),
+    );
+
+    let columns = fields
+        .iter()
+        .map(|(_, v)| Arc::new(Int32Array::from(v.clone())) as Arc<dyn Array>)
+        .collect::<Vec<_>>();
+
+    let record_batch = RecordBatch::try_new(Arc::new(schema.clone()), columns).unwrap();
+
+    let datasource = MemoryTable::try_new(Arc::new(schema.clone()), vec![record_batch]).unwrap();
+
+    Arc::new(Scan::new(Arc::new(schema), Arc::new(datasource), None))
 }

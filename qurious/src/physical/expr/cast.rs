@@ -4,8 +4,17 @@ use crate::error::Result;
 use crate::physical::expr::PhysicalExpr;
 use arrow::{
     array::{new_null_array, Array, ArrayRef, GenericStringBuilder, OffsetSizeTrait, RecordBatch},
+    compute::{cast_with_options, CastOptions},
     datatypes::DataType::{self, *},
-    util::display::{ArrayFormatter, FormatOptions},
+    util::display::{ArrayFormatter, DurationFormat, FormatOptions},
+};
+
+pub const DEFAULT_FORMAT_OPTIONS: FormatOptions<'static> =
+    FormatOptions::new().with_duration_format(DurationFormat::Pretty);
+
+pub const DEFAULT_CAST_OPTIONS: CastOptions<'static> = CastOptions {
+    safe: false,
+    format_options: DEFAULT_FORMAT_OPTIONS,
 };
 
 #[derive(Debug)]
@@ -14,7 +23,7 @@ pub struct CastExpr {
     data_type: DataType,
 }
 
-impl CastExpr{
+impl CastExpr {
     pub fn new(expr: Arc<dyn PhysicalExpr>, data_type: DataType) -> Self {
         Self { expr, data_type }
     }
@@ -22,16 +31,9 @@ impl CastExpr{
 
 impl PhysicalExpr for CastExpr {
     fn evaluate(&self, input: &RecordBatch) -> Result<ArrayRef> {
-        let array = self.expr.evaluate(input)?;
-
-        let from_type = array.data_type();
-        let to_type = &self.data_type;
-        match (from_type, to_type) {
-            (Null, _) => Ok(new_null_array(to_type, array.len())),
-            (_, Utf8) => to_str_array::<i32>(&array),
-            (_, LargeUtf8) => to_str_array::<i64>(&array),
-            _ => todo!(),
-        }
+        self.expr
+            .evaluate(input)
+            .and_then(|array| cast_with_options(&array, &self.data_type, &DEFAULT_CAST_OPTIONS).map_err(|e| e.into()))
     }
 }
 
@@ -39,21 +41,4 @@ impl Display for CastExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "CAST({} AS {})", self.expr, self.data_type)
     }
-}
-
-pub(crate) fn to_str_array<O: OffsetSizeTrait>(array: &dyn Array) -> Result<ArrayRef> {
-    let mut builder = GenericStringBuilder::<O>::new();
-    let formatter = ArrayFormatter::try_new(array, &FormatOptions::default())?;
-    let nulls = array.nulls();
-    for i in 0..array.len() {
-        match nulls.map(|x| x.is_null(i)).unwrap_or_default() {
-            true => builder.append_null(),
-            false => {
-                formatter.value(i).write(&mut builder)?;
-                // tell the builder the row is finished
-                builder.append_value("");
-            }
-        }
-    }
-    Ok(Arc::new(builder.finish()))
 }

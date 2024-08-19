@@ -92,9 +92,6 @@ impl TableRelation {
             }
         }
     }
-
-
-    
 }
 
 impl Display for TableRelation {
@@ -105,13 +102,13 @@ impl Display for TableRelation {
 
 impl From<String> for TableRelation {
     fn from(value: String) -> Self {
-        TableRelation::parse_str(&value)
+        TableRelation::parse_str(&value.to_ascii_lowercase())
     }
 }
 
 impl From<&str> for TableRelation {
     fn from(value: &str) -> Self {
-        TableRelation::parse_str(value)
+        TableRelation::parse_str(value.to_ascii_lowercase().as_str())
     }
 }
 

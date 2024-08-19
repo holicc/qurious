@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;
+use arrow::util::pretty::print_columns;
 
 use super::PhysicalPlan;
 use crate::error::{Error, Result};

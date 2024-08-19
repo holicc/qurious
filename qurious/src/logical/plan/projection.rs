@@ -20,7 +20,8 @@ impl Projection {
                 .filter_map(|f| match f {
                     LogicalExpr::Column(i) => Some(i.field(&input)),
                     LogicalExpr::Literal(i) => Some(Ok(Arc::new(i.to_field()))),
-                    _ => None,
+                    LogicalExpr::Alias(i) => Some(i.expr.field(&input)),
+                    a => todo!("Projection::try_new: {:?}", a),
                 })
                 .collect::<Result<Vec<FieldRef>>>()
                 .map(|fields| Arc::new(Schema::new(fields)))?,

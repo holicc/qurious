@@ -17,7 +17,7 @@ pub trait TableProvider: Debug + Send + Sync {
     }
 
     /// Insert a new record batch into the data source
-    fn insert(&self, _input: Arc<dyn PhysicalPlan>) -> Result<Arc<dyn PhysicalPlan>> {
+    fn insert(&self, _input: Arc<dyn PhysicalPlan>) -> Result<u64> {
         unimplemented!("insert_into not implemented")
     }
 

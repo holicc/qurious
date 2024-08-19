@@ -62,8 +62,8 @@ pub fn read_csv<T: DataFilePath>(path: T, options: CsvReadOptions) -> Result<Arc
                 .with_format(format)
                 .build(file)
                 .and_then(|reader| reader.into_iter().collect())
-                .map(|data| Arc::new(MemoryTable::new(schema, data)) as Arc<dyn TableProvider>)
                 .map_err(|e| Error::ArrowError(e))
+                .and_then(|data| MemoryTable::try_new(schema, data).map(|v| Arc::new(v) as Arc<dyn TableProvider>))
         }
         _ => unimplemented!(),
     }

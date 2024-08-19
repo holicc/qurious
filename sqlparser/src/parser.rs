@@ -194,6 +194,13 @@ impl<'a> Parser<'a> {
 
         let table = self.next_ident()?;
         let alias = self.parse_alias()?;
+
+        self.tables.push(TableInfo {
+            name: table.clone(),
+            alias: alias.clone(),
+            args: vec![],
+        });
+
         let columns = if self.next_if_token(TokenType::LParen).is_some() {
             let mut columns = vec![];
             loop {

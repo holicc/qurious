@@ -209,11 +209,8 @@ mod tests {
 
     use crate::{
         build_schema,
-        physical::{
-            self,
-            expr::MaxAggregateExpr,
-            plan::{tests::build_table_scan_i32, PhysicalPlan},
-        },
+        physical::{self, expr::MaxAggregateExpr, plan::PhysicalPlan},
+        test_utils::build_table_scan_i32,
     };
 
     use super::{group_indices, HashAggregate};

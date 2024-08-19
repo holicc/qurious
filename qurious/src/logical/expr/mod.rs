@@ -45,6 +45,7 @@ impl LogicalExpr {
             LogicalExpr::Literal(v) => Ok(Arc::new(v.to_field())),
             LogicalExpr::Alias(a) => a.expr.field(plan),
             LogicalExpr::Wildcard => Ok(Arc::new(Field::new("*", DataType::Null, true))),
+            LogicalExpr::Cast(c) => c.field(plan),
             _ => Err(Error::InternalError(format!(
                 "Cannot determine schema for expression: {:?}",
                 self

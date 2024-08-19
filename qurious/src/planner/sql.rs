@@ -58,16 +58,27 @@ impl SqlQueryPlanner {
                 columns,
                 query,
             } => {
+                let schema = Arc::new(Schema::new(
+                    columns
+                        .into_iter()
+                        .map(|col| {
+                            let name = col.name.clone();
+                            let data_type = sql_to_arrow_data_type(&col.datatype);
+                            Ok(Field::new(&name, data_type, col.nullable))
+                        })
+                        .collect::<Result<Vec<_>>>()?,
+                ));
+
                 let input = if let Some(query) = query {
                     planner.select_to_plan(query)?
                 } else {
                     LogicalPlan::EmptyRelation(plan::EmptyRelation {
-                        schema: Arc::new(Schema::empty()),
-                        produce_one_row: true,
+                        schema: schema.clone(),
+                        produce_one_row: false,
                     })
                 };
 
-                planner.create_table_to_plan(input, table, columns, check_exists)
+                planner.create_table_to_plan(input, table, schema, check_exists)
             }
             Statement::DropTable { table, check_exists } => planner.drop_table_to_plan(table, check_exists),
             Statement::Insert {
@@ -320,7 +331,7 @@ impl SqlQueryPlanner {
         &mut self,
         input: LogicalPlan,
         table: String,
-        columns: Vec<sqlparser::ast::Column>,
+        schema: Arc<Schema>,
         check_exists: bool,
     ) -> Result<LogicalPlan> {
         if check_exists {
@@ -328,17 +339,6 @@ impl SqlQueryPlanner {
                 return Err(Error::InternalError(format!("table [{}] already exists", table)));
             }
         }
-
-        let schema = Arc::new(Schema::new(
-            columns
-                .into_iter()
-                .map(|col| {
-                    let name = col.name.clone();
-                    let data_type = sql_to_arrow_data_type(&col.datatype);
-                    Ok(Field::new(&name, data_type, col.nullable))
-                })
-                .collect::<Result<Vec<_>>>()?,
-        ));
 
         Ok(LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(CreateMemoryTable {
             schema,
@@ -781,13 +781,7 @@ impl SqlQueryPlanner {
                         plan.schema()
                             .flattened_fields()
                             .into_iter()
-                            .map(|field| {
-                                Ok(column(field.name()))
-                                // normalize_col_with_schemas_and_ambiguity_check(
-                                //     column(field.name()),
-                                //     &self.relations,
-                                // )
-                            })
+                            .map(|field| Ok(column(field.name())))
                             .collect();
                 }
 

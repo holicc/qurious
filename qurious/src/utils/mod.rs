@@ -1,4 +1,5 @@
 pub mod array;
+pub mod batch;
 
 use crate::logical::plan::LogicalPlan;
 

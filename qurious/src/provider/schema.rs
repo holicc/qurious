@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::error::Result;
 use crate::provider::table::TableProvider;
 
-pub trait SchemaProvider:Debug {
+pub trait SchemaProvider: Debug + Send + Sync {
     fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>>;
 
     fn register_table(&self, name: String, table: Arc<dyn TableProvider>) -> Result<Option<Arc<dyn TableProvider>>> {

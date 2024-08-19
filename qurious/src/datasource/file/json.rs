@@ -23,8 +23,8 @@ pub fn read_json<T: DataFilePath>(path: T) -> Result<Arc<dyn TableProvider>> {
     ReaderBuilder::new(schema.clone())
         .build(reader)
         .and_then(|builder| builder.into_iter().collect())
-        .map(|data| Arc::new(MemoryTable::new(schema, data)) as Arc<dyn TableProvider>)
         .map_err(|e| Error::ArrowError(e))
+        .and_then(|data| MemoryTable::try_new(schema, data).map(|v| Arc::new(v) as Arc<dyn TableProvider>))
 }
 
 #[cfg(test)]

@@ -129,7 +129,7 @@ impl PhysicalPlan for CrossJoin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{physical::plan::tests::build_table_scan_i32, test_utils::assert_batch_eq};
+    use crate::test_utils::{assert_batch_eq, build_table_scan_i32};
     use std::vec;
 
     #[test]

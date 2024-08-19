@@ -13,7 +13,7 @@ pub fn read_parquet<T: DataFilePath>(path: T) -> Result<Arc<dyn TableProvider>> 
     let schema = builder.schema().clone();
     let data = builder.build()?.collect::<Result<Vec<_>, arrow::error::ArrowError>>()?;
 
-    Ok(Arc::new(MemoryTable::new(schema, data)))
+    MemoryTable::try_new(schema, data).map(|v| Arc::new(v) as Arc<dyn TableProvider>)
 }
 
 #[cfg(test)]

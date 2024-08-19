@@ -75,6 +75,7 @@ impl DefaultQueryPlanner {
             LogicalExpr::Literal(v) => self.physical_expr_literal(v),
             LogicalExpr::BinaryExpr(b) => self.physical_expr_binary(input_schema, b),
             LogicalExpr::Cast(c) => self.physical_expr_cast(input_schema, c),
+            LogicalExpr::Alias(Alias { expr, .. }) => self.create_physical_expr(input_schema, expr),
             _ => unimplemented!("unsupported logical expression: {:?}", expr),
         }
     }

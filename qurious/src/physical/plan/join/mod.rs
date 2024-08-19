@@ -344,11 +344,10 @@ mod tests {
             expr::{BinaryExpr, Column, Literal},
             plan::{
                 join::{join_schema, Join},
-                tests::build_table_scan_i32,
                 PhysicalPlan,
             },
         },
-        test_utils::assert_batch_eq,
+        test_utils::{assert_batch_eq, build_table_scan_i32},
     };
     use arrow::datatypes::{DataType, Fields, Schema};
 

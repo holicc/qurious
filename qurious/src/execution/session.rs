@@ -14,6 +14,7 @@ use crate::planner::QueryPlanner;
 use crate::provider::catalog::CatalogProvider;
 use crate::provider::schema::SchemaProvider;
 use crate::provider::table::TableProvider;
+use crate::utils::batch::make_count_batch;
 use crate::{error::Result, planner::DefaultQueryPlanner};
 
 use crate::execution::providers::CatalogProviderList;
@@ -68,11 +69,12 @@ impl ExecuteSession {
                 let source = self.find_table_provider(relation)?;
                 let input = self.planner.create_physical_plan(input)?;
 
-                match op {
-                    DmlOperator::Insert => source.insert(input)?.execute(),
-                    DmlOperator::Update => source.update(input)?.execute(),
-                    DmlOperator::Delete => source.delete(input)?.execute(),
-                }
+                let rows_affected = match op {
+                    DmlOperator::Insert => source.insert(input)?,
+                    _ => todo!(),
+                };
+
+                Ok(vec![make_count_batch(rows_affected)])
             }
             plan => self.planner.create_physical_plan(&plan)?.execute(),
         }
@@ -167,7 +169,7 @@ impl ExecuteSession {
                 schema_provider
                     .register_table(
                         table.table().to_owned(),
-                        Arc::new(MemoryTable::new(schema.clone(), batch)),
+                        Arc::new(MemoryTable::try_new(schema.clone(), batch)?),
                     )
                     .map(|_| vec![])
             }
@@ -196,10 +198,7 @@ mod tests {
         datasource::{connectorx::postgres::PostgresCatalogProvider, memory::MemoryTable},
         test_utils::assert_batch_eq,
     };
-    use arrow::{
-        array::{Int32Array, StringArray},
-        util::pretty::print_batches,
-    };
+    use arrow::array::{Int32Array, StringArray};
 
     use super::*;
 
@@ -209,6 +208,26 @@ mod tests {
         let batch = session.sql(sql).unwrap();
 
         assert_batch_eq(&batch, expected);
+    }
+
+    #[test]
+    fn test_create_table() -> Result<()> {
+        let session = ExecuteSession::new()?;
+        let sql = r#"create table t(v1 int)"#;
+
+        session.sql(sql)?;
+        session.sql("insert into T values (1)")?;
+
+        let batch = session.sql("select * from T")?;
+        assert_batch_eq(&batch, vec![
+            "+----+",
+            "| v1 |",
+            "+----+",
+            "| 1  |",
+            "+----+",
+        ]);
+
+        Ok(())
     }
 
     #[test]
@@ -226,7 +245,7 @@ mod tests {
                 Arc::new(StringArray::from(vec!["a", "b", "c", "d", "e"])),
             ],
         )?];
-        let datasource = MemoryTable::new(schema, data.clone());
+        let datasource = MemoryTable::try_new(schema, data.clone())?;
 
         session.register_table("t", Arc::new(datasource))?;
 
