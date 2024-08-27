@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use arrow::datatypes::{FieldRef, SchemaRef};
 
+use crate::arrow_err;
 use crate::common::table_relation::TableRelation;
 use crate::error::{Error, Result};
 use crate::logical::plan::LogicalPlan;
@@ -28,7 +29,7 @@ impl Column {
         plan.schema()
             .field_with_name(&self.name)
             .map(|f| Arc::new(f.clone()))
-            .map_err(|e| Error::ArrowError(e))
+            .map_err(|e| arrow_err!(e))
     }
 
     pub fn quanlified_name(&self) -> String {

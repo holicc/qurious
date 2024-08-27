@@ -6,6 +6,7 @@ mod literal;
 
 pub use aggregate::{
     max::{MaxAccumulator, MaxAggregateExpr},
+    sum::*,
     Accumulator, AggregateExpr,
 };
 pub use binary::BinaryExpr;

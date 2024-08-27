@@ -95,7 +95,14 @@ impl CrossJoin {
                             self.schema(),
                             array.into_iter().chain(rb.columns().iter().cloned()).collect(),
                         )
-                        .map_err(|e| Error::ArrowError(e))
+                        .map_err(|e| {
+                            Error::ArrowError(
+                                e,
+                                Some(format!(
+                                    "physical::plan::cross_join.rs: CrossJoin::build_batch: RecordBatch::try_new error"
+                                )),
+                            )
+                        })
                     });
 
                 batches.push(array);

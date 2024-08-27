@@ -6,6 +6,7 @@ use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatch;
 
 use super::PhysicalExpr;
+use crate::arrow_err;
 use crate::datatypes::operator::Operator;
 use crate::error::{Error, Result};
 use std::fmt::Display;
@@ -40,16 +41,16 @@ impl PhysicalExpr for BinaryExpr {
             // logic
             Operator::And => and_kleene(l.as_boolean(), r.as_boolean())
                 .map(|a| Arc::new(a) as ArrayRef)
-                .map_err(|e| Error::ArrowError(e)),
+                .map_err(|e| arrow_err!(e)),
             Operator::Or => or_kleene(l.as_boolean(), r.as_boolean())
                 .map(|a| Arc::new(a) as ArrayRef)
-                .map_err(|e| Error::ArrowError(e)),
+                .map_err(|e| arrow_err!(e)),
             // arithmetic
-            Operator::Add => add_wrapping(&l, &r).map_err(|e| Error::ArrowError(e)),
-            Operator::Sub => sub_wrapping(&l, &r).map_err(|e| Error::ArrowError(e)),
-            Operator::Mul => mul_wrapping(&l, &r).map_err(|e| Error::ArrowError(e)),
-            Operator::Div => div(&l, &r).map_err(|e| Error::ArrowError(e)),
-            Operator::Mod => rem(&l, &r).map_err(|e| Error::ArrowError(e)),
+            Operator::Add => add_wrapping(&l, &r).map_err(|e| arrow_err!(e)),
+            Operator::Sub => sub_wrapping(&l, &r).map_err(|e| arrow_err!(e)),
+            Operator::Mul => mul_wrapping(&l, &r).map_err(|e| arrow_err!(e)),
+            Operator::Div => div(&l, &r).map_err(|e| arrow_err!(e)),
+            Operator::Mod => rem(&l, &r).map_err(|e| arrow_err!(e)),
         }
     }
 }
@@ -61,7 +62,7 @@ fn cmp(
 ) -> Result<ArrayRef, Error> {
     f(&l.as_ref(), &r.as_ref())
         .map(|a| Arc::new(a) as ArrayRef)
-        .map_err(|e| Error::ArrowError(e))
+        .map_err(|e| arrow_err!(e))
 }
 
 impl Display for BinaryExpr {

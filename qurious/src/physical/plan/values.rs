@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use arrow::array::{RecordBatch, RecordBatchOptions};
+use arrow::array::{ArrayRef, RecordBatch, RecordBatchOptions};
 use arrow::compute::concat;
 use arrow::datatypes::{Schema, SchemaRef};
 
+use crate::arrow_err;
 use crate::error::{Error, Result};
 use crate::physical::expr::PhysicalExpr;
 use crate::physical::plan::PhysicalPlan;
@@ -31,28 +32,30 @@ impl PhysicalPlan for Values {
             ));
         }
 
-        let input = RecordBatch::try_new_with_options(
+        let empty_batch = RecordBatch::try_new_with_options(
             Arc::new(Schema::empty()),
             vec![],
             &RecordBatchOptions::new().with_row_count(Some(1)),
         )?;
 
-        let columns = self
-            .exprs
-            .iter()
-            .map(|array| {
-                let array_batch = array
-                    .iter()
-                    .map(|expr| expr.evaluate(&input))
-                    .collect::<Result<Vec<_>>>()?;
-                let array_ref = array_batch.iter().map(|x| x.as_ref()).collect::<Vec<_>>();
-                concat(&array_ref).map_err(|e| Error::ArrowError(e))
+        let n_row = self.exprs.len();
+        let n_col = self.schema.fields().len();
+
+        let columns = (0..n_col)
+            .map(|j| {
+                (0..n_row)
+                    .map(|i| self.exprs[i][j].evaluate(&empty_batch))
+                    .collect::<Result<Vec<ArrayRef>>>()
+                    .and_then(|rows| {
+                        let rows_ref = rows.iter().map(|x| x.as_ref()).collect::<Vec<_>>();
+                        concat(&rows_ref).map_err(|e| arrow_err!(e))
+                    })
             })
             .collect::<Result<_>>()?;
 
         RecordBatch::try_new(self.schema(), columns)
             .map(|v| vec![v])
-            .map_err(|e| Error::ArrowError(e))
+            .map_err(|e| arrow_err!(e))
     }
 
     fn children(&self) -> Option<Vec<Arc<dyn PhysicalPlan>>> {
@@ -86,17 +89,17 @@ mod tests {
         let exprs: Vec<Vec<Arc<dyn PhysicalExpr>>> = vec![
             vec![
                 Arc::new(physical::expr::Literal::new(ScalarValue::Int64(Some(1)))),
-                Arc::new(physical::expr::Literal::new(ScalarValue::Int64(Some(2)))),
-                Arc::new(physical::expr::Literal::new(ScalarValue::Int64(Some(3)))),
-            ],
-            vec![
                 Arc::new(physical::expr::Literal::new(ScalarValue::Utf8(Some("a".to_string())))),
-                Arc::new(physical::expr::Literal::new(ScalarValue::Utf8(None))),
-                Arc::new(physical::expr::Literal::new(ScalarValue::Utf8(Some("c".to_string())))),
+                Arc::new(physical::expr::Literal::new(ScalarValue::Boolean(Some(true)))),
             ],
             vec![
-                Arc::new(physical::expr::Literal::new(ScalarValue::Boolean(Some(true)))),
+                Arc::new(physical::expr::Literal::new(ScalarValue::Int64(Some(2)))),
+                Arc::new(physical::expr::Literal::new(ScalarValue::Utf8(None))),
                 Arc::new(physical::expr::Literal::new(ScalarValue::Boolean(Some(false)))),
+            ],
+            vec![
+                Arc::new(physical::expr::Literal::new(ScalarValue::Int64(Some(3)))),
+                Arc::new(physical::expr::Literal::new(ScalarValue::Utf8(Some("c".to_string())))),
                 Arc::new(physical::expr::Literal::new(ScalarValue::Boolean(Some(true)))),
             ],
         ];

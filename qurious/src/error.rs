@@ -1,4 +1,7 @@
-use std::fmt::Display;
+use std::{
+    backtrace::{Backtrace, BacktraceStatus},
+    fmt::Display,
+};
 
 use arrow::error::ArrowError;
 use parquet::errors::ParquetError;
@@ -13,6 +16,19 @@ macro_rules! impl_from_error {
     };
 }
 
+#[macro_export]
+macro_rules! arrow_err {
+    ($ERR:expr) => {
+        Error::ArrowError($ERR, Some(Error::get_back_trace()))
+    };
+}
+
+impl_from_error!(std::io::Error);
+impl_from_error!(ParquetError);
+impl_from_error!(std::num::ParseIntError);
+impl_from_error!(std::num::ParseFloatError);
+impl_from_error!(std::str::ParseBoolError);
+
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug)]
@@ -22,25 +38,31 @@ pub enum Error {
     DuplicateColumn(String),
     CompareError(String),
     ComputeError(String),
-    ArrowError(ArrowError),
+    ArrowError(ArrowError, Option<String>),
     SQLParseError(sqlparser::error::Error),
     PlanError(String),
     TableNotFound(String),
+}
+
+impl Error {
+    #[inline(always)]
+    pub fn get_back_trace() -> String {
+        let back_trace = Backtrace::capture();
+        if back_trace.status() == BacktraceStatus::Captured {
+            return format!("{}{}", "\n\nbacktrace: ", back_trace);
+        }
+
+        "".to_owned()
+    }
 }
 
 impl std::error::Error for Error {}
 
 impl From<ArrowError> for Error {
     fn from(e: ArrowError) -> Self {
-        Error::ArrowError(e)
+        Error::ArrowError(e, None)
     }
 }
-
-impl_from_error!(std::io::Error);
-impl_from_error!(ParquetError);
-impl_from_error!(std::num::ParseIntError);
-impl_from_error!(std::num::ParseFloatError);
-impl_from_error!(std::str::ParseBoolError);
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -49,7 +71,7 @@ impl Display for Error {
             Error::ColumnNotFound(e) => write!(f, "Column Not Found: {}", e),
             Error::CompareError(e) => write!(f, "Compare Error: {}", e),
             Error::ComputeError(e) => write!(f, "Compute Error: {}", e),
-            Error::ArrowError(e) => write!(f, "Arrow Error: {}", e),
+            Error::ArrowError(e, msg) => write!(f, "Arrow Error: {}, msg: {}", e, msg.clone().unwrap_or_default()),
             Error::SQLParseError(e) => write!(f, "SQL Parse Error: {}", e),
             Error::PlanError(e) => write!(f, "Plan Error: {}", e),
             Error::DuplicateColumn(c) => write!(f, "Duplicate column: {}", c),

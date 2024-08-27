@@ -34,7 +34,14 @@ impl PhysicalPlan for Projection {
                 for expr in &self.exprs {
                     columns.push(expr.evaluate(&batch)?);
                 }
-                RecordBatch::try_new(self.schema(), columns).map_err(|e| Error::ArrowError(e))
+                RecordBatch::try_new(self.schema(), columns).map_err(|e| {
+                    Error::ArrowError(
+                        e,
+                        Some(format!(
+                            "physical::plan::projection.rs: Projection::execute: RecordBatch::try_new error"
+                        )),
+                    )
+                })
             })
             .collect()
     }

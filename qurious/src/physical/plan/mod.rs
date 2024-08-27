@@ -8,7 +8,7 @@ mod scan;
 mod sort;
 mod values;
 
-pub use aggregate::HashAggregate;
+pub use aggregate::*;
 pub use empty::EmptyRelation;
 pub use filter::Filter;
 pub use join::{join_schema, ColumnIndex, CrossJoin, Join, JoinFilter, JoinSide};

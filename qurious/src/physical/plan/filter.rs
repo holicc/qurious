@@ -30,8 +30,14 @@ impl PhysicalPlan for Filter {
             .execute()?
             .into_iter()
             .map(|batch| {
-                filter_record_batch(&batch, &self.predicate.evaluate(&batch)?.as_boolean())
-                    .map_err(|e| Error::ArrowError(e))
+                filter_record_batch(&batch, &self.predicate.evaluate(&batch)?.as_boolean()).map_err(|e| {
+                    Error::ArrowError(
+                        e,
+                        Some(format!(
+                            "physical::plan::filter.rs: Filter::execute: filter_record_batch error"
+                        )),
+                    )
+                })
             })
             .collect()
     }

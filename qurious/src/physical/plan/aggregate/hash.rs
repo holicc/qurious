@@ -110,10 +110,10 @@ impl PhysicalPlan for HashAggregate {
                 for group in &group_indices {
                     let mut acc = agg_expr.create_accumulator();
                     // every aggregate expression only evaluate one value as output
-                    let input_array = agg_expr
-                        .expression()
-                        .evaluate(&batch)
-                        .and_then(|values| compute::take(&values, &group, None).map_err(|e| Error::ArrowError(e)))?;
+                    let input_array = agg_expr.expression().evaluate(&batch).and_then(|values| {
+                        compute::take(&values, &group, None)
+                            .map_err(|e| Error::ArrowError(e, Some(format!("HashAggregate::execute: take error"))))
+                    })?;
                     acc.accumluate(&input_array)?;
                     agg_array.push(acc.evaluate().map(|v| v.to_array(1))?);
                 }

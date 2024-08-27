@@ -21,6 +21,8 @@ impl Projection {
                     LogicalExpr::Column(i) => Some(i.field(&input)),
                     LogicalExpr::Literal(i) => Some(Ok(Arc::new(i.to_field()))),
                     LogicalExpr::Alias(i) => Some(i.expr.field(&input)),
+                    LogicalExpr::AggregateExpr(i) => Some(i.field(&input)),
+                    LogicalExpr::BinaryExpr(i) => Some(i.field(&input)),
                     a => todo!("Projection::try_new: {:?}", a),
                 })
                 .collect::<Result<Vec<FieldRef>>>()

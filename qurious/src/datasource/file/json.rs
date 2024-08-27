@@ -5,6 +5,7 @@ use std::sync::Arc;
 use arrow::json::reader::infer_json_schema_from_seekable;
 use arrow::json::ReaderBuilder;
 
+use crate::arrow_err;
 use crate::datasource::file::DataFilePath;
 use crate::datasource::memory::MemoryTable;
 use crate::error::{Error, Result};
@@ -23,7 +24,7 @@ pub fn read_json<T: DataFilePath>(path: T) -> Result<Arc<dyn TableProvider>> {
     ReaderBuilder::new(schema.clone())
         .build(reader)
         .and_then(|builder| builder.into_iter().collect())
-        .map_err(|e| Error::ArrowError(e))
+        .map_err(|e| arrow_err!(e))
         .and_then(|data| MemoryTable::try_new(schema, data).map(|v| Arc::new(v) as Arc<dyn TableProvider>))
 }
 

@@ -2,6 +2,7 @@ use std::{fmt::Display, sync::Arc};
 
 use arrow::datatypes::{Schema, SchemaRef};
 
+use crate::arrow_err;
 use crate::common::table_relation::TableRelation;
 use crate::error::{Error, Result};
 use crate::logical::expr::LogicalExpr;
@@ -35,7 +36,7 @@ impl TableScan {
                         source
                             .schema()
                             .field_with_name(name)
-                            .map_err(|err| Error::ArrowError(err))
+                            .map_err(|err| arrow_err!(err))
                             .cloned()
                     })
                     .collect::<Result<Vec<_>>>()

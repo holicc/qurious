@@ -1,6 +1,8 @@
 pub mod array;
 pub mod batch;
 
+use sqlparser::ast::Ident;
+
 use crate::logical::plan::LogicalPlan;
 
 pub fn version() -> String {
@@ -21,4 +23,11 @@ pub fn format(plan: &LogicalPlan, ident: usize) -> String {
     }
 
     sb
+}
+
+pub fn normalize_ident(i: Ident) -> String {
+    match i.quote_style {
+        Some(_) => i.value,
+        None => i.value.to_ascii_lowercase(),
+    }
 }

@@ -5,10 +5,11 @@ use arrow::util::display::FormatOptions;
 use arrow::{array, array::ArrayRef, record_batch::RecordBatch};
 use async_trait::async_trait;
 use itertools::Either;
+use qurious::arrow_err;
 use qurious::error::{Error, Result};
 use qurious::execution::session::ExecuteSession;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use sqllogictest::{strict_column_validator, AsyncDB, DBOutput, DefaultColumnType};
+use sqllogictest::{AsyncDB, DBOutput, DefaultColumnType};
 use std::fs::read_dir;
 use std::iter::once;
 use std::path::PathBuf;
@@ -25,13 +26,8 @@ fn main() -> Result<()> {
         .map(make_test_session)
         .try_for_each(|session| {
             let session = session?;
-            let mut runner = sqllogictest::Runner::new(|| async { 
-            
-                log::debug!("Create new session");
-                Ok(&session) 
-            });
+            let mut runner = sqllogictest::Runner::new(|| async { Ok(&session) });
 
-            runner.with_column_validator(strict_column_validator);
             runner
                 .run_file(session.path.clone())
                 .map_err(|e| Error::InternalError(e.to_string()))
@@ -197,7 +193,7 @@ fn cell_to_string(col: &ArrayRef, row: usize) -> Result<String> {
                 Ok(f.unwrap().value(row).to_string())
             }
         }
-        .map_err(Error::ArrowError)
+        .map_err(|e| arrow_err!(e))
     }
 }
 

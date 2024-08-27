@@ -5,6 +5,7 @@ use std::sync::Arc;
 use arrow::csv::reader::Format;
 use arrow::csv::ReaderBuilder;
 
+use crate::arrow_err;
 use crate::datasource::memory::MemoryTable;
 use crate::error::{Error, Result};
 use crate::provider::table::TableProvider;
@@ -51,7 +52,7 @@ pub fn read_csv<T: DataFilePath>(path: T, options: CsvReadOptions) -> Result<Arc
             // max records set 2 means we only read the first 2 records to infer the schema
             // first line is header
             // second line is data to infer the data type
-            let (schema, _) = format.infer_schema(&mut file, None).map_err(|e| Error::ArrowError(e))?;
+            let (schema, _) = format.infer_schema(&mut file, None).map_err(|e| arrow_err!(e))?;
 
             // rewind the file to the beginning because the schema inference
             file.rewind().unwrap();
@@ -62,7 +63,7 @@ pub fn read_csv<T: DataFilePath>(path: T, options: CsvReadOptions) -> Result<Arc
                 .with_format(format)
                 .build(file)
                 .and_then(|reader| reader.into_iter().collect())
-                .map_err(|e| Error::ArrowError(e))
+                .map_err(|e| arrow_err!(e))
                 .and_then(|data| MemoryTable::try_new(schema, data).map(|v| Arc::new(v) as Arc<dyn TableProvider>))
         }
         _ => unimplemented!(),

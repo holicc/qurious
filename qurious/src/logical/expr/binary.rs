@@ -27,7 +27,7 @@ impl BinaryExpr {
 
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
         Ok(Arc::new(Field::new(
-            self.op.to_string(),
+            format!("{} {} {}", self.left, self.op, self.right),
             match self.op {
                 Operator::Eq
                 | Operator::NotEq

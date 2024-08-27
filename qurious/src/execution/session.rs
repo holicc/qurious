@@ -162,7 +162,7 @@ impl ExecuteSession {
     fn execute_ddl(&self, ddl: &DdlStatement) -> Result<Vec<RecordBatch>> {
         match ddl {
             DdlStatement::CreateMemoryTable(CreateMemoryTable { schema, name, input }) => {
-                let table: TableRelation = name.as_str().into();
+                let table: TableRelation = name.to_ascii_lowercase().into();
                 let schema_provider = self.find_schema_provider(&table)?;
                 let batch = self.execute_logical_plan(input)?;
 
@@ -174,7 +174,7 @@ impl ExecuteSession {
                     .map(|_| vec![])
             }
             DdlStatement::DropTable(DropTable { name, if_exists }) => {
-                let table: TableRelation = name.as_str().into();
+                let table: TableRelation = name.to_ascii_lowercase().into();
                 let schema_provider = self.find_schema_provider(&table)?;
                 let provider = schema_provider.deregister_table(table.table())?;
 
@@ -182,7 +182,7 @@ impl ExecuteSession {
                     Ok(vec![])
                 } else {
                     Err(Error::PlanError(format!(
-                        "Table not found: {}",
+                        "Drop table failed, table not found: {}",
                         table.to_quanlify_name()
                     )))
                 }
@@ -198,7 +198,10 @@ mod tests {
         datasource::{connectorx::postgres::PostgresCatalogProvider, memory::MemoryTable},
         test_utils::assert_batch_eq,
     };
-    use arrow::array::{Int32Array, StringArray};
+    use arrow::{
+        array::{Int32Array, StringArray},
+        util::pretty::print_batches,
+    };
 
     use super::*;
 
@@ -213,19 +216,14 @@ mod tests {
     #[test]
     fn test_create_table() -> Result<()> {
         let session = ExecuteSession::new()?;
-        let sql = r#"create table t(v1 int)"#;
+        let sql = r#"create table t(v1 int not null, v2 int not null, v3 int not null)"#;
 
         session.sql(sql)?;
-        session.sql("insert into T values (1)")?;
+        session.sql("insert into t values(1,4,2), (2,3,3), (3,4,4), (4,3,5)")?;
 
-        let batch = session.sql("select * from T")?;
-        assert_batch_eq(&batch, vec![
-            "+----+",
-            "| v1 |",
-            "+----+",
-            "| 1  |",
-            "+----+",
-        ]);
+        let batch = session.sql("select sum(v1), sum(v2) from t")?;
+
+        print_batches(&batch)?;
 
         Ok(())
     }

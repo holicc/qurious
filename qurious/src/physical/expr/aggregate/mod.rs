@@ -1,4 +1,5 @@
 pub mod max;
+pub mod sum;
 
 use arrow::array::ArrayRef;
 

@@ -83,8 +83,8 @@ impl PhysicalPlan for Join {
         let right_schema = self.right.schema();
 
         let left_batches = self.left.execute()?;
-        let right_batche =
-            concat_batches(&right_schema, self.right.execute()?.as_slice()).map_err(|e| Error::ArrowError(e))?;
+        let right_batche = concat_batches(&right_schema, self.right.execute()?.as_slice())
+            .map_err(|e| Error::ArrowError(e, Some(format!("physical::plan::join.rs: Join::execute: concat"))))?;
 
         // build indices for left table and right table
         // create intermediate record batches for indices and filter

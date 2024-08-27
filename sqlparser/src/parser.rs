@@ -55,6 +55,12 @@ impl<'a> Parser<'a> {
                 let check_exists = self.parse_if_exists()?;
                 let table = self.next_ident()?;
 
+                self.tables.push(TableInfo {
+                    name: table.clone(),
+                    alias: None,
+                    args: vec![],
+                });
+
                 Ok(Statement::DropTable { table, check_exists })
             }
             _ => unimplemented!(),

@@ -76,6 +76,7 @@ impl DefaultQueryPlanner {
             LogicalExpr::BinaryExpr(b) => self.physical_expr_binary(input_schema, b),
             LogicalExpr::Cast(c) => self.physical_expr_cast(input_schema, c),
             LogicalExpr::Alias(Alias { expr, .. }) => self.create_physical_expr(input_schema, expr),
+            LogicalExpr::AggregateExpr(a) => self.create_physical_expr(input_schema, &a.expr),
             _ => unimplemented!("unsupported logical expression: {:?}", expr),
         }
     }
@@ -118,16 +119,29 @@ impl DefaultQueryPlanner {
             .iter()
             .map(|e| {
                 self.create_physical_expr(&aggregate.schema, &e.expr)
-                    .map(|expr| match e.op {
-                        AggregateOperator::Sum => todo!(),
+                    .and_then(|expr| match e.op {
+                        AggregateOperator::Sum => Ok(Arc::new(physical::expr::SumAggregateExpr::new(
+                            expr,
+                            e.field(&aggregate.input).map(|f| f.data_type().clone())?,
+                        ))
+                            as Arc<dyn physical::expr::AggregateExpr>),
+                        AggregateOperator::Max => Ok(Arc::new(physical::expr::MaxAggregateExpr::new(expr))
+                            as Arc<dyn physical::expr::AggregateExpr>),
                         AggregateOperator::Min => todo!(),
-                        AggregateOperator::Max => Arc::new(physical::expr::MaxAggregateExpr::new(expr))
-                            as Arc<dyn physical::expr::AggregateExpr>,
                         AggregateOperator::Avg => todo!(),
                         AggregateOperator::Count => todo!(),
                     })
             })
             .collect::<Result<Vec<_>>>()?;
+
+        // not group by
+        if group_expr.is_empty() {
+            return Ok(Arc::new(physical::plan::NoGroupingAggregate::new(
+                aggregate.schema.clone(),
+                input,
+                aggr_expr,
+            )));
+        }
 
         Ok(Arc::new(physical::plan::HashAggregate::new(
             aggregate.schema.clone(),
@@ -148,7 +162,7 @@ impl DefaultQueryPlanner {
     fn physical_expr_column(&self, schema: &SchemaRef, column: &Column) -> Result<Arc<dyn PhysicalExpr>> {
         schema
             .index_of(&column.name)
-            .map_err(|e| Error::ArrowError(e))
+            .map_err(|e| Error::ArrowError(e, Some(format!("physical_expr_column: schema.index_of(&column.name)"))))
             .map(|index| Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>)
     }
 

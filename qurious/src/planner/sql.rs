@@ -21,7 +21,7 @@ use crate::{
         LogicalPlanBuilder,
     },
     provider::table::TableProvider,
-    utils,
+    utils::{self, normalize_ident},
 };
 
 use self::alias::Alias;
@@ -388,9 +388,17 @@ impl SqlQueryPlanner {
             _ => false,
         };
         // process the WHERE clause
-        let plan = self.filter_expr(plan, select.r#where)?;
+        let mut plan = self.filter_expr(plan, select.r#where)?;
         // process the SELECT expressions
         let column_exprs = self.column_exprs(&plan, empty_from, select.columns)?;
+        // get aggregate expressions
+        let aggr_exprs = column_exprs
+            .iter()
+            .filter_map(|expr| match expr {
+                LogicalExpr::AggregateExpr(aggr) => Some(aggr.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
         // process the HAVING clause
         let having = if let Some(having_expr) = select.having {
             Some(self.sql_to_expr(having_expr)?)
@@ -398,13 +406,15 @@ impl SqlQueryPlanner {
             None
         };
         // process the GROUP BY clause
-        let plan = if let Some(group_by) = select.group_by {
-            self.aggregate_plan(plan, &column_exprs, group_by, having)?
-        } else {
-            plan
-        };
+        if let Some(group_by) = select.group_by {
+            plan = self.aggregate_plan(plan, &aggr_exprs, group_by, having)?
+        }
+        // process aggregation in SELECT
+        if !aggr_exprs.is_empty() {
+            plan = self.aggregate_plan(plan, &aggr_exprs, vec![], None)?;
+        }
 
-        let plan = LogicalPlanBuilder::project(plan, column_exprs)?;
+        plan = LogicalPlanBuilder::project(plan, column_exprs)?;
 
         // process the ORDER BY clause
         let plan = if let Some(order_by) = select.order_by {
@@ -562,19 +572,10 @@ impl SqlQueryPlanner {
     fn aggregate_plan(
         &self,
         input: LogicalPlan,
-        column_exprs: &[LogicalExpr],
+        aggr_exprs: &[AggregateExpr],
         group_by: Vec<Expression>,
         _having_expr: Option<LogicalExpr>,
     ) -> Result<LogicalPlan> {
-        // get aggregate expressions
-        let aggr_exprs = column_exprs
-            .iter()
-            .filter_map(|expr| match expr {
-                LogicalExpr::AggregateExpr(aggr) => Some(aggr.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-
         let group_exprs = group_by
             .into_iter()
             .map(|expr| {
@@ -584,7 +585,7 @@ impl SqlQueryPlanner {
             .collect::<Result<Vec<_>>>()?;
 
         LogicalPlanBuilder::from(input)
-            .aggregate(group_exprs, aggr_exprs)
+            .aggregate(group_exprs, aggr_exprs.to_vec())
             .map(|plan| plan.build())
     }
 
@@ -643,11 +644,11 @@ impl SqlQueryPlanner {
                     )));
                 }
                 Ok(LogicalExpr::Column(Column {
-                    name: idents.remove(1).value,
+                    name: normalize_ident(idents.remove(1)),
                     relation: Some(idents.remove(0).value.into()),
                 }))
             }
-            Expression::Identifier(ident) => Ok(column(&ident.value)),
+            Expression::Identifier(ident) => Ok(column(&normalize_ident(ident))),
             Expression::Literal(lit) => match lit {
                 Literal::Int(i) => Ok(LogicalExpr::Literal(ScalarValue::Int64(Some(i)))),
                 Literal::Float(f) => Ok(LogicalExpr::Literal(ScalarValue::Float64(Some(f)))),
@@ -679,7 +680,7 @@ impl SqlQueryPlanner {
                     })),
                 }
             }
-            _ => todo!(),
+            _ => todo!("sql_to_expr: {:?}", expr),
         }
     }
 
@@ -694,7 +695,8 @@ impl SqlQueryPlanner {
         Ok(match op {
             BinaryOperator::Eq(l, r) => eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             BinaryOperator::Gt(l, r) => gt(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-            _ => todo!(),
+            BinaryOperator::Add(l, r) => add(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+            _ => todo!("parse_binary_op: {:?}", op),
         })
     }
 
@@ -878,7 +880,7 @@ pub(crate) fn parse_csv_options(mut args: Vec<FunctionArgument>) -> Result<CsvRe
 
 fn sql_to_arrow_data_type(data_type: &sqlparser::datatype::DataType) -> arrow::datatypes::DataType {
     match data_type {
-        sqlparser::datatype::DataType::Integer => arrow::datatypes::DataType::Int32,
+        sqlparser::datatype::DataType::Integer => arrow::datatypes::DataType::Int64,
         sqlparser::datatype::DataType::Boolean => arrow::datatypes::DataType::Boolean,
         sqlparser::datatype::DataType::Float => arrow::datatypes::DataType::Float64,
         sqlparser::datatype::DataType::String => arrow::datatypes::DataType::Utf8,
@@ -901,6 +903,14 @@ mod tests {
     };
 
     use super::SqlQueryPlanner;
+
+    #[test]
+    fn test_aggregate() {
+        quick_test(
+            "SELECT SUM(id) FROM tbl ",
+            "Projection: (SUM(tbl.id))\n  Aggregate: group_expr=[], aggregat_expr=[SUM(tbl.id)]\n    TableScan: tbl\n",
+        );
+    }
 
     #[test]
     fn test_insert() {

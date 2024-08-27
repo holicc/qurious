@@ -6,6 +6,7 @@ use arrow::datatypes::Schema;
 use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;
 
+use crate::arrow_err;
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::Error;
 use crate::error::Result;
@@ -58,12 +59,12 @@ impl TableProvider for MemoryTable {
         if let Some(projection) = projection {
             let indices = projection
                 .iter()
-                .map(|name| self.schema.index_of(name).map_err(|e| Error::ArrowError(e)))
+                .map(|name| self.schema.index_of(name).map_err(|e| arrow_err!(e)))
                 .collect::<Result<Vec<_>>>()?;
 
             batches
                 .iter()
-                .map(|batch| batch.project(&indices).map_err(|e| Error::ArrowError(e)))
+                .map(|batch| batch.project(&indices).map_err(|e| arrow_err!(e)))
                 .collect()
         } else {
             Ok(batches.clone())
