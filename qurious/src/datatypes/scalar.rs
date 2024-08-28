@@ -1,12 +1,26 @@
-use crate::error::Result;
+use crate::error::{Error, Result};
 use arrow::{
     array::{
         new_null_array, Array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
-        Int8Array, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+        Int8Array, LargeStringArray, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
     },
     datatypes::{DataType, Field},
 };
 use std::{fmt::Display, sync::Arc};
+
+macro_rules! typed_cast {
+    ($array:expr, $index:expr, $ARRAYTYPE:ident, $SCALAR:ident) => {{
+        use std::any::type_name;
+        let array = $array
+            .as_any()
+            .downcast_ref::<$ARRAYTYPE>()
+            .ok_or_else(|| Error::InternalError(format!("could not cast value to {}", type_name::<$ARRAYTYPE>())))?;
+        Ok::<ScalarValue, Error>(ScalarValue::$SCALAR(match array.is_null($index) {
+            true => None,
+            false => Some(array.value($index).into()),
+        }))
+    }};
+}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum ScalarValue {
@@ -117,8 +131,29 @@ impl ScalarValue {
         }
     }
 
-    pub fn try_from_array(_array: &dyn Array, _index: usize) -> Result<Self> {
-        todo!()
+    pub fn try_from_array(array: &dyn Array, index: usize) -> Result<Self> {
+        // handle NULL value
+        if !array.is_valid(index) {
+            return array.data_type().try_into();
+        }
+
+        match array.data_type() {
+            DataType::Null => Ok(ScalarValue::Null),
+            DataType::Boolean => typed_cast!(array, index, BooleanArray, Boolean),
+            DataType::Int8 => typed_cast!(array, index, Int8Array, Int8),
+            DataType::Int16 => typed_cast!(array, index, Int16Array, Int16),
+            DataType::Int32 => typed_cast!(array, index, Int32Array, Int32),
+            DataType::Int64 => typed_cast!(array, index, Int64Array, Int64),
+            DataType::UInt8 => typed_cast!(array, index, UInt8Array, UInt8),
+            DataType::UInt16 => typed_cast!(array, index, UInt16Array, UInt16),
+            DataType::UInt32 => typed_cast!(array, index, UInt32Array, UInt32),
+            DataType::UInt64 => typed_cast!(array, index, UInt64Array, UInt64),
+            DataType::Float32 => typed_cast!(array, index, Float32Array, Float32),
+            DataType::Float64 => typed_cast!(array, index, Float64Array, Float64),
+            DataType::Utf8 => typed_cast!(array, index, StringArray, Utf8),
+            DataType::LargeUtf8 => typed_cast!(array, index, LargeStringArray, Utf8),
+            _ => unimplemented!("data type {} not supported", array.data_type()),
+        }
     }
 }
 
@@ -131,6 +166,38 @@ impl From<&str> for ScalarValue {
 impl From<ScalarValue> for Field {
     fn from(value: ScalarValue) -> Self {
         value.to_field()
+    }
+}
+
+impl TryFrom<DataType> for ScalarValue {
+    type Error = crate::error::Error;
+
+    fn try_from(value: DataType) -> std::result::Result<Self, Self::Error> {
+        (&value).try_into()
+    }
+}
+
+impl TryFrom<&DataType> for ScalarValue {
+    type Error = crate::error::Error;
+
+    fn try_from(value: &DataType) -> std::result::Result<Self, Self::Error> {
+        match value {
+            DataType::Null => Ok(ScalarValue::Null),
+            DataType::Boolean => Ok(ScalarValue::Boolean(None)),
+            DataType::Int8 => Ok(ScalarValue::Int8(None)),
+            DataType::Int16 => Ok(ScalarValue::Int16(None)),
+            DataType::Int32 => Ok(ScalarValue::Int32(None)),
+            DataType::Int64 => Ok(ScalarValue::Int64(None)),
+            DataType::UInt8 => Ok(ScalarValue::UInt8(None)),
+            DataType::UInt16 => Ok(ScalarValue::UInt16(None)),
+            DataType::UInt32 => Ok(ScalarValue::UInt32(None)),
+            DataType::UInt64 => Ok(ScalarValue::UInt64(None)),
+            DataType::Float32 => Ok(ScalarValue::Float32(None)),
+            DataType::Float64 => Ok(ScalarValue::Float64(None)),
+            DataType::Utf8 => Ok(ScalarValue::Utf8(None)),
+            DataType::LargeUtf8 => Ok(ScalarValue::Utf8(None)),
+            _ => unimplemented!("data type {} not supported", value),
+        }
     }
 }
 
