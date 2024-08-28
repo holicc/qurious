@@ -221,7 +221,7 @@ mod tests {
         session.sql(sql)?;
         session.sql("insert into t values(1,4,2), (2,3,3), (3,4,4), (4,3,5)")?;
 
-        let batch = session.sql("select sum(v1), sum(v2) from t")?;
+        let batch = session.sql("select sum(v1), count(v3), min(v3), max(v1) from t group by v2, v2")?;
 
         print_batches(&batch)?;
 

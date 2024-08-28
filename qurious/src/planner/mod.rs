@@ -118,19 +118,23 @@ impl DefaultQueryPlanner {
             .aggr_expr
             .iter()
             .map(|e| {
-                self.create_physical_expr(&aggregate.schema, &e.expr)
-                    .and_then(|expr| match e.op {
-                        AggregateOperator::Sum => Ok(Arc::new(physical::expr::SumAggregateExpr::new(
-                            expr,
-                            e.field(&aggregate.input).map(|f| f.data_type().clone())?,
-                        ))
-                            as Arc<dyn physical::expr::AggregateExpr>),
-                        AggregateOperator::Max => Ok(Arc::new(physical::expr::MaxAggregateExpr::new(expr))
-                            as Arc<dyn physical::expr::AggregateExpr>),
+                self.create_physical_expr(&aggregate.schema, &e.expr).and_then(|expr| {
+                    let return_type = e.field(&aggregate.input).map(|f| f.data_type().clone())?;
+                    match e.op {
+                        AggregateOperator::Sum => {
+                            Ok(Arc::new(physical::expr::SumAggregateExpr::new(expr, return_type))
+                                as Arc<dyn physical::expr::AggregateExpr>)
+                        }
+                        AggregateOperator::Max => {
+                            Ok(Arc::new(physical::expr::MaxAggregateExpr::new(expr, return_type))
+                                as Arc<dyn physical::expr::AggregateExpr>)
+                        }
                         AggregateOperator::Min => todo!(),
                         AggregateOperator::Avg => todo!(),
-                        AggregateOperator::Count => todo!(),
-                    })
+                        AggregateOperator::Count => Ok(Arc::new(physical::expr::CountAggregateExpr::new(expr))
+                            as Arc<dyn physical::expr::AggregateExpr>),
+                    }
+                })
             })
             .collect::<Result<Vec<_>>>()?;
 

@@ -408,9 +408,8 @@ impl SqlQueryPlanner {
         // process the GROUP BY clause
         if let Some(group_by) = select.group_by {
             plan = self.aggregate_plan(plan, &aggr_exprs, group_by, having)?
-        }
-        // process aggregation in SELECT
-        if !aggr_exprs.is_empty() {
+        } else if !aggr_exprs.is_empty() {
+            // process aggregation in SELECT
             plan = self.aggregate_plan(plan, &aggr_exprs, vec![], None)?;
         }
 

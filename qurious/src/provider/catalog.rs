@@ -6,7 +6,7 @@ use crate::provider::schema::SchemaProvider;
 pub trait CatalogProvider : Send + Sync {
     fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>>;
 
-    fn register_schema(&self, name: &str, schema: Arc<dyn SchemaProvider>) -> Result<Option<Arc<dyn SchemaProvider>>> {
+    fn register_schema(&self, _name: &str, _schema: Arc<dyn SchemaProvider>) -> Result<Option<Arc<dyn SchemaProvider>>> {
         unimplemented!("Registering new schemas is not supported")
     }
 

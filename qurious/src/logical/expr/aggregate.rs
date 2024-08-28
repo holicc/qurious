@@ -65,19 +65,19 @@ impl Display for AggregateExpr {
     }
 }
 
-macro_rules! make_aggregate_expr_fn {
-    ($name: ident, $op: expr, $re: ident) => {
-        pub fn $name(expr: LogicalExpr) -> $re {
-            $re {
-                op: $op,
-                expr: Box::new(expr),
-            }
-        }
-    };
-}
+// macro_rules! make_aggregate_expr_fn {
+//     ($name: ident, $op: expr, $re: ident) => {
+//         pub fn $name(expr: LogicalExpr) -> $re {
+//             $re {
+//                 op: $op,
+//                 expr: Box::new(expr),
+//             }
+//         }
+//     };
+// }
 
-make_aggregate_expr_fn!(sum, AggregateOperator::Sum, AggregateExpr);
-make_aggregate_expr_fn!(min, AggregateOperator::Min, AggregateExpr);
-make_aggregate_expr_fn!(max, AggregateOperator::Max, AggregateExpr);
-make_aggregate_expr_fn!(avg, AggregateOperator::Avg, AggregateExpr);
-make_aggregate_expr_fn!(count, AggregateOperator::Count, AggregateExpr);
+// make_aggregate_expr_fn!(sum, AggregateOperator::Sum, AggregateExpr);
+// make_aggregate_expr_fn!(min, AggregateOperator::Min, AggregateExpr);
+// make_aggregate_expr_fn!(max, AggregateOperator::Max, AggregateExpr);
+// make_aggregate_expr_fn!(avg, AggregateOperator::Avg, AggregateExpr);
+// make_aggregate_expr_fn!(count, AggregateOperator::Count, AggregateExpr);

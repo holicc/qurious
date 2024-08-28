@@ -19,7 +19,14 @@ macro_rules! impl_from_error {
 #[macro_export]
 macro_rules! arrow_err {
     ($ERR:expr) => {
-        Error::ArrowError($ERR, Some(Error::get_back_trace()))
+        Error::ArrowError($ERR, None)
+    };
+}
+
+#[macro_export]
+macro_rules! internal_err {
+    ($($arg:tt)*) => {
+        Error::InternalError(format!($($arg)*))
     };
 }
 
@@ -71,7 +78,12 @@ impl Display for Error {
             Error::ColumnNotFound(e) => write!(f, "Column Not Found: {}", e),
             Error::CompareError(e) => write!(f, "Compare Error: {}", e),
             Error::ComputeError(e) => write!(f, "Compute Error: {}", e),
-            Error::ArrowError(e, msg) => write!(f, "Arrow Error: {}, msg: {}", e, msg.clone().unwrap_or_default()),
+            Error::ArrowError(e, msg) => {
+                if let Some(msg) = msg {
+                    return write!(f, "Arrow Error: {}, msg: {}", e, msg);
+                }
+                write!(f, "Arrow Error: {}", e)
+            }
             Error::SQLParseError(e) => write!(f, "SQL Parse Error: {}", e),
             Error::PlanError(e) => write!(f, "Plan Error: {}", e),
             Error::DuplicateColumn(c) => write!(f, "Duplicate column: {}", c),

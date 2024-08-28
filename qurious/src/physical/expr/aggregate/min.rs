@@ -1,56 +1,57 @@
-use std::{fmt::Display, sync::Arc};
+use std::sync::Arc;
 
 use arrow::datatypes::DataType;
 
+use super::Accumulator;
+use super::AggregateExpr;
 use super::PrimitiveAccumulator;
-use super::{Accumulator, AggregateExpr};
 use crate::make_accumulator;
 use crate::physical::expr::PhysicalExpr;
 
 #[macro_export]
-macro_rules! make_max_accumulator {
+macro_rules! make_min_accumulator {
     ($DATA_TYPE:ident, $NATIVE:ident, $PRIMTYPE:ident) => {{
         Box::new(PrimitiveAccumulator::<$PRIMTYPE, _>::new(
             $DATA_TYPE,
             |cur, array| {
-                if let Some(new) = arrow::compute::max(array) {
-                    if cur < &new {
+                if let Some(new) = arrow::compute::min(array) {
+                    if cur > &new {
                         return Ok(new);
                     }
                 }
 
                 Ok(*cur)
             },
-            $NATIVE::MIN,
+            $NATIVE::MAX,
         ))
     }};
 }
 
 #[derive(Debug)]
-pub struct MaxAggregateExpr {
+pub struct MinAggregateExpr {
     pub return_type: DataType,
     pub expr: Arc<dyn PhysicalExpr>,
 }
 
-impl MaxAggregateExpr {
+impl MinAggregateExpr {
     pub fn new(expr: Arc<dyn PhysicalExpr>, return_type: DataType) -> Self {
         Self { expr, return_type }
     }
 }
 
-impl AggregateExpr for MaxAggregateExpr {
+impl std::fmt::Display for MinAggregateExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MIN({})", self.expr)
+    }
+}
+
+impl AggregateExpr for MinAggregateExpr {
     fn expression(&self) -> &Arc<dyn PhysicalExpr> {
         &self.expr
     }
 
     fn create_accumulator(&self) -> Box<dyn Accumulator> {
         let data_type = self.return_type.clone();
-        make_accumulator!(data_type, make_max_accumulator)
-    }
-}
-
-impl Display for MaxAggregateExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MAX({})", self.expr)
+        make_accumulator!(data_type, make_min_accumulator)
     }
 }

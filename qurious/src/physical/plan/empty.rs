@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::error::Result;
 use crate::physical::plan::PhysicalPlan;
-use arrow::array::{make_array, new_empty_array, ArrayData, ArrayRef, NullArray, RecordBatch, RecordBatchOptions};
-use arrow::datatypes::{DataType, Field, Fields, Schema, SchemaRef};
+use arrow::array::{make_array, ArrayData, ArrayRef, RecordBatch, RecordBatchOptions};
+use arrow::datatypes::SchemaRef;
 
 pub struct EmptyRelation {
     produce_one_row: bool,

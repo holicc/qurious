@@ -4,15 +4,11 @@ mod cast;
 mod column;
 mod literal;
 
-pub use aggregate::{
-    max::{MaxAccumulator, MaxAggregateExpr},
-    sum::*,
-    Accumulator, AggregateExpr,
-};
+pub use aggregate::{count::*, max::*, sum::*, Accumulator, AggregateExpr};
 pub use binary::BinaryExpr;
+pub use cast::CastExpr;
 pub use column::Column;
 pub use literal::Literal;
-pub use cast::CastExpr;
 
 use std::fmt::{Debug, Display};
 

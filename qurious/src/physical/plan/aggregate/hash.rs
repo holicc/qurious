@@ -1,7 +1,4 @@
-use crate::{
-    datatypes::scalar::ScalarValue,
-    error::{Error, Result},
-};
+use crate::error::{Error, Result};
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -12,7 +9,7 @@ use std::{
 use arrow::{
     array::{ArrayRef, AsArray, UInt64Array},
     compute,
-    datatypes::{ArrowPrimitiveType, DataType, FieldRef, Int16Type, Int8Type, SchemaRef},
+    datatypes::{ArrowPrimitiveType, SchemaRef},
     record_batch::RecordBatch,
 };
 
@@ -41,29 +38,6 @@ impl HashAggregate {
             group_exprs,
             aggregate_exprs,
         }
-    }
-
-    fn get_array_value(&self, ary: &ArrayRef, index: usize) -> ScalarValue {
-        match ary.data_type() {
-            DataType::Null => ScalarValue::Null,
-            DataType::Boolean => ScalarValue::Boolean(Some(ary.as_boolean().value(index))),
-            DataType::Int8 => ScalarValue::Int8(Some(ary.as_primitive::<Int8Type>().value(index))),
-            DataType::Int16 => ScalarValue::Int16(Some(ary.as_primitive::<Int16Type>().value(index))),
-            _ => unimplemented!(),
-        }
-    }
-
-    fn is_group_field(&self, field: &FieldRef) -> bool {
-        let metadata = field.metadata();
-        metadata.contains_key("IS_GROUP_FIELD")
-    }
-
-    fn take_group_values_by_field(&self, _group_values: &Vec<ArrayRef>, _field: &FieldRef) -> ArrayRef {
-        todo!()
-    }
-
-    fn get_agg_expr_by_field(&self, _field: &FieldRef) -> Option<&Arc<dyn AggregateExpr>> {
-        todo!()
     }
 }
 
@@ -237,6 +211,7 @@ mod tests {
         // max(a1)
         let aggregate_exprs = vec![Arc::new(MaxAggregateExpr {
             expr: Arc::new(physical::expr::Column::new("a1", 0)),
+            return_type: DataType::Int32,
         }) as Arc<_>];
 
         let agg = HashAggregate::new(Arc::new(schema), input, group_exprs, aggregate_exprs);

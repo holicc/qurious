@@ -3,10 +3,10 @@ use std::{fmt::Display, sync::Arc};
 use crate::error::Result;
 use crate::physical::expr::PhysicalExpr;
 use arrow::{
-    array::{new_null_array, Array, ArrayRef, GenericStringBuilder, OffsetSizeTrait, RecordBatch},
+    array::{ArrayRef, RecordBatch},
     compute::{cast_with_options, CastOptions},
-    datatypes::DataType::{self, *},
-    util::display::{ArrayFormatter, DurationFormat, FormatOptions},
+    datatypes::DataType::{self},
+    util::display::{DurationFormat, FormatOptions},
 };
 
 pub const DEFAULT_FORMAT_OPTIONS: FormatOptions<'static> =

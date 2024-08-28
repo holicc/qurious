@@ -1,11 +1,11 @@
+use crate::error::Result;
 use arrow::{
     array::{
-        new_null_array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
+        new_null_array, Array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
         Int8Array, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
     },
     datatypes::{DataType, Field},
 };
-
 use std::{fmt::Display, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -115,6 +115,10 @@ impl ScalarValue {
             ScalarValue::Utf8(Some(v)) => v.to_string(),
             ScalarValue::Utf8(None) => "null".to_string(),
         }
+    }
+
+    pub fn try_from_array(_array: &dyn Array, _index: usize) -> Result<Self> {
+        todo!()
     }
 }
 
