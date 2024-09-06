@@ -5,7 +5,7 @@ use crate::logical::expr::LogicalExpr;
 use crate::logical::plan::LogicalPlan;
 use arrow::datatypes::{DataType, Field, FieldRef};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CastExpr {
     pub expr: Box<LogicalExpr>,
     pub data_type: DataType,

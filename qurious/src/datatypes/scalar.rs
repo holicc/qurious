@@ -201,6 +201,14 @@ impl TryFrom<&DataType> for ScalarValue {
     }
 }
 
+impl Eq for ScalarValue {}
+
+impl std::hash::Hash for ScalarValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.to_value_string().hash(state);
+    }
+}
+
 impl Display for ScalarValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

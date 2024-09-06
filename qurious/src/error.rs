@@ -26,7 +26,7 @@ macro_rules! arrow_err {
 #[macro_export]
 macro_rules! internal_err {
     ($($arg:tt)*) => {
-        Error::InternalError(format!($($arg)*))
+        Err(Error::InternalError(format!($($arg)*)))
     };
 }
 

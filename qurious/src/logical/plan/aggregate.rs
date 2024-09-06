@@ -1,4 +1,5 @@
 use arrow::datatypes::{Schema, SchemaRef};
+use itertools::Itertools;
 
 use super::LogicalPlan;
 use crate::error::Result;
@@ -17,8 +18,11 @@ pub struct Aggregate {
 
 impl Aggregate {
     pub fn try_new(input: LogicalPlan, group_expr: Vec<LogicalExpr>, aggr_expr: Vec<AggregateExpr>) -> Result<Self> {
+        let group_expr = group_expr.into_iter().unique().collect::<Vec<_>>();
+        let aggr_expr = aggr_expr.into_iter().unique().collect::<Vec<_>>();
+
         let group_fields = group_expr.iter().map(|f| f.field(&input));
-        let agg_fields = aggr_expr.iter().map(|f| &f.expr).map(|f| f.field(&input));
+        let agg_fields = aggr_expr.iter().map(|f| f.field(&input));
 
         Ok(Self {
             schema: Arc::new(Schema::new(group_fields.chain(agg_fields).collect::<Result<Vec<_>>>()?)),

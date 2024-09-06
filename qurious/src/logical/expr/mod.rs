@@ -17,6 +17,7 @@ pub use column::*;
 pub use literal::*;
 pub use sort::*;
 
+use crate::common::table_relation::TableRelation;
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::{Error, Result};
 use crate::logical::plan::LogicalPlan;
@@ -24,7 +25,7 @@ use arrow::datatypes::{DataType, Field, FieldRef};
 
 use self::alias::Alias;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LogicalExpr {
     Alias(Alias),
     Column(Column),
@@ -91,6 +92,16 @@ impl LogicalExpr {
             expr: Box::new(self.clone()),
             name: name.into(),
         })
+    }
+
+    pub fn as_column(&self) -> Result<LogicalExpr> {
+        match self {
+            LogicalExpr::Column(_) => Ok(self.clone()),
+            LogicalExpr::Wildcard | LogicalExpr::BinaryExpr(_) | LogicalExpr::AggregateExpr(_) => Ok(
+                LogicalExpr::Column(Column::new(format!("{}", self), None::<TableRelation>)),
+            ),
+            _ => Err(Error::InternalError(format!("Expect column, got {:?}", self))),
+        }
     }
 }
 

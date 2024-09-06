@@ -9,7 +9,7 @@ use std::sync::Arc;
 use super::cast::CastExpr;
 use super::LogicalExpr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BinaryExpr {
     pub left: Box<LogicalExpr>,
     pub op: Operator,

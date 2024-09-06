@@ -392,28 +392,26 @@ impl SqlQueryPlanner {
         // process the SELECT expressions
         let column_exprs = self.column_exprs(&plan, empty_from, select.columns)?;
         // get aggregate expressions
-        let aggr_exprs = column_exprs
-            .iter()
-            .filter_map(|expr| match expr {
-                LogicalExpr::AggregateExpr(aggr) => Some(aggr.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let aggr_exprs = find_aggregate_exprs(&column_exprs);
         // process the HAVING clause
         let having = if let Some(having_expr) = select.having {
             Some(self.sql_to_expr(having_expr)?)
         } else {
             None
         };
-        // process the GROUP BY clause
-        if let Some(group_by) = select.group_by {
-            plan = self.aggregate_plan(plan, &aggr_exprs, group_by, having)?
-        } else if !aggr_exprs.is_empty() {
-            // process aggregation in SELECT
-            plan = self.aggregate_plan(plan, &aggr_exprs, vec![], None)?;
-        }
 
-        plan = LogicalPlanBuilder::project(plan, column_exprs)?;
+        // process the GROUP BY clause or process aggregation in SELECT
+        if select.group_by.is_some() || !aggr_exprs.is_empty() {
+            plan = self.aggregate_plan(
+                plan,
+                &column_exprs,
+                aggr_exprs,
+                select.group_by.unwrap_or_default(),
+                having,
+            )?;
+        } else {
+            plan = LogicalPlanBuilder::project(plan, column_exprs)?;
+        }
 
         // process the ORDER BY clause
         let plan = if let Some(order_by) = select.order_by {
@@ -571,7 +569,8 @@ impl SqlQueryPlanner {
     fn aggregate_plan(
         &self,
         input: LogicalPlan,
-        aggr_exprs: &[AggregateExpr],
+        select_exprs: &[LogicalExpr],
+        aggr_exprs: Vec<AggregateExpr>,
         group_by: Vec<Expression>,
         _having_expr: Option<LogicalExpr>,
     ) -> Result<LogicalPlan> {
@@ -583,8 +582,38 @@ impl SqlQueryPlanner {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        let agg_and_group_by_column_exprs = aggr_exprs
+            .iter()
+            .map(AggregateExpr::as_column)
+            .chain(group_exprs.iter().map(LogicalExpr::as_column))
+            .collect::<Result<Vec<_>>>()?;
+        let select_exprs_post_aggr = select_exprs
+            .iter()
+            .map(|expr| {
+                // if expr is one of the group by columns or aggregate columns, we should convert to column
+                if agg_and_group_by_column_exprs.iter().any(|e| e == expr) {
+                    return expr.as_column();
+                }
+                Ok(expr.clone())
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        for col_expr in select_exprs_post_aggr.iter().flat_map(|f| match find_column_exprs(f) {
+            Ok(v) => v.into_iter().map(|i| Ok(i)).collect(),
+            Err(e) => vec![Err(e)],
+        }) {
+            let col_expr = col_expr?;
+            if agg_and_group_by_column_exprs.iter().all(|e| e != &col_expr) {
+                return Err(Error::InternalError(format!(
+                    "column [{}] must appear in the GROUP BY clause or be used in an aggregate function",
+                    col_expr
+                )));
+            }
+        }
+
         LogicalPlanBuilder::from(input)
-            .aggregate(group_exprs, aggr_exprs.to_vec())
+            .aggregate(group_exprs, aggr_exprs)?
+            .add_project(select_exprs_post_aggr)
             .map(|plan| plan.build())
     }
 
@@ -804,6 +833,36 @@ impl SqlQueryPlanner {
     fn get_cte_table(&self, name: &str) -> Option<LogicalPlan> {
         self.ctes.get(name).map(|a| a.as_ref().clone())
     }
+}
+
+fn find_column_exprs(expr: &LogicalExpr) -> Result<Vec<LogicalExpr>> {
+    match expr {
+        LogicalExpr::Alias(alias) => find_column_exprs(&alias.expr),
+        LogicalExpr::AggregateExpr(aggr) => Ok(vec![aggr.as_column()?]),
+        LogicalExpr::BinaryExpr(BinaryExpr { left, right, .. }) => {
+            let mut left = find_column_exprs(left)?;
+            let mut right = find_column_exprs(right)?;
+            left.append(&mut right);
+            Ok(left)
+        }
+        _ => Ok(vec![expr.clone()]),
+    }
+}
+
+fn find_aggregate_exprs(exprs: &Vec<LogicalExpr>) -> Vec<AggregateExpr> {
+    exprs
+        .iter()
+        .flat_map(|expr| match expr {
+            LogicalExpr::AggregateExpr(aggr) => vec![(aggr.clone())],
+            LogicalExpr::BinaryExpr(BinaryExpr { left, right, .. }) => {
+                let mut left = find_aggregate_exprs(&vec![left.as_ref().clone()]);
+                let mut right = find_aggregate_exprs(&vec![right.as_ref().clone()]);
+                left.append(&mut right);
+                left
+            }
+            _ => vec![],
+        })
+        .collect::<Vec<_>>()
 }
 
 pub(crate) fn parse_file_path(args: &mut Vec<FunctionArgument>) -> Result<String> {
@@ -1145,7 +1204,7 @@ mod tests {
         quick_test(sql, expected);
 
         let sql = "SELECT * FROM person GROUP BY name";
-        let expected = "Arrow Error: Schema error: Unable to get field named \"age\". Valid fields: [\"name\"]";
+        let expected = "Internal Error: column [person.age] must appear in the GROUP BY clause or be used in an aggregate function";
         quick_test(sql, expected);
     }
 

@@ -30,6 +30,11 @@ impl LogicalPlanBuilder {
         Projection::try_new(input, exprs.into_iter().map(|exp| exp.into()).collect()).map(LogicalPlan::Projection)
     }
 
+    pub fn add_project(self, exprs: impl IntoIterator<Item = impl Into<LogicalExpr>>) -> Result<Self> {
+        Projection::try_new(self.plan, exprs.into_iter().map(|exp| exp.into()).collect())
+            .map(|s| LogicalPlanBuilder::from(LogicalPlan::Projection(s)))
+    }
+
     pub fn empty(produce_one_row: bool) -> Self {
         LogicalPlanBuilder {
             plan: LogicalPlan::EmptyRelation(EmptyRelation {

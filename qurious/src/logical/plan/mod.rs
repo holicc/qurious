@@ -118,6 +118,13 @@ impl LogicalPlan {
     }
 }
 
+pub fn base_plan(plan: &LogicalPlan) -> &LogicalPlan {
+    match plan {
+        LogicalPlan::Aggregate(Aggregate { input, .. }) => base_plan(&input),
+        _ => plan,
+    }
+}
+
 impl std::fmt::Display for LogicalPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

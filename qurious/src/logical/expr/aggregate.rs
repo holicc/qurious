@@ -6,7 +6,9 @@ use crate::logical::plan::LogicalPlan;
 use std::fmt::Display;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq)]
+use super::Column;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AggregateOperator {
     Sum,
     Min,
@@ -40,7 +42,7 @@ impl From<String> for AggregateOperator {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AggregateExpr {
     pub op: AggregateOperator,
     pub expr: Box<LogicalExpr>,
@@ -48,14 +50,28 @@ pub struct AggregateExpr {
 
 impl AggregateExpr {
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
-        match self.op {
-            AggregateOperator::Count => Ok(Arc::new(Field::new(
-                self.op.to_string(),
-                self.expr.field(plan)?.data_type().clone(),
+        self.expr.field(plan).map(|field| {
+            let col_name = if let LogicalExpr::Column(inner) = self.expr.as_ref() {
+                &inner.quanlified_name()
+            } else {
+                field.name()
+            };
+
+            Arc::new(Field::new(
+                format!("{}({})", self.op, col_name),
+                field.data_type().clone(),
                 false,
-            ))),
-            _ => self.expr.field(plan),
-        }
+            ))
+        })
+    }
+
+    pub fn as_column(&self) -> Result<LogicalExpr> {
+        self.expr.as_column().map(|inner_col| {
+            LogicalExpr::Column(Column {
+                name: format!("{}({})", self.op, inner_col),
+                relation: None,
+            })
+        })
     }
 }
 

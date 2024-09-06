@@ -6,6 +6,7 @@ use std::{
     sync::Arc,
 };
 
+use arrow::datatypes::*;
 use arrow::{
     array::{ArrayRef, AsArray, UInt64Array},
     compute,
@@ -118,16 +119,15 @@ impl Display for HashAggregate {
 }
 
 fn group_indices(values: &Vec<ArrayRef>) -> Result<(Vec<ArrayRef>, Vec<UInt64Array>)> {
-    use arrow::datatypes::*;
-
     let mut hasher_map = HashMap::new();
     for group in values.iter() {
         match group.data_type() {
             DataType::UInt8 => hash_primitive_array::<UInt8Type>(group, &mut hasher_map),
             DataType::Int32 => hash_primitive_array::<Int32Type>(group, &mut hasher_map),
+            DataType::Int64 => hash_primitive_array::<Int64Type>(group, &mut hasher_map),
             _ => {
                 return Err(Error::InternalError(format!(
-                    "Unsupported data type {:?}",
+                    "[group_indices] unsupported data type {:?}",
                     group.data_type()
                 )))
             }

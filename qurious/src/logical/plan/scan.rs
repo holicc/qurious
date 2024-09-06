@@ -77,12 +77,12 @@ impl TableScan {
 
 impl Display for TableScan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.projections.is_some() {
+        if let Some(projections) = &self.projections {
             write!(
                 f,
-                "TableScan: {} Projection: {:?}",
+                "TableScan: {} Projection: [{}]",
                 self.relation.to_quanlify_name(),
-                self.projections
+                projections.join(", ")
             )
         } else {
             write!(f, "TableScan: {}", self.relation.to_quanlify_name())

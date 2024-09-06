@@ -1,6 +1,7 @@
+mod optimize_projections;
 mod push_down_projections;
 
-use push_down_projections::ProjectionPushDownRule;
+use optimize_projections::OptimizeProjections;
 
 use crate::{error::Result, logical::plan::LogicalPlan};
 
@@ -17,7 +18,7 @@ pub struct Optimzier {
 impl Optimzier {
     pub fn new() -> Self {
         Self {
-            rules: vec![Box::new(ProjectionPushDownRule)],
+            rules: vec![Box::new(OptimizeProjections::default())],
         }
     }
 

@@ -9,6 +9,7 @@ use crate::common::table_relation::TableRelation;
 use crate::datasource::memory::MemoryTable;
 use crate::error::Error;
 use crate::logical::plan::{CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, LogicalPlan};
+use crate::optimizer::Optimzier;
 use crate::planner::sql::{parse_csv_options, parse_file_path, SqlQueryPlanner};
 use crate::planner::QueryPlanner;
 use crate::provider::catalog::CatalogProvider;
@@ -27,6 +28,7 @@ pub struct ExecuteSession {
     planner: Arc<dyn QueryPlanner>,
     table_factory: DefaultTableFactory,
     catalog_list: CatalogProviderList,
+    optimizer: Optimzier,
 }
 
 impl ExecuteSession {
@@ -46,6 +48,7 @@ impl ExecuteSession {
             planner: Arc::new(DefaultQueryPlanner::default()),
             catalog_list,
             table_factory: DefaultTableFactory::new(),
+            optimizer: Optimzier::new(),
         })
     }
 
@@ -61,7 +64,9 @@ impl ExecuteSession {
     }
 
     pub fn execute_logical_plan(&self, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
-        match plan {
+        // let plan = self.optimizer.optimize(plan)?;
+
+        match &plan {
             LogicalPlan::Ddl(ddl) => self.execute_ddl(ddl),
             LogicalPlan::Dml(DmlStatement {
                 relation, op, input, ..
@@ -221,7 +226,7 @@ mod tests {
         session.sql(sql)?;
         session.sql("insert into t values(1,4,2), (2,3,3), (3,4,4), (4,3,5)")?;
 
-        let batch = session.sql("select sum(v1), count(v3), min(v3), max(v1) from t group by v2, v2")?;
+        let batch = session.sql("select 1+0.1")?;
 
         print_batches(&batch)?;
 

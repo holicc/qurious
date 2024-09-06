@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use super::LogicalExpr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Alias {
     pub expr: Box<LogicalExpr>,
     pub name: String,
