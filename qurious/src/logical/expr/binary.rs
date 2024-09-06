@@ -58,6 +58,14 @@ impl BinaryExpr {
                 self.left,
                 Box::new(LogicalExpr::Cast(CastExpr::new(*self.right, DataType::LargeUtf8))),
             ),
+            (DataType::Float64, _) => (
+                Box::new(LogicalExpr::Cast(CastExpr::new(*self.left, DataType::Float64))),
+                self.right,
+            ),
+            (_, DataType::Float64) => (
+                self.left,
+                Box::new(LogicalExpr::Cast(CastExpr::new(*self.right, DataType::Float64))),
+            ),
             _ => (self.left, self.right),
         };
 

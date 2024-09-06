@@ -19,3 +19,7 @@ impl Display for DataType {
         }
     }
 }
+
+pub struct Number{
+    
+}

@@ -766,6 +766,10 @@ impl<'a> Parser<'a> {
                 }
             }
             TokenType::Asterisk => Ok(ast::Expression::Identifier("*".into())),
+            TokenType::Float=> literal
+                .parse()
+                .map(|f| ast::Expression::Literal(ast::Literal::Float(f)))
+                .map_err(|e| Error::ParseFloatError(e, token)),
             TokenType::Int => literal
                 .parse()
                 .map(|i| ast::Expression::Literal(ast::Literal::Int(i)))
@@ -3061,6 +3065,13 @@ mod tests {
                 offset: None,
             }))
         );
+    }
+
+    #[test]
+    fn test_parse_float() {
+        let stmt = parse_expr("1.0").unwrap();
+
+        assert_eq!(stmt, Expression::Literal(ast::Literal::Float(1.0)));
     }
 
     #[test]

@@ -4,6 +4,7 @@ macro_rules! generate_error_enum {
         pub enum Error {
             $($variant(crate::token::Token)),*,
             ParseIntError(std::num::ParseIntError,crate::token::Token),
+            ParseFloatError(std::num::ParseFloatError,crate::token::Token),
             DuplicateColumn(String),
             UnKnownInfixOperator(String),
             ParserError(String),
@@ -16,6 +17,9 @@ macro_rules! generate_error_enum {
                         write!(f, "error: {} line: {} column: {}", $reason, token.location.line, token.location.column)
                     })*
                     Error::ParseIntError(e, token) => {
+                        write!(f, "error: {} line: {} column: {}", e, token.location.line, token.location.column)
+                    }
+                    Error::ParseFloatError(e, token) => {
                         write!(f, "error: {} line: {} column: {}", e, token.location.line, token.location.column)
                     }
                     Error::DuplicateColumn(column) => {
@@ -45,6 +49,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::ParseIntError(e, _) => Some(e),
+            Error::ParseFloatError(e, _) => Some(e),
             _ => None,
         }
     }

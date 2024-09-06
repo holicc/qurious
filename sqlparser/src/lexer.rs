@@ -92,9 +92,7 @@ impl<'a> Lexer<'a> {
                         '\'' => {
                             break;
                         }
-                        EMPTY_CHAR => {
-                            return Token::new(TokenType::ILLIGAL, literal, self.location())
-                        }
+                        EMPTY_CHAR => return Token::new(TokenType::ILLIGAL, literal, self.location()),
                         _ => {
                             s.push(char::from(self.cur_ch));
                         }
@@ -108,7 +106,11 @@ impl<'a> Lexer<'a> {
                 return Token::new(token_type, literal, self.location());
             }
             b if b.is_ascii_digit() => {
-                return Token::new(TokenType::Int, self.read_number(), self.location());
+                let number = self.read_number();
+                if number.contains('.') {
+                    return Token::new(TokenType::Float, number, self.location());
+                }
+                return Token::new(TokenType::Int, number, self.location());
             }
             _ => Token::new(TokenType::ILLIGAL, literal, self.location()),
         };
@@ -142,10 +144,7 @@ impl<'a> Lexer<'a> {
 
     fn read_literal(&mut self) -> String {
         let mut literal = String::new();
-        while self.cur_ch.is_ascii_alphabetic()
-            || self.cur_ch.is_ascii_alphanumeric()
-            || self.cur_ch == '_'
-        {
+        while self.cur_ch.is_ascii_alphabetic() || self.cur_ch.is_ascii_alphanumeric() || self.cur_ch == '_' {
             literal.push(self.cur_ch);
             self.read_char();
         }
@@ -155,7 +154,7 @@ impl<'a> Lexer<'a> {
 
     fn read_number(&mut self) -> String {
         let mut number = String::new();
-        while self.cur_ch.is_ascii_digit() {
+        while self.cur_ch.is_ascii_digit() || self.cur_ch == '.' {
             number.push(self.cur_ch);
             self.read_char();
         }
@@ -177,6 +176,15 @@ impl<'a> Lexer<'a> {
 mod tests {
     use super::*;
     use crate::token::{Keyword, TokenType};
+
+    #[test]
+    fn test_float() {
+        let input = "1.23";
+        let mut l = Lexer::new(input);
+        let tok = l.next();
+        assert_eq!(tok.token_type, TokenType::Float);
+        assert_eq!(tok.literal, "1.23");
+    }
 
     #[test]
     fn test_single_char_token() {

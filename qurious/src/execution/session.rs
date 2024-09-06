@@ -65,7 +65,6 @@ impl ExecuteSession {
 
     pub fn execute_logical_plan(&self, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
         // let plan = self.optimizer.optimize(plan)?;
-
         match &plan {
             LogicalPlan::Ddl(ddl) => self.execute_ddl(ddl),
             LogicalPlan::Dml(DmlStatement {
@@ -227,6 +226,7 @@ mod tests {
         session.sql("insert into t values(1,4,2), (2,3,3), (3,4,4), (4,3,5)")?;
 
         let batch = session.sql("select 1+0.1")?;
+
 
         print_batches(&batch)?;
 
