@@ -24,9 +24,14 @@ pub use sub_query::SubqueryAlias;
 
 use arrow::datatypes::SchemaRef;
 
-use crate::common::table_relation::TableRelation;
-
 use super::expr::LogicalExpr;
+use crate::common::table_relation::TableRelation;
+use crate::error::Result;
+
+pub enum Transformed<T> {
+    Yes(T),
+    No,
+}
 
 #[macro_export]
 macro_rules! impl_logical_plan {
@@ -115,6 +120,32 @@ impl LogicalPlan {
             LogicalPlan::Ddl(l) => l.children(),
             LogicalPlan::Dml(l) => l.children(),
         }
+    }
+
+    pub fn map_expr<F>(self, mut f: F) -> Result<Self>
+    where
+        F: FnMut(&LogicalExpr) -> Result<Transformed<LogicalExpr>>,
+    {
+        fn iter<F: FnMut(&LogicalExpr) -> Result<Transformed<LogicalExpr>>>(
+            mut plan: LogicalPlan,
+            f: &mut F,
+        ) -> Result<LogicalPlan> {
+            match &mut plan {
+                LogicalPlan::Projection( proj) => {
+                    for expr in &mut proj.exprs {
+                        if let Transformed::Yes(new_expr) = f(expr)? {
+                            *expr = new_expr;
+                        }
+                    }
+
+                }
+                _ => todo!("map_expr for {:?}", plan),
+            }
+
+            Ok(plan)
+        }
+
+        iter(self, &mut f)
     }
 }
 

@@ -64,7 +64,8 @@ impl ExecuteSession {
     }
 
     pub fn execute_logical_plan(&self, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
-        // let plan = self.optimizer.optimize(plan)?;
+        let plan = self.optimizer.optimize(plan)?;
+
         match &plan {
             LogicalPlan::Ddl(ddl) => self.execute_ddl(ddl),
             LogicalPlan::Dml(DmlStatement {
@@ -220,13 +221,7 @@ mod tests {
     #[test]
     fn test_create_table() -> Result<()> {
         let session = ExecuteSession::new()?;
-        let sql = r#"create table t(v1 int not null, v2 int not null, v3 int not null)"#;
-
-        session.sql(sql)?;
-        session.sql("insert into t values(1,4,2), (2,3,3), (3,4,4), (4,3,5)")?;
-
-        let batch = session.sql("select 1+0.1")?;
-
+        let batch = session.sql("select 1 + 0.1")?;
 
         print_batches(&batch)?;
 

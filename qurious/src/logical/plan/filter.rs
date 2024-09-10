@@ -13,11 +13,6 @@ pub struct Filter {
 
 impl Filter {
     pub fn try_new(input: LogicalPlan, expr: LogicalExpr) -> Result<Self> {
-        let expr = match expr {
-            LogicalExpr::BinaryExpr(binary) => binary.coerce_types(&input).map(LogicalExpr::BinaryExpr)?,
-            _ => expr,
-        };
-
         Ok(Self {
             input: Box::new(input),
             expr,

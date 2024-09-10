@@ -1,7 +1,8 @@
 mod optimize_projections;
 mod push_down_projections;
+mod type_coercion;
 
-use optimize_projections::OptimizeProjections;
+use type_coercion::TypeCoercion;
 
 use crate::{error::Result, logical::plan::LogicalPlan};
 
@@ -18,7 +19,10 @@ pub struct Optimzier {
 impl Optimzier {
     pub fn new() -> Self {
         Self {
-            rules: vec![Box::new(OptimizeProjections::default())],
+            rules: vec![
+                // Box::new(OptimizeProjections::default()),
+                Box::new(TypeCoercion::default()),
+            ],
         }
     }
 

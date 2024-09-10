@@ -399,7 +399,6 @@ impl SqlQueryPlanner {
         } else {
             None
         };
-
         // process the GROUP BY clause or process aggregation in SELECT
         if select.group_by.is_some() || !aggr_exprs.is_empty() {
             plan = self.aggregate_plan(

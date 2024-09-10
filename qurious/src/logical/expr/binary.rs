@@ -6,7 +6,6 @@ use crate::logical::plan::LogicalPlan;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use super::cast::CastExpr;
 use super::LogicalExpr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -27,53 +26,33 @@ impl BinaryExpr {
 
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
         Ok(Arc::new(Field::new(
-            format!("{} {} {}", self.left, self.op, self.right),
-            match self.op {
-                Operator::Eq
-                | Operator::NotEq
-                | Operator::Gt
-                | Operator::GtEq
-                | Operator::Lt
-                | Operator::LtEq
-                | Operator::And
-                | Operator::Or => DataType::Boolean,
-                Operator::Add | Operator::Sub | Operator::Mul | Operator::Div | Operator::Mod => {
-                    self.left.field(plan)?.data_type().clone()
-                }
-            },
+            format!("({} {} {})", self.left, self.op, self.right),
+            self.get_result_type(plan)?,
             false,
         )))
     }
 
-    pub fn coerce_types(self, plan: &LogicalPlan) -> Result<BinaryExpr> {
-        let left = self.left.field(plan)?;
-        let right = self.right.field(plan)?;
+    pub fn get_result_type(&self, plan: &LogicalPlan) -> Result<DataType> {
+        let ll = self.left.field(plan)?;
+        let rr = self.right.field(plan)?;
+        let left_type = ll.data_type();
+        let right_type = rr.data_type();
 
-        let (l, r) = match (left.data_type(), right.data_type()) {
-            (_, DataType::LargeUtf8) => (
-                Box::new(LogicalExpr::Cast(CastExpr::new(*self.left, DataType::LargeUtf8))),
-                self.right,
-            ),
-            (DataType::LargeUtf8, _) => (
-                self.left,
-                Box::new(LogicalExpr::Cast(CastExpr::new(*self.right, DataType::LargeUtf8))),
-            ),
-            (DataType::Float64, _) => (
-                Box::new(LogicalExpr::Cast(CastExpr::new(*self.left, DataType::Float64))),
-                self.right,
-            ),
-            (_, DataType::Float64) => (
-                self.left,
-                Box::new(LogicalExpr::Cast(CastExpr::new(*self.right, DataType::Float64))),
-            ),
-            _ => (self.left, self.right),
+        let final_type = match (left_type, right_type) {
+            (_, DataType::LargeUtf8) | (DataType::LargeUtf8, _) => DataType::LargeUtf8,
+            (DataType::Float64, _) | (_, DataType::Float64) => DataType::Float64,
+            (DataType::Int64, _) | (_, DataType::Int64) => DataType::Int64,
+            (DataType::Int32, _) | (_, DataType::Int32) => DataType::Int32,
+            (DataType::Int16, _) | (_, DataType::Int16) => DataType::Int16,
+            (DataType::Int8, _) | (_, DataType::Int8) => DataType::Int8,
+            (DataType::UInt64, _) | (_, DataType::UInt64) => DataType::UInt64,
+            (DataType::UInt32, _) | (_, DataType::UInt32) => DataType::UInt32,
+            (DataType::UInt16, _) | (_, DataType::UInt16) => DataType::UInt16,
+            (DataType::UInt8, _) | (_, DataType::UInt8) => DataType::UInt8,
+            _ => unimplemented!("Type coercion not supported for {:?} and {:?}", left_type, right_type),
         };
 
-        Ok(BinaryExpr {
-            left: l,
-            op: self.op,
-            right: r,
-        })
+        Ok(final_type)
     }
 }
 
