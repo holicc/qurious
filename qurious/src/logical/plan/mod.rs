@@ -124,22 +124,21 @@ impl LogicalPlan {
 
     pub fn map_expr<F>(self, mut f: F) -> Result<Self>
     where
-        F: FnMut(&LogicalExpr) -> Result<Transformed<LogicalExpr>>,
+        F: FnMut(&LogicalPlan, &LogicalExpr) -> Result<Transformed<LogicalExpr>>,
     {
-        fn iter<F: FnMut(&LogicalExpr) -> Result<Transformed<LogicalExpr>>>(
+        fn iter<F: FnMut(&LogicalPlan, &LogicalExpr) -> Result<Transformed<LogicalExpr>>>(
             mut plan: LogicalPlan,
             f: &mut F,
         ) -> Result<LogicalPlan> {
             match &mut plan {
-                LogicalPlan::Projection( proj) => {
+                LogicalPlan::Projection(proj) => {
                     for expr in &mut proj.exprs {
-                        if let Transformed::Yes(new_expr) = f(expr)? {
+                        if let Transformed::Yes(new_expr) = f(&proj.input, expr)? {
                             *expr = new_expr;
                         }
                     }
-
                 }
-                _ => todo!("map_expr for {:?}", plan),
+                _ => {}
             }
 
             Ok(plan)

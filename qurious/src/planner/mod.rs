@@ -92,6 +92,7 @@ impl DefaultQueryPlanner {
             .iter()
             .map(|e| self.create_physical_expr(&input_schema, e))
             .collect::<Result<Vec<_>>>()?;
+
         Ok(Arc::new(physical::plan::Projection::new(
             projection.schema.clone(),
             physical_plan,

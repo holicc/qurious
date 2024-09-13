@@ -1046,7 +1046,7 @@ mod tests {
     fn test_read_parquet() {
         quick_test(
             "select * from read_parquet('./tests/testdata/file/case2.parquet') where counter_id = '1'",
-            "Projection: (tmp_table(17b774f).counter_id, tmp_table(17b774f).currency, tmp_table(17b774f).market, tmp_table(17b774f).type)\n  Filter: tmp_table(17b774f).counter_id = CAST(Utf8(1) AS LargeUtf8)\n    TableScan: tmp_table(17b774f)\n",
+            "Projection: (tmp_table(17b774f).counter_id, tmp_table(17b774f).currency, tmp_table(17b774f).market, tmp_table(17b774f).type)\n  Filter: tmp_table(17b774f).counter_id = Utf8(1)\n    TableScan: tmp_table(17b774f)\n",
         );
     }
 

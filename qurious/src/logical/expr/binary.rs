@@ -3,6 +3,7 @@ use arrow::datatypes::{DataType, Field, FieldRef};
 use crate::datatypes::operator::Operator;
 use crate::error::Result;
 use crate::logical::plan::LogicalPlan;
+use crate::utils;
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -33,26 +34,26 @@ impl BinaryExpr {
     }
 
     pub fn get_result_type(&self, plan: &LogicalPlan) -> Result<DataType> {
-        let ll = self.left.field(plan)?;
-        let rr = self.right.field(plan)?;
-        let left_type = ll.data_type();
-        let right_type = rr.data_type();
+        match self.op {
+            Operator::Eq
+            | Operator::NotEq
+            | Operator::Gt
+            | Operator::GtEq
+            | Operator::Lt
+            | Operator::LtEq
+            | Operator::And
+            | Operator::Or => {
+                return Ok(DataType::Boolean);
+            }
+            _ => {
+                let ll = self.left.field(plan)?;
+                let rr = self.right.field(plan)?;
+                let left_type = ll.data_type();
+                let right_type = rr.data_type();
 
-        let final_type = match (left_type, right_type) {
-            (_, DataType::LargeUtf8) | (DataType::LargeUtf8, _) => DataType::LargeUtf8,
-            (DataType::Float64, _) | (_, DataType::Float64) => DataType::Float64,
-            (DataType::Int64, _) | (_, DataType::Int64) => DataType::Int64,
-            (DataType::Int32, _) | (_, DataType::Int32) => DataType::Int32,
-            (DataType::Int16, _) | (_, DataType::Int16) => DataType::Int16,
-            (DataType::Int8, _) | (_, DataType::Int8) => DataType::Int8,
-            (DataType::UInt64, _) | (_, DataType::UInt64) => DataType::UInt64,
-            (DataType::UInt32, _) | (_, DataType::UInt32) => DataType::UInt32,
-            (DataType::UInt16, _) | (_, DataType::UInt16) => DataType::UInt16,
-            (DataType::UInt8, _) | (_, DataType::UInt8) => DataType::UInt8,
-            _ => unimplemented!("Type coercion not supported for {:?} and {:?}", left_type, right_type),
-        };
-
-        Ok(final_type)
+                Ok(utils::get_input_types(left_type, right_type))
+            }
+        }
     }
 }
 

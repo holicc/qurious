@@ -16,6 +16,8 @@ pub struct Projection {
 
 impl Projection {
     pub fn try_new(input: LogicalPlan, exprs: Vec<LogicalExpr>) -> Result<Self> {
+        let base_plan = base_plan(&input);
+
         Ok(Self {
             schema: exprs
                 .iter()
@@ -23,11 +25,8 @@ impl Projection {
                     LogicalExpr::Column(i) => Some(i.field(&input)),
                     LogicalExpr::Literal(i) => Some(Ok(Arc::new(i.to_field()))),
                     LogicalExpr::Alias(i) => Some(i.expr.field(&input)),
-                    LogicalExpr::AggregateExpr(i) => {
-                        let plan = base_plan(&input);
-                        Some(i.field(plan))
-                    }
-                    LogicalExpr::BinaryExpr(i) => Some(i.field(&input)),
+                    LogicalExpr::AggregateExpr(i) => Some(i.field(base_plan)),
+                    LogicalExpr::BinaryExpr(i) => Some(i.field(base_plan)),
                     a => todo!("Projection::try_new: {:?}", a),
                 })
                 .collect::<Result<Vec<FieldRef>>>()

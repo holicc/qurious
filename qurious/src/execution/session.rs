@@ -221,7 +221,10 @@ mod tests {
     #[test]
     fn test_create_table() -> Result<()> {
         let session = ExecuteSession::new()?;
-        let batch = session.sql("select 1 + 0.1")?;
+        session.sql("create table t(v1 int not null, v2 int not null, v3 int not null)")?;
+        session.sql("insert into t values(1,4,2), (2,3,3), (3,4,4), (4,3,5)")?;
+
+        let batch = session.sql("select count(v3) = min(v3),count(v3),min(v3) from t group by v2")?;
 
         print_batches(&batch)?;
 
