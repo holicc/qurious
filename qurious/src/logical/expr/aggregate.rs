@@ -1,10 +1,11 @@
 use arrow::datatypes::{Field, FieldRef};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::logical::expr::LogicalExpr;
 use crate::logical::plan::LogicalPlan;
 use std::fmt::Display;
 use std::sync::Arc;
+use std::convert::TryFrom;
 
 use super::Column;
 
@@ -29,16 +30,26 @@ impl Display for AggregateOperator {
     }
 }
 
-impl From<String> for AggregateOperator {
-    fn from(value: String) -> Self {
+impl TryFrom<String> for AggregateOperator {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self> {
         match value.to_lowercase().as_str() {
-            "sum" => AggregateOperator::Sum,
-            "min" => AggregateOperator::Min,
-            "max" => AggregateOperator::Max,
-            "avg" => AggregateOperator::Avg,
-            "count" => AggregateOperator::Count,
-            _ => unimplemented!("{} is not a valid aggregate operator", value),
+            "sum" => Ok(AggregateOperator::Sum),
+            "min" => Ok(AggregateOperator::Min),
+            "max" => Ok(AggregateOperator::Max),
+            "avg" => Ok(AggregateOperator::Avg),
+            "count" => Ok(AggregateOperator::Count),
+            _ => Err(Error::InternalError(format!("{} is not a valid aggregate operator", value))),
         }
+    }
+}
+
+impl TryFrom<&str> for AggregateOperator {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self> {
+        Self::try_from(value.to_string())
     }
 }
 

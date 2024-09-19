@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
 
+use arrow::array::AsArray;
+use arrow::compute::filter_record_batch;
 use arrow::datatypes::Schema;
 use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;
@@ -11,6 +13,7 @@ use crate::datatypes::scalar::ScalarValue;
 use crate::error::Error;
 use crate::error::Result;
 use crate::logical::expr::LogicalExpr;
+use crate::physical::expr::PhysicalExpr;
 use crate::physical::plan::PhysicalPlan;
 use crate::provider::table::TableProvider;
 
@@ -82,5 +85,34 @@ impl TableProvider for MemoryTable {
         batces.append(&mut input_batch);
 
         Ok(input_batch.iter().map(|batch| batch.num_rows()).sum::<usize>() as u64)
+    }
+
+    fn delete(&self, filter: Option<Arc<dyn PhysicalExpr>>) -> Result<u64> {
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| Error::InternalError(format!("delete error: {}", e)))?;
+
+        if let Some(predicate) = filter {
+            let new_batch = data
+                .iter()
+                .map(|batch| {
+                    let mask = predicate.evaluate(batch)?;
+                    let mask = arrow::compute::not(mask.as_boolean())?;
+                    let filtered_batch = filter_record_batch(batch, &mask)?;
+                    Ok(filtered_batch)
+                })
+                .collect::<Result<Vec<RecordBatch>>>()?;
+
+            data.clear();
+            data.extend(new_batch);
+
+            Ok(data.iter().map(|batch| batch.num_rows()).sum::<usize>() as u64)
+        } else {
+            let row_effected = data.iter().map(|batch| batch.num_rows()).sum::<usize>() as u64;
+            data.clear();
+
+            Ok(row_effected)
+        }
     }
 }

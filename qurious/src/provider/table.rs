@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use crate::error::Result;
+use crate::physical::expr::PhysicalExpr;
 use crate::{datatypes::scalar::ScalarValue, logical::expr::LogicalExpr, physical::plan::PhysicalPlan};
 use arrow::{array::RecordBatch, datatypes::SchemaRef};
 
@@ -23,7 +24,7 @@ pub trait TableProvider: Debug + Send + Sync {
 
     /// Delete records from the data source
     /// The input plan is the filter expression to apply to the data source
-    fn delete(&self, _input: Arc<dyn PhysicalPlan>) -> Result<Arc<dyn PhysicalPlan>> {
+    fn delete(&self, _filter: Option<Arc<dyn PhysicalExpr>>) -> Result<u64> {
         unimplemented!("delete not implemented")
     }
 

@@ -13,7 +13,10 @@ use crate::{
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
     logical::{
-        expr::{alias::Alias, AggregateExpr, AggregateOperator, BinaryExpr, CastExpr, Column, LogicalExpr, SortExpr},
+        expr::{
+            alias::Alias, AggregateExpr, AggregateOperator, BinaryExpr, CastExpr, Column, Function, LogicalExpr,
+            SortExpr,
+        },
         plan::{
             Aggregate, CrossJoin, EmptyRelation, Filter, Join, LogicalPlan, Projection, Sort, SubqueryAlias, TableScan,
             Values,
@@ -21,13 +24,15 @@ use crate::{
     },
     physical::{
         self,
-        expr::PhysicalExpr,
+        expr::{IsNotNull, IsNull, PhysicalExpr},
         plan::{ColumnIndex, JoinFilter, JoinSide, PhysicalPlan},
     },
 };
 
 pub trait QueryPlanner: Debug + Send + Sync {
     fn create_physical_plan(&self, plan: &LogicalPlan) -> Result<Arc<dyn PhysicalPlan>>;
+
+    fn create_physical_expr(&self, input_schema: &SchemaRef, expr: &LogicalExpr) -> Result<Arc<dyn PhysicalExpr>>;
 }
 
 #[derive(Default, Debug)]
@@ -67,10 +72,8 @@ impl QueryPlanner for DefaultQueryPlanner {
             ))),
         }
     }
-}
 
-impl DefaultQueryPlanner {
-    pub fn create_physical_expr(&self, input_schema: &SchemaRef, expr: &LogicalExpr) -> Result<Arc<dyn PhysicalExpr>> {
+    fn create_physical_expr(&self, input_schema: &SchemaRef, expr: &LogicalExpr) -> Result<Arc<dyn PhysicalExpr>> {
         match expr {
             LogicalExpr::Column(c) => self.physical_expr_column(input_schema, c),
             LogicalExpr::Literal(v) => self.physical_expr_literal(v),
@@ -78,12 +81,20 @@ impl DefaultQueryPlanner {
             LogicalExpr::Cast(c) => self.physical_expr_cast(input_schema, c),
             LogicalExpr::Alias(Alias { expr, .. }) => self.create_physical_expr(input_schema, expr),
             LogicalExpr::AggregateExpr(a) => self.create_physical_expr(input_schema, &a.as_column()?),
+            LogicalExpr::Function(f) => self.physical_expr_function(input_schema, f),
+            LogicalExpr::IsNull(f) => self
+                .create_physical_expr(input_schema, f)
+                .map(|expr| Arc::new(IsNull::new(expr)) as Arc<dyn PhysicalExpr>),
+            LogicalExpr::IsNotNull(f) => self
+                .create_physical_expr(input_schema, f)
+                .map(|expr| Arc::new(IsNotNull::new(expr)) as Arc<dyn PhysicalExpr>),
             _ => unimplemented!("unsupported logical expression: {:?}", expr),
         }
     }
 }
 
 impl DefaultQueryPlanner {
+    // Physical plan functions
     fn physical_plan_projection(&self, projection: &Projection) -> Result<Arc<dyn PhysicalPlan>> {
         let physical_plan = self.create_physical_plan(&projection.input)?;
         let input_schema = physical_plan.schema();
@@ -170,28 +181,6 @@ impl DefaultQueryPlanner {
         )) as Arc<dyn PhysicalPlan>)
     }
 
-    fn physical_expr_column(&self, schema: &SchemaRef, column: &Column) -> Result<Arc<dyn PhysicalExpr>> {
-        schema
-            .index_of(&column.name)
-            .map_err(|e| arrow_err!(e))
-            .map(|index| Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>)
-    }
-
-    fn physical_expr_literal(&self, value: &ScalarValue) -> Result<Arc<dyn PhysicalExpr>> {
-        Ok(Arc::new(physical::expr::Literal::new(value.clone())))
-    }
-
-    fn physical_expr_binary(&self, schema: &SchemaRef, binary_expr: &BinaryExpr) -> Result<Arc<dyn PhysicalExpr>> {
-        let left = self.create_physical_expr(schema, &binary_expr.left)?;
-        let right = self.create_physical_expr(schema, &binary_expr.right)?;
-        Ok(Arc::new(physical::expr::BinaryExpr::new(left, binary_expr.op.clone(), right)) as Arc<dyn PhysicalExpr>)
-    }
-
-    fn physical_expr_cast(&self, schema: &SchemaRef, cast: &CastExpr) -> Result<Arc<dyn PhysicalExpr>> {
-        self.create_physical_expr(schema, &cast.expr)
-            .map(|expr| Arc::new(physical::expr::CastExpr::new(expr, cast.data_type.clone())) as Arc<dyn PhysicalExpr>)
-    }
-
     fn physical_plan_cross_join(&self, cross_join: &CrossJoin) -> Result<Arc<dyn PhysicalPlan>> {
         let left = self.create_physical_plan(cross_join.left.as_ref())?;
         let right = self.create_physical_plan(cross_join.right.as_ref())?;
@@ -254,42 +243,62 @@ impl DefaultQueryPlanner {
     }
 }
 
+impl DefaultQueryPlanner {
+    // Physical expression functions
+    fn physical_expr_column(&self, schema: &SchemaRef, column: &Column) -> Result<Arc<dyn PhysicalExpr>> {
+        schema
+            .index_of(&column.name)
+            .map_err(|e| arrow_err!(e))
+            .map(|index| Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>)
+    }
+
+    fn physical_expr_literal(&self, value: &ScalarValue) -> Result<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(physical::expr::Literal::new(value.clone())))
+    }
+
+    fn physical_expr_binary(&self, schema: &SchemaRef, binary_expr: &BinaryExpr) -> Result<Arc<dyn PhysicalExpr>> {
+        let left = self.create_physical_expr(schema, &binary_expr.left)?;
+        let right = self.create_physical_expr(schema, &binary_expr.right)?;
+        Ok(Arc::new(physical::expr::BinaryExpr::new(left, binary_expr.op.clone(), right)) as Arc<dyn PhysicalExpr>)
+    }
+
+    fn physical_expr_cast(&self, schema: &SchemaRef, cast: &CastExpr) -> Result<Arc<dyn PhysicalExpr>> {
+        self.create_physical_expr(schema, &cast.expr)
+            .map(|expr| Arc::new(physical::expr::CastExpr::new(expr, cast.data_type.clone())) as Arc<dyn PhysicalExpr>)
+    }
+
+    fn physical_expr_function(&self, schema: &SchemaRef, function: &Function) -> Result<Arc<dyn PhysicalExpr>> {
+        let args = function
+            .args
+            .iter()
+            .map(|e| self.create_physical_expr(schema, e))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Arc::new(physical::expr::Function::new(function.func.clone(), args)))
+    }
+}
+
 /// Normalize the columns in the expression using the provided schemas and check for ambiguity
 pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
     expr: LogicalExpr,
     schemas: &[&[(&TableRelation, SchemaRef)]],
 ) -> Result<LogicalExpr> {
+
+    fn normalize_boxed(expr: Box<LogicalExpr>, schemas: &[&[(&TableRelation, SchemaRef)]]) -> Result<Box<LogicalExpr>> {
+        normalize_col_with_schemas_and_ambiguity_check(*expr, schemas).map(Box::new)
+    }
+
     match expr {
-        LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => {
-            normalize_col_with_schemas_and_ambiguity_check(*expr, schemas).map(|transform| {
-                LogicalExpr::AggregateExpr(AggregateExpr {
-                    op,
-                    expr: Box::new(transform),
-                })
-            })
-        }
-        LogicalExpr::SortExpr(SortExpr { expr, asc }) => normalize_col_with_schemas_and_ambiguity_check(*expr, schemas)
-            .map(|transform| {
-                LogicalExpr::SortExpr(SortExpr {
-                    expr: Box::new(transform),
-                    asc,
-                })
-            }),
-        LogicalExpr::Alias(Alias { expr, name }) => {
-            normalize_col_with_schemas_and_ambiguity_check(*expr, schemas).map(|col| col.alias(name))
-        }
+        LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => normalize_boxed(expr, schemas).map(|expr| LogicalExpr::AggregateExpr(AggregateExpr { op, expr })),
+        LogicalExpr::SortExpr(SortExpr { expr, asc }) => normalize_boxed(expr, schemas).map(|expr| LogicalExpr::SortExpr(SortExpr { expr, asc })),
+        LogicalExpr::Alias(Alias { expr, name }) => normalize_boxed(expr, schemas).map(|expr| LogicalExpr::Alias(Alias { expr, name })),
         LogicalExpr::BinaryExpr(BinaryExpr { left, op, right }) => {
-            let left = normalize_col_with_schemas_and_ambiguity_check(*left, schemas)?;
-            let right = normalize_col_with_schemas_and_ambiguity_check(*right, schemas)?;
-            Ok(LogicalExpr::BinaryExpr(BinaryExpr {
-                left: Box::new(left),
-                op,
-                right: Box::new(right),
-            }))
-        }
-        LogicalExpr::Column(col) => col
-            .normalize_col_with_schemas_and_ambiguity_check(schemas)
-            .map(LogicalExpr::Column),
+            let left = normalize_boxed(left, schemas)?;
+            let right = normalize_boxed(right, schemas)?;
+            Ok(LogicalExpr::BinaryExpr(BinaryExpr { left, op, right }))
+        },
+        LogicalExpr::Column(col) => col.normalize_col_with_schemas_and_ambiguity_check(schemas).map(LogicalExpr::Column),
+        LogicalExpr::IsNull(expr) => normalize_boxed(expr, schemas).map(LogicalExpr::IsNull),
+        LogicalExpr::IsNotNull(expr) => normalize_boxed(expr, schemas).map(LogicalExpr::IsNotNull),
         _ => Ok(expr),
     }
 }

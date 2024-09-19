@@ -70,7 +70,15 @@ impl<'a> Lexer<'a> {
                 }
             }
             ';' => Token::new(TokenType::Semicolon, literal, self.location()),
-            ':' => Token::new(TokenType::Colon, literal, self.location()),
+            ':' => {
+                self.read_char();
+                if self.cur_ch == ':' {
+                    self.read_char();
+
+                    return Token::new(TokenType::DoubleColon, "::".to_owned(), self.location());
+                }
+                Token::new(TokenType::Colon, literal, self.location())
+            }
             '.' => Token::new(TokenType::Period, literal, self.location()),
             '(' => Token::new(TokenType::LParen, literal, self.location()),
             ')' => Token::new(TokenType::RParen, literal, self.location()),
@@ -83,7 +91,7 @@ impl<'a> Lexer<'a> {
             '-' => Token::new(TokenType::Minus, literal, self.location()),
             '*' => Token::new(TokenType::Asterisk, literal, self.location()),
             '/' => Token::new(TokenType::Slash, literal, self.location()),
-            '?' => Token::new(TokenType::Ident, literal, self.location()),
+            '?' => Token::new(TokenType::Question, literal, self.location()),
             '\'' => {
                 let mut s = String::new();
                 loop {
@@ -188,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_single_char_token() {
-        let input = "=-+(){},;*/<>!?";
+        let input = "=-+(){},;*/<>!?:";
         let tests = vec![
             (TokenType::Eq, "="),
             (TokenType::Minus, "-"),
@@ -204,6 +212,8 @@ mod tests {
             (TokenType::Lt, "<"),
             (TokenType::Gt, ">"),
             (TokenType::Bang, "!"),
+            (TokenType::Question, "?"),
+            (TokenType::Colon, ":"),
         ];
         let mut l = Lexer::new(input);
         for (expected_type, expected_literal) in tests {
@@ -215,12 +225,13 @@ mod tests {
 
     #[test]
     fn test_two_char_token() {
-        let input = "=!=<=>=";
+        let input = "=!=<=>=::";
         let tests = vec![
             (TokenType::Eq, "="),
             (TokenType::NotEq, "!="),
             (TokenType::Lte, "<="),
             (TokenType::Gte, ">="),
+            (TokenType::DoubleColon, "::"),
             (TokenType::EOF, ""),
         ];
         let mut l = Lexer::new(input);
@@ -245,11 +256,11 @@ mod tests {
             (TokenType::Keyword(Keyword::Where), "where"),
             (TokenType::Ident, "id"),
             (TokenType::Eq, "="),
-            (TokenType::Ident, "?"),
+            (TokenType::Question, "?"),
             (TokenType::Keyword(Keyword::And), "and"),
             (TokenType::Ident, "name"),
             (TokenType::Eq, "="),
-            (TokenType::Ident, "?"),
+            (TokenType::Question, "?"),
             (TokenType::Keyword(Keyword::Or), "or"),
             (TokenType::Ident, "age"),
             (TokenType::Eq, "="),
@@ -264,6 +275,26 @@ mod tests {
         ];
         let mut l = Lexer::new(input);
         for (expected_type, expected_literal) in tests {
+            let tok = l.next();
+            assert_eq!(tok.token_type, expected_type);
+            assert_eq!(tok.literal, expected_literal);
+        }
+    }
+
+    #[test]
+    fn test_extract_keyword() {
+        let input = "EXTRACT(YEAR FROM date_column)";
+        let expected = vec![
+            (TokenType::Keyword(Keyword::Extract), "EXTRACT"),
+            (TokenType::LParen, "("),
+            (TokenType::Keyword(Keyword::Year), "YEAR"),
+            (TokenType::Keyword(Keyword::From), "FROM"),
+            (TokenType::Ident, "date_column"),
+            (TokenType::RParen, ")"),
+            (TokenType::EOF, ""),
+        ];
+        let mut l = Lexer::new(input);
+        for (expected_type, expected_literal) in expected {
             let tok = l.next();
             assert_eq!(tok.token_type, expected_type);
             assert_eq!(tok.literal, expected_literal);

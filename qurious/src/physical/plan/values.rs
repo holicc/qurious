@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, RecordBatch, RecordBatchOptions};
+use arrow::array::{Array, ArrayRef, RecordBatch, RecordBatchOptions};
 use arrow::compute::concat;
 use arrow::datatypes::{Schema, SchemaRef};
 
@@ -43,12 +43,23 @@ impl PhysicalPlan for Values {
 
         let columns = (0..n_col)
             .map(|j| {
+                let data_type = self.schema.field(j).data_type();
                 (0..n_row)
                     .map(|i| self.exprs[i][j].evaluate(&empty_batch))
                     .collect::<Result<Vec<ArrayRef>>>()
                     .and_then(|rows| {
-                        let rows_ref = rows.iter().map(|x| x.as_ref()).collect::<Vec<_>>();
-                        concat(&rows_ref).map_err(|e| arrow_err!(e))
+                        let rows = rows
+                            .into_iter()
+                            .map(|x| {
+                                if x.data_type() != data_type {
+                                    arrow::compute::cast(&x, data_type).map_err(|e| arrow_err!(e))
+                                } else {
+                                    Ok(x)
+                                }
+                            })
+                            .collect::<Result<Vec<_>>>()?;
+
+                        concat(&rows.iter().map(|x| x.as_ref()).collect::<Vec<_>>()).map_err(|e| arrow_err!(e))
                     })
             })
             .collect::<Result<_>>()?;

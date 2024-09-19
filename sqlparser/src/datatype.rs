@@ -7,6 +7,9 @@ pub enum DataType {
     Integer,
     Float,
     String,
+    Date,
+    Timestamp,
+    Int16,
 }
 
 impl Display for DataType {
@@ -16,10 +19,11 @@ impl Display for DataType {
             DataType::Integer => write!(f, "Integer"),
             DataType::Float => write!(f, "Float"),
             DataType::String => write!(f, "String"),
+            DataType::Date => write!(f, "Date"),
+            DataType::Timestamp => write!(f, "Timestamp"),
+            DataType::Int16 => write!(f, "Int16"),
         }
     }
 }
 
-pub struct Number{
-    
-}
+pub struct Number {}

@@ -19,11 +19,12 @@ impl CastExpr {
         }
     }
 
-    pub fn field(&self, _plan: &LogicalPlan) -> Result<FieldRef> {
+    pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
+        let filed = self.expr.field(plan)?;
         Ok(Arc::new(Field::new(
-            self.data_type.to_string(),
+            self.expr.to_string(),
             self.data_type.clone(),
-            false,
+            filed.is_nullable(),
         )))
     }
 }

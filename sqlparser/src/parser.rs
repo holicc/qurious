@@ -1,8 +1,9 @@
 use crate::{
     ast::{
-        self, Assignment, Cte, Expression, FunctionArgument, Ident, ObjectName, OnConflict, Order, Select, SelectItem,
-        Statement, StructField, With,
+        self, Assignment, Cte, DateTimeField, Expression, FunctionArgument, Ident, ObjectName, OnConflict, Order,
+        Select, SelectItem, Statement, StructField, With,
     },
+    datatype::DataType,
     error::{Error, Result},
     lexer::Lexer,
     token::{Keyword, Token, TokenType},
@@ -85,11 +86,9 @@ impl<'a> Parser<'a> {
                 if self.next_if_token(TokenType::RParen).is_some() {
                     break;
                 }
-
-                let name = self.next_ident()?;
                 let mut nullable = true;
+                let name = self.next_ident()?;
                 let datatype = self.next_token().and_then(|t| t.datatype())?;
-
                 let primary_key = if self.next_if_token(TokenType::Keyword(Keyword::Primary)).is_some() {
                     self.next_except(TokenType::Keyword(Keyword::Key))?;
 
@@ -98,7 +97,6 @@ impl<'a> Parser<'a> {
                 } else {
                     false
                 };
-
                 let unique = self.next_if_token(TokenType::Keyword(Keyword::Unique)).is_some();
 
                 if self.next_if_token(TokenType::Keyword(Keyword::Not)).is_some() {
@@ -165,6 +163,12 @@ impl<'a> Parser<'a> {
         self.next_except(TokenType::Keyword(Keyword::From))?;
 
         let table = self.next_ident()?;
+
+        self.tables.push(TableInfo {
+            name: table.clone(),
+            alias: None,
+            args: vec![],
+        });
 
         let r#where = if self.next_if_token(TokenType::Keyword(Keyword::Where)).is_some() {
             Some(self.parse_expression(0)?)
@@ -528,11 +532,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
             let expr = self.parse_expression(0)?;
-            let alias = if self.next_if_token(TokenType::Keyword(Keyword::As)).is_some() {
-                Some(self.parse_expression(0)?.to_string())
-            } else {
-                None
-            };
+            let alias = self.parse_alias()?;
 
             let col = match expr {
                 Expression::CompoundIdentifier(ref idents) => {
@@ -563,7 +563,13 @@ impl<'a> Parser<'a> {
                     Some(a) => SelectItem::ExprWithAlias(expr, a),
                     None => SelectItem::UnNamedExpr(expr),
                 },
-                _ => unreachable!("column name should be a identifier, but got [{:?}]", expr),
+                _ => {
+                    if let Some(alias) = alias {
+                        SelectItem::ExprWithAlias(expr, alias)
+                    } else {
+                        SelectItem::UnNamedExpr(expr)
+                    }
+                }
             };
 
             columns.push(col);
@@ -718,6 +724,40 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_data_type(&mut self) -> Result<DataType> {
+        let token = self.next_token()?;
+        match token.token_type {
+            TokenType::String | TokenType::Keyword(Keyword::VarChar) => Ok(DataType::String),
+            TokenType::Int | TokenType::Keyword(Keyword::Int) | TokenType::Keyword(Keyword::Integer) => {
+                Ok(DataType::Integer)
+            }
+            TokenType::Keyword(Keyword::SmallInt) => Ok(DataType::Int16),
+            TokenType::Float | TokenType::Keyword(Keyword::Double) => Ok(DataType::Float),
+            TokenType::Keyword(Keyword::Bool) | TokenType::Keyword(Keyword::Boolean) => Ok(DataType::Boolean),
+            TokenType::Keyword(Keyword::Date) => Ok(DataType::Date),
+            _ => Err(Error::ParserError(format!(
+                "[parse_data_type] unexpected token {:?}",
+                token
+            ))),
+        }
+    }
+
+    fn parse_date_time_field(&mut self) -> Result<DateTimeField> {
+        let token = self.next_token()?;
+        match token.token_type {
+            TokenType::Keyword(Keyword::Year) => Ok(DateTimeField::Year),
+            TokenType::Keyword(Keyword::Month) => Ok(DateTimeField::Month),
+            TokenType::Keyword(Keyword::Day) => Ok(DateTimeField::Day),
+            TokenType::Keyword(Keyword::Hour) => Ok(DateTimeField::Hour),
+            TokenType::Keyword(Keyword::Minute) => Ok(DateTimeField::Minute),
+            TokenType::Keyword(Keyword::Second) => Ok(DateTimeField::Second),
+            _ => Err(Error::ParserError(format!(
+                "[parse_date_time_field] unexpected token {:?}",
+                token
+            ))),
+        }
+    }
+
     fn parse_expression(&mut self, precedence: u8) -> Result<Expression> {
         let mut lhs = if let Some(prefix) = self.next_if_operator::<PrefixOperator>(precedence) {
             prefix.build(self.parse_expression(prefix.precedence())?)
@@ -733,6 +773,22 @@ impl<'a> Parser<'a> {
             }
             lhs = match infix {
                 InfixOperator::In => self.parse_in_expr(lhs, negated)?,
+                InfixOperator::DoubleColon => self.parse_data_type().map(|dt| Expression::Cast {
+                    expr: Box::new(lhs),
+                    data_type: dt,
+                })?,
+                InfixOperator::Is => {
+                    if self.parse_keywords(&[Keyword::Null]) {
+                        Expression::IsNull(Box::new(lhs))
+                    } else if self.parse_keywords(&[Keyword::Not, Keyword::Null]) {
+                        Expression::IsNotNull(Box::new(lhs))
+                    } else {
+                        return Err(Error::ParserError(format!(
+                            "[parse_expression] unexpected token {:?}",
+                            self.peek()?
+                        )));
+                    }
+                }
                 _ => infix.build(lhs, self.parse_expression(infix.precedence())?)?,
             }
         }
@@ -744,29 +800,22 @@ impl<'a> Parser<'a> {
         let token = self.next_token()?;
         let literal = token.literal.clone();
         match token.token_type {
-            TokenType::Ident => {
-                // parse function
-                if self.next_if_token(TokenType::LParen).is_some() {
-                    let mut args = Vec::new();
-                    while self.next_if_token(TokenType::RParen).is_none() {
-                        args.push(self.parse_expression(0)?);
-                        self.next_if_token(TokenType::Comma);
-                    }
-                    Ok(ast::Expression::Function(literal, args))
-                } else {
-                    let mut idents: Vec<Ident> = vec![literal.into()];
-                    while self.next_if_token(TokenType::Period).is_some() {
-                        idents.push(self.next_ident().map(|s| s.into())?);
-                    }
-                    if idents.len() > 1 {
-                        Ok(ast::Expression::CompoundIdentifier(idents))
-                    } else {
-                        Ok(ast::Expression::Identifier(idents.remove(0)))
-                    }
-                }
+            TokenType::Keyword(Keyword::Extract) => {
+                self.next_except(TokenType::LParen)?;
+
+                let field = self.parse_date_time_field()?;
+                self.next_except(TokenType::Keyword(Keyword::From))?;
+                let expr = self.parse_expression(0)?;
+
+                self.next_except(TokenType::RParen)?;
+                Ok(Expression::Extract {
+                    field,
+                    expr: Box::new(expr),
+                })
             }
+
             TokenType::Asterisk => Ok(ast::Expression::Identifier("*".into())),
-            TokenType::Float=> literal
+            TokenType::Float => literal
                 .parse()
                 .map(|f| ast::Expression::Literal(ast::Literal::Float(f)))
                 .map_err(|e| Error::ParseFloatError(e, token)),
@@ -777,6 +826,7 @@ impl<'a> Parser<'a> {
             TokenType::String => Ok(ast::Expression::Literal(ast::Literal::String(literal))),
             TokenType::Keyword(Keyword::True) => Ok(ast::Expression::Literal(ast::Literal::Boolean(true))),
             TokenType::Keyword(Keyword::False) => Ok(ast::Expression::Literal(ast::Literal::Boolean(false))),
+            TokenType::Keyword(Keyword::Null) => Ok(ast::Expression::Literal(ast::Literal::Null)),
             TokenType::LParen => {
                 let expr = self.parse_expression(0)?;
                 self.next_except(TokenType::RParen)?;
@@ -800,6 +850,27 @@ impl<'a> Parser<'a> {
                     self.next_if_token(TokenType::Comma);
                 }
                 Ok(ast::Expression::Array(list))
+            }
+            TokenType::Ident => {
+                // parse function
+                if self.next_if_token(TokenType::LParen).is_some() {
+                    let mut args = Vec::new();
+                    while self.next_if_token(TokenType::RParen).is_none() {
+                        args.push(self.parse_expression(0)?);
+                        self.next_if_token(TokenType::Comma);
+                    }
+                    Ok(ast::Expression::Function(literal, args))
+                } else {
+                    let mut idents: Vec<Ident> = vec![literal.into()];
+                    while self.next_if_token(TokenType::Period).is_some() {
+                        idents.push(self.next_ident().map(|s| s.into())?);
+                    }
+                    if idents.len() > 1 {
+                        Ok(ast::Expression::CompoundIdentifier(idents))
+                    } else {
+                        Ok(ast::Expression::Identifier(idents.remove(0)))
+                    }
+                }
             }
             _ => Err(Error::UnexpectedToken(token)),
         }
@@ -856,6 +927,15 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_keywords(&mut self, keywords: &[Keyword]) -> bool {
+        for &keyword in keywords {
+            if self.next_if_token(TokenType::Keyword(keyword)).is_some() {
+                return true;
+            }
+        }
+        false
+    }
+
     fn next_token(&mut self) -> Result<Token> {
         let token = self.lexer.next();
         match token.token_type {
@@ -877,7 +957,7 @@ impl<'a> Parser<'a> {
     fn next_ident(&mut self) -> Result<String> {
         let token = self.lexer.next();
         match token.token_type {
-            TokenType::Asterisk | TokenType::Ident => Ok(token.literal),
+            TokenType::Asterisk | TokenType::Ident | TokenType::Keyword(_) => Ok(token.literal),
             TokenType::EOF => Err(Error::UnexpectedEOF(token)),
             _ => Err(Error::UnexpectedToken(token)),
         }
@@ -916,6 +996,8 @@ enum PrefixOperator {
     Plus,
     Minus,
     Not,
+    Date,
+    Timestamp,
 }
 
 impl Operator for PrefixOperator {
@@ -924,6 +1006,8 @@ impl Operator for PrefixOperator {
             TokenType::Plus => Some(PrefixOperator::Plus),
             TokenType::Minus => Some(PrefixOperator::Minus),
             TokenType::Bang => Some(PrefixOperator::Not),
+            TokenType::Keyword(Keyword::Date) => Some(PrefixOperator::Date),
+            TokenType::Keyword(Keyword::Timestamp) => Some(PrefixOperator::Timestamp),
             _ => None,
         }
     }
@@ -939,6 +1023,14 @@ impl PrefixOperator {
             PrefixOperator::Plus => Expression::BinaryOperator(ast::BinaryOperator::Pos(Box::new(rhs))),
             PrefixOperator::Minus => Expression::BinaryOperator(ast::BinaryOperator::Neg(Box::new(rhs))),
             PrefixOperator::Not => Expression::BinaryOperator(ast::BinaryOperator::Not(Box::new(rhs))),
+            PrefixOperator::Date => Expression::TypedString {
+                data_type: DataType::Date,
+                value: rhs.to_string(),
+            },
+            PrefixOperator::Timestamp => Expression::TypedString {
+                data_type: DataType::Timestamp,
+                value: rhs.to_string(),
+            },
         }
     }
 }
@@ -958,6 +1050,8 @@ enum InfixOperator {
     And,
     Or,
     In,
+    DoubleColon,
+    Is,
 }
 
 impl Operator for InfixOperator {
@@ -973,9 +1067,11 @@ impl Operator for InfixOperator {
             TokenType::Lte => Some(InfixOperator::Lte),
             TokenType::Eq => Some(InfixOperator::Eq),
             TokenType::NotEq => Some(InfixOperator::NotEq),
+            TokenType::DoubleColon => Some(InfixOperator::DoubleColon),
             TokenType::Keyword(Keyword::And) => Some(InfixOperator::And),
             TokenType::Keyword(Keyword::Or) => Some(InfixOperator::Or),
             TokenType::Keyword(Keyword::In) => Some(InfixOperator::In),
+            TokenType::Keyword(Keyword::Is) => Some(InfixOperator::Is),
             _ => None,
         }
     }
@@ -989,6 +1085,7 @@ impl Operator for InfixOperator {
             InfixOperator::Add | InfixOperator::Sub => 5,
             InfixOperator::Mul | InfixOperator::Div => 6,
             InfixOperator::In => 7,
+            InfixOperator::DoubleColon | InfixOperator::Is => 8,
         }
     }
 }
@@ -1054,10 +1151,137 @@ mod tests {
     use std::vec;
 
     use super::Parser;
-    use crate::ast::{self, Assignment, Expression, FunctionArgument, Select, SelectItem, Statement};
+    use crate::ast::{self, Assignment, DateTimeField, Expression, FunctionArgument, Select, SelectItem, Statement};
     use crate::datatype::DataType;
     use crate::error::Result;
     use crate::parser::TableInfo;
+
+    fn assert_stmt_eq(sql: &str, stmt: Statement) {
+        let result = parse_stmt(sql).unwrap();
+        assert_eq!(result, stmt);
+    }
+
+    #[test]
+    fn test_timestamp() {
+        assert_stmt_eq(
+            "SELECT timestamp '2021-01-01 00:00:00'",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::UnNamedExpr(Expression::TypedString {
+                    data_type: DataType::Timestamp,
+                    value: "2021-01-01 00:00:00".to_owned(),
+                })],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+    }
+
+    #[test]
+    fn test_extract_function_args() {
+        assert_stmt_eq(
+            "SELECT extract(year from date '2021-01-01') as year",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::ExprWithAlias(
+                    Expression::Extract {
+                        field: DateTimeField::Year,
+                        expr: Box::new(Expression::TypedString {
+                            data_type: DataType::Date,
+                            value: "2021-01-01".to_owned(),
+                        }),
+                    },
+                    "year".to_owned(),
+                )],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+    }
+
+    #[test]
+    fn test_parse_date() {
+        let mut parser = Parser::new("SELECT '2021-01-01'::date");
+        let stmt = parser.parse().unwrap();
+
+        assert_eq!(
+            stmt,
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::UnNamedExpr(Expression::Cast {
+                    expr: Box::new(Expression::Literal(ast::Literal::String("2021-01-01".to_owned()))),
+                    data_type: DataType::Date,
+                })],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            }))
+        );
+
+        let mut parser = Parser::new("SELECT DATE '2021-01-01'");
+        let stmt = parser.parse().unwrap();
+
+        assert_eq!(
+            stmt,
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::UnNamedExpr(Expression::TypedString {
+                    data_type: DataType::Date,
+                    value: "2021-01-01".to_owned()
+                })],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_postgresql_double_colon() {
+        let mut parser = Parser::new("SELECT '1'::int");
+        let stmt = parser.parse().unwrap();
+
+        assert_eq!(
+            stmt,
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::UnNamedExpr(Expression::Cast {
+                    expr: Box::new(Expression::Literal(ast::Literal::String("1".to_owned()))),
+                    data_type: DataType::Integer,
+                })],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            }))
+        );
+    }
 
     #[test]
     fn test_collect_tables() {
@@ -1114,11 +1338,63 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_create_table() -> Result<()> {
-        let stmt = parse_stmt("CREATE TABLE t1(i INTEGER, j INTEGER);")?;
+    fn test_parse_create_table() {
+        assert_stmt_eq(
+            "create table t (a smallint not null);",
+            Statement::CreateTable {
+                query: None,
+                table: "t".to_owned(),
+                columns: vec![ast::Column {
+                    name: "a".to_owned(),
+                    datatype: DataType::Int16,
+                    nullable: false,
+                    unique: false,
+                    references: None,
+                    primary_key: false,
+                    index: false,
+                }],
+                check_exists: false,
+            },
+        );
 
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "create table t (name VARCHAR NOT NULL)",
+            Statement::CreateTable {
+                query: None,
+                table: "t".to_owned(),
+                columns: vec![ast::Column {
+                    name: "name".to_owned(),
+                    datatype: DataType::String,
+                    nullable: false,
+                    unique: false,
+                    references: None,
+                    primary_key: false,
+                    index: false,
+                }],
+                check_exists: false,
+            },
+        );
+
+        assert_stmt_eq(
+            "create table t(v1 int null)",
+            Statement::CreateTable {
+                query: None,
+                table: "t".to_owned(),
+                columns: vec![ast::Column {
+                    name: "v1".to_owned(),
+                    datatype: DataType::Integer,
+                    nullable: true,
+                    unique: false,
+                    references: None,
+                    primary_key: false,
+                    index: false,
+                }],
+                check_exists: false,
+            },
+        );
+
+        assert_stmt_eq(
+            "CREATE TABLE t1(i INTEGER, j INTEGER);",
             Statement::CreateTable {
                 query: None,
                 table: "t1".to_owned(),
@@ -1139,17 +1415,15 @@ mod tests {
                         unique: false,
                         references: None,
                         primary_key: false,
-                        index: false
+                        index: false,
                     },
                 ],
                 check_exists: false,
-            }
+            },
         );
 
-        let stmt = parse_stmt("CREATE TABLE IF NOT EXISTS t1(i INTEGER, j INTEGER);")?;
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "CREATE TABLE IF NOT EXISTS t1(i INTEGER, j INTEGER);",
             Statement::CreateTable {
                 query: None,
                 table: "t1".to_owned(),
@@ -1170,17 +1444,15 @@ mod tests {
                         unique: false,
                         references: None,
                         primary_key: false,
-                        index: false
+                        index: false,
                     },
                 ],
                 check_exists: true,
-            }
+            },
         );
 
-        let stmt = parse_stmt("CREATE TABLE t1(i INTEGER PRIMARY KEY, j INTEGER);")?;
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "CREATE TABLE t1(i INTEGER PRIMARY KEY, j INTEGER);",
             Statement::CreateTable {
                 query: None,
                 table: "t1".to_owned(),
@@ -1201,17 +1473,15 @@ mod tests {
                         unique: false,
                         references: None,
                         primary_key: false,
-                        index: false
+                        index: false,
                     },
                 ],
                 check_exists: false,
-            }
+            },
         );
 
-        let stmt = parse_stmt("CREATE TABLE t1(i INTEGER UNIQUE, j INTEGER);")?;
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "CREATE TABLE t1(i INTEGER UNIQUE, j INTEGER);",
             Statement::CreateTable {
                 query: None,
                 table: "t1".to_owned(),
@@ -1232,17 +1502,15 @@ mod tests {
                         unique: false,
                         references: None,
                         primary_key: false,
-                        index: false
+                        index: false,
                     },
                 ],
                 check_exists: false,
-            }
+            },
         );
 
-        let stmt = parse_stmt("CREATE TABLE t1(i INTEGER NOT NULL, j INTEGER);")?;
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "CREATE TABLE t1(i INTEGER NOT NULL, j INTEGER);",
             Statement::CreateTable {
                 query: None,
                 table: "t1".to_owned(),
@@ -1263,17 +1531,15 @@ mod tests {
                         unique: false,
                         references: None,
                         primary_key: false,
-                        index: false
+                        index: false,
                     },
                 ],
                 check_exists: false,
-            }
+            },
         );
 
-        let stmt = parse_stmt("CREATE TABLE t1 AS SELECT * FROM read_csv('path/file.csv');")?;
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "CREATE TABLE t1 AS SELECT * FROM read_csv('path/file.csv');",
             Statement::CreateTable {
                 query: Some(Select {
                     with: None,
@@ -1283,7 +1549,7 @@ mod tests {
                         name: "read_csv".to_owned(),
                         args: vec![FunctionArgument {
                             id: None,
-                            value: Expression::Literal(ast::Literal::String("path/file.csv".to_owned()))
+                            value: Expression::Literal(ast::Literal::String("path/file.csv".to_owned())),
                         }],
                         alias: None,
                     }],
@@ -1297,13 +1563,11 @@ mod tests {
                 table: "t1".to_owned(),
                 columns: vec![],
                 check_exists: false,
-            }
+            },
         );
 
-        let stmt = parse_stmt("CREATE TABLE t1 AS FROM read_csv_auto ('path/file.csv');")?;
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "CREATE TABLE t1 AS FROM read_csv_auto ('path/file.csv');",
             Statement::CreateTable {
                 query: Some(Select {
                     with: None,
@@ -1313,7 +1577,7 @@ mod tests {
                         name: "read_csv_auto".to_owned(),
                         args: vec![FunctionArgument {
                             id: None,
-                            value: Expression::Literal(ast::Literal::String("path/file.csv".to_owned()))
+                            value: Expression::Literal(ast::Literal::String("path/file.csv".to_owned())),
                         }],
                         alias: None,
                     }],
@@ -1327,10 +1591,8 @@ mod tests {
                 table: "t1".to_owned(),
                 columns: vec![],
                 check_exists: false,
-            }
+            },
         );
-
-        Ok(())
     }
 
     #[test]
@@ -1470,6 +1732,19 @@ mod tests {
 
     #[test]
     fn test_parse_insert_statement() {
+        assert_stmt_eq(
+            "insert into t values(null)",
+            ast::Statement::Insert {
+                query: None,
+                table: "t".to_owned(),
+                alias: None,
+                columns: None,
+                values: vec![vec![ast::Expression::Literal(ast::Literal::Null)]],
+                on_conflict: None,
+                returning: None,
+            },
+        );
+
         let stmt = parse_stmt("INSERT INTO users VALUES (1, 'name');").unwrap();
 
         assert_eq!(
@@ -2527,9 +2802,46 @@ mod tests {
 
     #[test]
     fn test_parse_where() {
-        let stmt = parse_stmt("SELECT * FROM users WHERE id = 1;").unwrap();
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE id IS NULL",
+            ast::Statement::Select(Box::new(Select {
+                with: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+                having: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: String::from("users"),
+                    alias: None,
+                }],
+                r#where: Some(Expression::IsNull(Box::new(Expression::Identifier("id".into())))),
+                group_by: None,
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE id IS NOT NULL",
+            ast::Statement::Select(Box::new(Select {
+                with: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+                having: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: String::from("users"),
+                    alias: None,
+                }],
+                r#where: Some(Expression::IsNotNull(Box::new(Expression::Identifier("id".into())))),
+                group_by: None,
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE id = 1;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2547,13 +2859,11 @@ mod tests {
                     Box::new(Expression::Literal(ast::Literal::Int(1))),
                 ))),
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users WHERE id = 1 AND name = 'foo';").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE id = 1 AND name = 'foo';",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2577,13 +2887,11 @@ mod tests {
                     ))),
                 ))),
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users WHERE id = 1 OR name = 'foo';").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE id = 1 OR name = 'foo';",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2607,13 +2915,11 @@ mod tests {
                     ))),
                 ))),
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users WHERE id in (1,2,3)").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE id in (1,2,3)",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2636,13 +2942,11 @@ mod tests {
                     negated: false,
                 }),
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users WHERE id not in (1,2,3)").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE id not in (1,2,3)",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2665,13 +2969,11 @@ mod tests {
                     negated: true,
                 }),
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users WHERE id in ('1','2')").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE id in ('1','2')",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2693,13 +2995,11 @@ mod tests {
                     negated: false,
                 }),
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users WHERE id not in ('1','2')").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE id not in ('1','2')",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2721,13 +3021,11 @@ mod tests {
                     negated: true,
                 }),
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users WHERE id in (select id from users)").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE id in (select id from users)",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2760,7 +3058,7 @@ mod tests {
                     negated: false,
                 }),
                 group_by: None,
-            }))
+            })),
         );
     }
 

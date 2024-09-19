@@ -50,7 +50,6 @@ macro_rules! build_timestamp_array {
         Ok(Arc::new($ARRY_TYPE::from_value(val, $size).with_timezone_opt($tz)))
     }};
 }
-
 pub fn repeat_array(ary: &ArrayRef, index: usize, size: usize) -> Result<ArrayRef> {
     match ary.data_type() {
         arrow::datatypes::DataType::Null => Ok(new_null_array(ary.data_type(), size)),

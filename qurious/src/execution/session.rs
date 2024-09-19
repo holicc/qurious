@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::vec;
 
 use arrow::array::RecordBatch;
@@ -8,7 +8,11 @@ use sqlparser::parser::{Parser, TableInfo};
 use crate::common::table_relation::TableRelation;
 use crate::datasource::memory::MemoryTable;
 use crate::error::Error;
-use crate::logical::plan::{CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, LogicalPlan};
+use crate::functions::{all_builtin_functions, UserDefinedFunction};
+use crate::internal_err;
+use crate::logical::plan::{
+    CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, Filter, LogicalPlan,
+};
 use crate::optimizer::Optimzier;
 use crate::planner::sql::{parse_csv_options, parse_file_path, SqlQueryPlanner};
 use crate::planner::QueryPlanner;
@@ -29,6 +33,7 @@ pub struct ExecuteSession {
     table_factory: DefaultTableFactory,
     catalog_list: CatalogProviderList,
     optimizer: Optimzier,
+    udfs: RwLock<HashMap<String, Arc<dyn UserDefinedFunction>>>,
 }
 
 impl ExecuteSession {
@@ -39,6 +44,12 @@ impl ExecuteSession {
     pub fn new_with_config(config: SessionConfig) -> Result<Self> {
         let catalog_list = CatalogProviderList::default();
         let catalog: Arc<dyn CatalogProvider> = Arc::new(MemoryCatalogProvider::default());
+        let udfs = RwLock::new(
+            all_builtin_functions()
+                .into_iter()
+                .map(|udf| (udf.name().to_uppercase().to_string(), udf))
+                .collect(),
+        );
 
         catalog.register_schema(&config.default_schema, Arc::new(MemorySchemaProvider::default()))?;
         catalog_list.register_catalog(&config.default_catalog, catalog)?;
@@ -49,6 +60,7 @@ impl ExecuteSession {
             catalog_list,
             table_factory: DefaultTableFactory::new(),
             optimizer: Optimzier::new(),
+            udfs,
         })
     }
 
@@ -58,8 +70,12 @@ impl ExecuteSession {
         let stmt = parser.parse().map_err(|e| Error::SQLParseError(e))?;
         // register tables for statement if there are any file source tables to be registered
         let relations = self.resolve_tables(parser.tables)?;
+        let udfs = &self
+            .udfs
+            .read()
+            .map_err(|e| Error::InternalError(format!("failed to get udfs: {}", e)))?;
         // create logical plan
-        SqlQueryPlanner::create_logical_plan(stmt, relations)
+        SqlQueryPlanner::create_logical_plan(stmt, relations, udfs)
             .and_then(|logical_plan| self.execute_logical_plan(&logical_plan))
     }
 
@@ -68,20 +84,8 @@ impl ExecuteSession {
 
         match &plan {
             LogicalPlan::Ddl(ddl) => self.execute_ddl(ddl),
-            LogicalPlan::Dml(DmlStatement {
-                relation, op, input, ..
-            }) => {
-                let source = self.find_table_provider(relation)?;
-                let input = self.planner.create_physical_plan(input)?;
-
-                let rows_affected = match op {
-                    DmlOperator::Insert => source.insert(input)?,
-                    _ => todo!(),
-                };
-
-                Ok(vec![make_count_batch(rows_affected)])
-            }
-            plan => self.planner.create_physical_plan(&plan)?.execute(),
+            LogicalPlan::Dml(stmt) => self.execute_dml(stmt),
+            plan => self.planner.create_physical_plan(plan)?.execute(),
         }
     }
 
@@ -96,9 +100,41 @@ impl ExecuteSession {
     pub fn register_catalog(&self, name: &str, catalog_provider: Arc<dyn CatalogProvider>) -> Result<()> {
         self.catalog_list.register_catalog(name, catalog_provider).map(|_| ())
     }
+    pub fn register_udf(&self, name: &str, udf: Arc<dyn UserDefinedFunction>) -> Result<()> {
+        let mut udfs = self
+            .udfs
+            .write()
+            .map_err(|e| Error::InternalError(format!("failed to register udf: {}", e)))?;
+        udfs.insert(name.to_string(), udf);
+        Ok(())
+    }
 }
 
 impl ExecuteSession {
+    fn execute_dml(&self, stmt: &DmlStatement) -> Result<Vec<RecordBatch>> {
+        let source = self.find_table_provider(&stmt.relation)?;
+        let rows_affected = match stmt.op {
+            DmlOperator::Insert => self.execute_insert(source, &stmt.input),
+            DmlOperator::Delete => self.execute_delete(source, &stmt.input),
+            _ => internal_err!("Unsupported DML {} operation", stmt.op),
+        }?;
+
+        Ok(vec![make_count_batch(rows_affected)])
+    }
+
+    fn execute_delete(&self, source: Arc<dyn TableProvider>, input: &LogicalPlan) -> Result<u64> {
+        let predicate = if let LogicalPlan::Filter(Filter { input, expr }) = input {
+            Some(self.planner.create_physical_expr(&input.schema(), expr)?)
+        } else {
+            None
+        };
+        source.delete(predicate)
+    }
+
+    fn execute_insert(&self, source: Arc<dyn TableProvider>, input: &LogicalPlan) -> Result<u64> {
+        let physical_plan = self.planner.create_physical_plan(input)?;
+        source.insert(physical_plan)
+    }
     /// Resolve tables from the table registry
     /// If the table is not found in the registry, an error is returned
     /// Inspire by Datafusion implementation, but more simpllify. We decided separate table into a normal database schema, eg: catalog.schema.table
@@ -198,11 +234,7 @@ impl ExecuteSession {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        build_schema,
-        datasource::{connectorx::postgres::PostgresCatalogProvider, memory::MemoryTable},
-        test_utils::assert_batch_eq,
-    };
+    use crate::{build_schema, datasource::memory::MemoryTable, test_utils::assert_batch_eq};
     use arrow::{
         array::{Int32Array, StringArray},
         util::pretty::print_batches,
@@ -221,10 +253,10 @@ mod tests {
     #[test]
     fn test_create_table() -> Result<()> {
         let session = ExecuteSession::new()?;
-        session.sql("create table t(v1 int not null, v2 int not null, v3 int not null)")?;
-        session.sql("insert into t values(1,4,2), (2,3,3), (3,4,4), (4,3,5)")?;
+        session.sql("create table t(v1 int, v2 int);")?;
+        session.sql("insert into t values (1, 1), (null, 2), (null, 3), (4, 4);")?;
 
-        let batch = session.sql("select count(v3) = min(v3),count(v3),min(v3) from t group by v2")?;
+        let batch = session.sql("select v2 from t where v1 is null")?;
 
         print_batches(&batch)?;
 
@@ -301,9 +333,11 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "connectorx")]
     fn test_postgres() {
-        let session = ExecuteSession::new().unwrap();
+        use crate::datasource::connectorx::postgres::PostgresCatalogProvider;
 
+        let session = ExecuteSession::new().unwrap();
         let catalog = PostgresCatalogProvider::try_new("postgresql://root:root@localhost:5433/qurious").unwrap();
 
         session.register_catalog("qurious", Arc::new(catalog)).unwrap();

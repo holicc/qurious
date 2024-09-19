@@ -11,6 +11,16 @@ pub enum DmlOperator {
     Delete,
 }
 
+impl Display for DmlOperator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            DmlOperator::Insert => write!(f, "INSERT"),
+            DmlOperator::Update => write!(f, "UPDATE"),
+            DmlOperator::Delete => write!(f, "DELETE"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DmlStatement {
     pub relation: TableRelation,

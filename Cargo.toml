@@ -16,8 +16,8 @@ edition = "2021"
 
 [workspace.dependencies]
 sqlparser = { path = "sqlparser" }
-parquet = "52.0.0"
-arrow = "52.0.0"
+parquet = "53.0.0"
+arrow = "53.0.0"
 url = "2.5.0"
 log = "^0.4"
 dashmap = "6.0.1"

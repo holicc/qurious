@@ -5,8 +5,6 @@ use crate::{logical::expr::LogicalExpr, logical::plan::LogicalPlan};
 use std::fmt::Display;
 use std::sync::Arc;
 
-use super::base_plan;
-
 #[derive(Debug, Clone)]
 pub struct Projection {
     pub schema: SchemaRef,
@@ -16,19 +14,10 @@ pub struct Projection {
 
 impl Projection {
     pub fn try_new(input: LogicalPlan, exprs: Vec<LogicalExpr>) -> Result<Self> {
-        let base_plan = base_plan(&input);
-
         Ok(Self {
             schema: exprs
                 .iter()
-                .filter_map(|f| match f {
-                    LogicalExpr::Column(i) => Some(i.field(&input)),
-                    LogicalExpr::Literal(i) => Some(Ok(Arc::new(i.to_field()))),
-                    LogicalExpr::Alias(i) => Some(i.expr.field(&input)),
-                    LogicalExpr::AggregateExpr(i) => Some(i.field(base_plan)),
-                    LogicalExpr::BinaryExpr(i) => Some(i.field(base_plan)),
-                    a => todo!("Projection::try_new: {:?}", a),
-                })
+                .map(|f| f.field(&input))
                 .collect::<Result<Vec<FieldRef>>>()
                 .map(|fields| Arc::new(Schema::new(fields)))?,
             input: Box::new(input),

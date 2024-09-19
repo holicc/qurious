@@ -3,6 +3,7 @@ pub mod alias;
 mod binary;
 mod cast;
 mod column;
+mod function;
 mod literal;
 mod sort;
 
@@ -14,6 +15,7 @@ pub use aggregate::{AggregateExpr, AggregateOperator};
 pub use binary::*;
 pub use cast::*;
 pub use column::*;
+pub use function::Function;
 pub use literal::*;
 pub use sort::*;
 
@@ -24,6 +26,7 @@ use crate::logical::plan::LogicalPlan;
 use arrow::datatypes::{DataType, Field, FieldRef};
 
 use self::alias::Alias;
+use crate::logical::plan::base_plan;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LogicalExpr {
@@ -35,25 +38,57 @@ pub enum LogicalExpr {
     SortExpr(SortExpr),
     Cast(CastExpr),
     Wildcard,
+    Function(Function),
+    IsNull(Box<LogicalExpr>),
+    IsNotNull(Box<LogicalExpr>),
+}
+
+macro_rules! impl_logical_expr_methods {
+    ($($variant:ident),+) => {
+        impl LogicalExpr {
+            pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
+                let base_plan = base_plan(plan);
+                match self {
+                    $(
+                        LogicalExpr::$variant(e) => e.field(&base_plan),
+                    )+
+                    LogicalExpr::Literal(v) => Ok(Arc::new(v.to_field())),
+                    LogicalExpr::Wildcard => Ok(Arc::new(Field::new("*", DataType::Null, true))),
+                    _ => Err(Error::InternalError(format!(
+                        "Cannot determine schema for expression: {:?}",
+                        self
+                    ))),
+                }
+            }
+        }
+
+        impl Display for LogicalExpr {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(
+                        LogicalExpr::$variant(e) => write!(f, "{}", e),
+                    )+
+                    LogicalExpr::Literal(v) => write!(f, "{}", v),
+                    LogicalExpr::Wildcard => write!(f, "*"),
+                    _ => write!(f, "{}", self),
+                }
+            }
+        }
+    };
+}
+
+impl_logical_expr_methods! {
+    Column,
+    BinaryExpr,
+    AggregateExpr,
+    Alias,
+    Cast,
+    Function,
+    IsNotNull,
+    IsNull
 }
 
 impl LogicalExpr {
-    pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
-        match self {
-            LogicalExpr::Column(c) => c.field(plan),
-            LogicalExpr::BinaryExpr(b) => b.field(plan),
-            LogicalExpr::AggregateExpr(a) => a.field(plan),
-            LogicalExpr::Literal(v) => Ok(Arc::new(v.to_field())),
-            LogicalExpr::Alias(a) => a.expr.field(plan),
-            LogicalExpr::Wildcard => Ok(Arc::new(Field::new("*", DataType::Null, true))),
-            LogicalExpr::Cast(c) => c.field(plan),
-            _ => Err(Error::InternalError(format!(
-                "Cannot determine schema for expression: {:?}",
-                self
-            ))),
-        }
-    }
-
     pub fn using_columns(&self) -> HashSet<Column> {
         let mut columns = HashSet::new();
         let mut stack = vec![self];
@@ -101,21 +136,6 @@ impl LogicalExpr {
                 LogicalExpr::Column(Column::new(format!("{}", self), None::<TableRelation>)),
             ),
             _ => Err(Error::InternalError(format!("Expect column, got {:?}", self))),
-        }
-    }
-}
-
-impl Display for LogicalExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LogicalExpr::Column(c) => write!(f, "{}", c),
-            LogicalExpr::Literal(v) => write!(f, "{}", v),
-            LogicalExpr::BinaryExpr(e) => write!(f, "{}", e),
-            LogicalExpr::AggregateExpr(e) => write!(f, "{}", e),
-            LogicalExpr::Alias(a) => write!(f, "{}", a),
-            LogicalExpr::Wildcard => write!(f, "*"),
-            LogicalExpr::SortExpr(s) => write!(f, "{}", s),
-            LogicalExpr::Cast(cast) => write!(f, "{}", cast),
         }
     }
 }

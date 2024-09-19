@@ -10,18 +10,33 @@ parquet = { workspace = true }
 arrow = { workspace = true }
 url = { workspace = true }
 dashmap = { workspace = true }
-connectorx = { workspace = true, features = ["src_postgres", "dst_arrow"] }
 log = { workspace = true }
-postgres = "0.19.8"
-itertools = "0.13.0"
-rayon = "1.10.0"
 
+itertools = "0.13.0"
+
+connectorx = { optional = true, workspace = true, features = [
+    "src_postgres",
+    "dst_arrow",
+] }
+postgres = { version = "0.19.8", optional = true }
+rayon = { version = "1.10.0", optional = true }
+
+
+[features]
+connectorx = [
+    "connectorx/src_postgres",
+    "connectorx/dst_arrow",
+    "postgres",
+    "rayon",
+]
 
 [dev-dependencies]
-arrow = { version = "52.0.0", features = ["prettyprint", "test_utils"] }
+arrow = { workspace = true, features = ["prettyprint", "test_utils"] }
 async-trait = "0.1.81"
 env_logger = "0.11.5"
 sqllogictest = "0.21.0"
+rayon = { version = "1.10.0" }
+
 
 [[test]]
 harness = false

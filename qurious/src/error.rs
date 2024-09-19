@@ -43,6 +43,7 @@ pub enum Error {
     InternalError(String),
     ColumnNotFound(String),
     DuplicateColumn(String),
+    InvalidArgumentError(String),
     CompareError(String),
     ComputeError(String),
     ArrowError(ArrowError, Option<String>),
@@ -88,6 +89,7 @@ impl Display for Error {
             Error::PlanError(e) => write!(f, "Plan Error: {}", e),
             Error::DuplicateColumn(c) => write!(f, "Duplicate column: {}", c),
             Error::TableNotFound(e) => write!(f, "Table Not Found: {}", e),
+            Error::InvalidArgumentError(e) => write!(f, "Invalid Argument Error: {}", e),
         }
     }
 }

@@ -28,10 +28,6 @@ impl CatalogProviderList {
         Ok(self.catalogs.insert(name.to_owned(), catalog))
     }
 
-    pub fn deregister_catalog(&self, name: &str) -> Result<Option<Arc<dyn CatalogProvider>>> {
-        Ok(self.catalogs.remove(name).map(|(_, v)| v))
-    }
-
     pub fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
         self.catalogs.get(name).map(|v| v.value().clone())
     }

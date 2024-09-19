@@ -1,7 +1,7 @@
 use crate::datatype::DataType;
 use crate::error::{Error, Result};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
     Select,
     Insert,
@@ -42,6 +42,7 @@ pub enum Keyword {
     In,
     On,
     As,
+    Is,
     True,
     False,
     Join,
@@ -61,6 +62,15 @@ pub enum Keyword {
     VarChar,
     Timestamp,
     Double,
+    SmallInt,
+    /// extract a field from a timestamp
+    Extract,
+    Year,
+    Month,
+    Day,
+    Hour,
+    Minute,
+    Second,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -98,6 +108,8 @@ pub enum TokenType {
     Colon,
     Bang,
     Period,
+    DoubleColon,
+    Question,
 
     Keyword(Keyword),
 }
@@ -115,7 +127,8 @@ impl TokenType {
             "datetime" => TokenType::Keyword(Keyword::Datetime),
             "varchar" => TokenType::Keyword(Keyword::VarChar),
             "timestamp" => TokenType::Keyword(Keyword::Timestamp),
-            "double" => TokenType::Keyword(Keyword::Double),
+            "double" | "float" => TokenType::Keyword(Keyword::Double),
+            "smallint" => TokenType::Keyword(Keyword::SmallInt),
             "primary" => TokenType::Keyword(Keyword::Primary),
             "key" => TokenType::Keyword(Keyword::Key),
             "with" => TokenType::Keyword(Keyword::With),
@@ -129,6 +142,7 @@ impl TokenType {
             "exists" => TokenType::Keyword(Keyword::Exists),
             "from" => TokenType::Keyword(Keyword::From),
             "as" => TokenType::Keyword(Keyword::As),
+            "is" => TokenType::Keyword(Keyword::Is),
             "where" => TokenType::Keyword(Keyword::Where),
             "and" => TokenType::Keyword(Keyword::And),
             "or" => TokenType::Keyword(Keyword::Or),
@@ -161,6 +175,15 @@ impl TokenType {
             "full" => TokenType::Keyword(Keyword::Full),
             "cross" => TokenType::Keyword(Keyword::Cross),
             "null" => TokenType::Keyword(Keyword::Null),
+            // extract a field from a timestamp
+            "extract" => TokenType::Keyword(Keyword::Extract),
+            "year" => TokenType::Keyword(Keyword::Year),
+            "month" => TokenType::Keyword(Keyword::Month),
+            "day" => TokenType::Keyword(Keyword::Day),
+            "hour" => TokenType::Keyword(Keyword::Hour),
+            "minute" => TokenType::Keyword(Keyword::Minute),
+            "second" => TokenType::Keyword(Keyword::Second),
+            // delimiters
             "(" => TokenType::LParen,
             ")" => TokenType::RParen,
             "{" => TokenType::LBrace,
@@ -212,9 +235,12 @@ impl Token {
 
     pub fn datatype(&self) -> Result<DataType> {
         match self.token_type {
-            TokenType::Keyword(Keyword::Int) | TokenType::Keyword(Keyword::Integer) => {
-                Ok(DataType::Integer)
-            }
+            TokenType::Keyword(Keyword::Int) | TokenType::Keyword(Keyword::Integer) => Ok(DataType::Integer),
+            TokenType::Keyword(Keyword::Bool) | TokenType::Keyword(Keyword::Boolean) => Ok(DataType::Boolean),
+            TokenType::Keyword(Keyword::SmallInt) => Ok(DataType::Int16),
+            TokenType::Keyword(Keyword::Date) => Ok(DataType::Date),
+            TokenType::Keyword(Keyword::Datetime) => Ok(DataType::Timestamp),
+            TokenType::Keyword(Keyword::VarChar) => Ok(DataType::String),
             _ => Err(Error::UnKnownDataType(self.clone())),
         }
     }

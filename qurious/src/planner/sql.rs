@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use arrow::datatypes::{Field, Schema};
+use arrow::datatypes::{Field, Schema, TimeUnit};
 use sqlparser::ast::{
     Assignment, BinaryOperator, Cte, Expression, From, FunctionArgument, Literal, Order, Select, SelectItem, Statement,
 };
@@ -13,6 +13,8 @@ use crate::{
     datasource::file::csv::CsvReadOptions,
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
+    functions::UserDefinedFunction,
+    internal_err,
     logical::{
         expr::*,
         plan::{
@@ -21,33 +23,40 @@ use crate::{
         LogicalPlanBuilder,
     },
     provider::table::TableProvider,
-    utils::{self, normalize_ident},
+    utils::normalize_ident,
 };
 
 use self::alias::Alias;
 
 use crate::planner::normalize_col_with_schemas_and_ambiguity_check;
 
-pub struct SqlQueryPlanner {
+pub struct SqlQueryPlanner<'a> {
     ctes: HashMap<String, Arc<LogicalPlan>>,
+    udfs: &'a HashMap<String, Arc<dyn UserDefinedFunction>>,
     relations: HashMap<TableRelation, Arc<dyn TableProvider>>,
 }
 
-impl SqlQueryPlanner {
-    pub fn new(relations: HashMap<TableRelation, Arc<dyn TableProvider>>) -> Self {
+impl<'a> SqlQueryPlanner<'a> {
+    pub fn new(
+        relations: HashMap<TableRelation, Arc<dyn TableProvider>>,
+        udfs: &'a HashMap<String, Arc<dyn UserDefinedFunction>>,
+    ) -> Self {
         SqlQueryPlanner {
             ctes: HashMap::default(),
             relations,
+            udfs,
         }
     }
 
     pub fn create_logical_plan(
         stmt: Statement,
         relations: HashMap<TableRelation, Arc<dyn TableProvider>>,
+        udfs: &'a HashMap<String, Arc<dyn UserDefinedFunction>>,
     ) -> Result<LogicalPlan> {
         let mut planner = SqlQueryPlanner {
             ctes: HashMap::default(),
             relations,
+            udfs,
         };
 
         match stmt {
@@ -149,7 +158,7 @@ impl SqlQueryPlanner {
     }
 }
 
-impl SqlQueryPlanner {
+impl<'a> SqlQueryPlanner<'a> {
     fn update_to_plan(
         &mut self,
         table: String,
@@ -685,30 +694,66 @@ impl SqlQueryPlanner {
             },
             Expression::BinaryOperator(op) => self.parse_binary_op(op),
             Expression::Function(name, args) => {
-                let mut exprs = args
+                let exprs = args
                     .into_iter()
                     .map(|expr| self.sql_function_args_to_expr(expr))
                     .collect::<Result<Vec<_>>>()?;
 
-                match name.to_uppercase().as_str() {
-                    "VERSION" => {
-                        if !exprs.is_empty() {
-                            return Err(Error::InternalError(format!(
-                                "VERSION function should not have any arguments"
-                            )));
-                        }
-                        Ok(LogicalExpr::Literal(ScalarValue::Utf8(Some(utils::version()))))
-                    }
-                    _ => Ok(LogicalExpr::AggregateExpr(AggregateExpr {
-                        op: name.into(),
-                        expr: Box::new(exprs.pop().ok_or(Error::InternalError(format!(
-                            "Aggreate function should have at latest one expr"
-                        )))?),
-                    })),
-                }
+                self.handle_function(&name, exprs)
             }
+            Expression::Cast { expr, data_type } => {
+                let expr = self.sql_to_expr(*expr)?;
+                Ok(expr.cast_to(&sql_to_arrow_data_type(&data_type)))
+            }
+            Expression::TypedString { data_type, value } => Ok(LogicalExpr::Cast(CastExpr {
+                expr: Box::new(LogicalExpr::Literal(ScalarValue::Utf8(Some(value)))),
+                data_type: sql_to_arrow_data_type(&data_type),
+            })),
+            Expression::Extract { field, expr } => self.handle_function(
+                "EXTRACT",
+                vec![
+                    LogicalExpr::Literal(ScalarValue::Utf8(Some(field.to_string()))),
+                    self.sql_to_expr(*expr)?,
+                ],
+            ),
+            Expression::IsNull(expr) => self.sql_to_expr(*expr).map(|expr| LogicalExpr::IsNull(Box::new(expr))),
+            Expression::IsNotNull(expr) => self
+                .sql_to_expr(*expr)
+                .map(|expr| LogicalExpr::IsNotNull(Box::new(expr))),
             _ => todo!("sql_to_expr: {:?}", expr),
         }
+    }
+
+    fn handle_function(&self, name: &str, mut exprs: Vec<LogicalExpr>) -> Result<LogicalExpr> {
+        // match name.to_uppercase().as_str() {
+        //     "VERSION" => {
+        //         if !exprs.is_empty() {
+        //             return Err(Error::InternalError(
+        //                 "VERSION function should not have any arguments".to_string(),
+        //             ));
+        //         }
+        //         Ok(LogicalExpr::Literal(ScalarValue::Utf8(Some(utils::version()))))
+        //     }
+        //     _ => ,
+        // }
+
+        if let Some(udf) = self.udfs.get(name.to_uppercase().as_str()) {
+            return Ok(LogicalExpr::Function(Function {
+                func: udf.clone(),
+                args: exprs,
+            }));
+        }
+
+        if let Ok(op) = name.try_into() {
+            return Ok(LogicalExpr::AggregateExpr(AggregateExpr {
+                op,
+                expr: Box::new(exprs.pop().ok_or(Error::InternalError(
+                    "Aggregate function should have at least one expr".to_string(),
+                ))?),
+            }));
+        }
+
+        internal_err!("Unknown function: {}", name)
     }
 
     fn sql_function_args_to_expr(&self, expr: Expression) -> Result<LogicalExpr> {
@@ -721,8 +766,20 @@ impl SqlQueryPlanner {
     fn parse_binary_op(&self, op: BinaryOperator) -> Result<LogicalExpr> {
         Ok(match op {
             BinaryOperator::Eq(l, r) => eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+            BinaryOperator::NotEq(l, r) => not_eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             BinaryOperator::Gt(l, r) => gt(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+            BinaryOperator::Gte(l, r) => gt_eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+            BinaryOperator::Lt(l, r) => lt(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+            BinaryOperator::Lte(l, r) => lt_eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+
+            BinaryOperator::Or(l, r) => or(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+            BinaryOperator::And(l, r) => and(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+
+            BinaryOperator::Sub(l, r) => sub(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+            BinaryOperator::Mul(l, r) => mul(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             BinaryOperator::Add(l, r) => add(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+            BinaryOperator::Div(l, r) => div(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
+
             _ => todo!("parse_binary_op: {:?}", op),
         })
     }
@@ -941,6 +998,9 @@ fn sql_to_arrow_data_type(data_type: &sqlparser::datatype::DataType) -> arrow::d
         sqlparser::datatype::DataType::Boolean => arrow::datatypes::DataType::Boolean,
         sqlparser::datatype::DataType::Float => arrow::datatypes::DataType::Float64,
         sqlparser::datatype::DataType::String => arrow::datatypes::DataType::Utf8,
+        sqlparser::datatype::DataType::Date => arrow::datatypes::DataType::Date32,
+        sqlparser::datatype::DataType::Timestamp => arrow::datatypes::DataType::Timestamp(TimeUnit::Millisecond, None),
+        sqlparser::datatype::DataType::Int16 => arrow::datatypes::DataType::Int16,
     }
 }
 
@@ -956,10 +1016,24 @@ mod tests {
         common::table_relation::TableRelation,
         datasource::file::{self, csv::CsvReadOptions},
         datatypes::scalar::ScalarValue,
+        functions::all_builtin_functions,
         utils,
     };
 
     use super::SqlQueryPlanner;
+
+    #[test]
+    fn test_udf() {
+        quick_test(
+            "SELECT my_udf(1, 2) AS result",
+            "Internal Error: Unknown function: my_udf",
+        );
+
+        quick_test(
+            "SELECT EXTRACT(YEAR FROM DATE '2022-09-08')",
+            "Projection: (EXTRACT(Utf8('YEAR'), CAST(Utf8('2022-09-08') AS Date32)))\n  Empty Relation\n",
+        );
+    }
 
     #[test]
     fn test_aggregate() {
@@ -973,7 +1047,7 @@ mod tests {
     fn test_insert() {
         quick_test(
             "INSERT INTO tbl VALUES (1), (2), (3);",
-            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (CAST(column1 AS Int32) AS id, CAST(Utf8(default_name) AS Utf8) AS name, CAST(null AS Int32) AS age)\n    Values: [[Int64(1)], [Int64(2)], [Int64(3)]]\n",
+            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (CAST(column1 AS Int32) AS id, CAST(Utf8('default_name') AS Utf8) AS name, CAST(null AS Int32) AS age)\n    Values: [[Int64(1)], [Int64(2)], [Int64(3)]]\n",
         );
         // insert with not exists column
         quick_test("INSERT INTO tbl(noexists,id,name) VALUES (1,1,'')", "Arrow Error: Schema error: Unable to get field named \"noexists\". Valid fields: [\"id\", \"name\", \"age\"]");
@@ -985,7 +1059,7 @@ mod tests {
         // insert values into the "i" column, inserting the default value into other columns
         quick_test(
             "INSERT INTO tbl(id,age) VALUES (1,10), (2,12), (3,13);",
-            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (CAST(column1 AS Int32) AS id, CAST(Utf8(default_name) AS Utf8) AS name, CAST(column2 AS Int32) AS age)\n    Values: [[Int64(1), Int64(10)], [Int64(2), Int64(12)], [Int64(3), Int64(13)]]\n",
+            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (CAST(column1 AS Int32) AS id, CAST(Utf8('default_name') AS Utf8) AS name, CAST(column2 AS Int32) AS age)\n    Values: [[Int64(1), Int64(10)], [Int64(2), Int64(12)], [Int64(3), Int64(13)]]\n",
         );
     }
 
@@ -1046,7 +1120,7 @@ mod tests {
     fn test_read_parquet() {
         quick_test(
             "select * from read_parquet('./tests/testdata/file/case2.parquet') where counter_id = '1'",
-            "Projection: (tmp_table(17b774f).counter_id, tmp_table(17b774f).currency, tmp_table(17b774f).market, tmp_table(17b774f).type)\n  Filter: tmp_table(17b774f).counter_id = Utf8(1)\n    TableScan: tmp_table(17b774f)\n",
+            "Projection: (tmp_table(17b774f).counter_id, tmp_table(17b774f).currency, tmp_table(17b774f).market, tmp_table(17b774f).type)\n  Filter: tmp_table(17b774f).counter_id = Utf8('1')\n    TableScan: tmp_table(17b774f)\n",
         );
     }
 
@@ -1295,7 +1369,11 @@ mod tests {
         );
 
         let stmt = Parser::new(sql).parse().unwrap();
-        let plan = SqlQueryPlanner::create_logical_plan(stmt, tables);
+        let udfs = all_builtin_functions()
+            .into_iter()
+            .map(|udf| (udf.name().to_uppercase().to_string(), udf))
+            .collect();
+        let plan = SqlQueryPlanner::create_logical_plan(stmt, tables, &udfs);
         match plan {
             Ok(plan) => assert_eq!(utils::format(&plan, 0), expected),
             Err(err) => assert_eq!(err.to_string(), expected),

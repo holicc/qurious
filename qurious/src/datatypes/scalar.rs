@@ -235,7 +235,7 @@ impl Display for ScalarValue {
             ScalarValue::Float64(None) => write!(f, "null"),
             ScalarValue::Float32(Some(v)) => write!(f, "Float32({})", v),
             ScalarValue::Float32(None) => write!(f, "null"),
-            ScalarValue::Utf8(Some(v)) => write!(f, "Utf8({})", v),
+            ScalarValue::Utf8(Some(v)) => write!(f, "Utf8('{}')", v),
             ScalarValue::Utf8(None) => write!(f, "null"),
         }
     }

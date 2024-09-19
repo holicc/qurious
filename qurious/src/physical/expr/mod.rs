@@ -2,12 +2,18 @@ mod aggregate;
 mod binary;
 mod cast;
 mod column;
+mod function;
+mod is_not_null;
+mod is_null;
 mod literal;
 
 pub use aggregate::{count::*, max::*, min::*, sum::*, Accumulator, AggregateExpr};
 pub use binary::BinaryExpr;
 pub use cast::CastExpr;
 pub use column::Column;
+pub use function::*;
+pub use is_not_null::*;
+pub use is_null::*;
 pub use literal::Literal;
 
 use std::fmt::{Debug, Display};

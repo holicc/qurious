@@ -10,6 +10,7 @@ pub mod physical;
 pub mod planner;
 pub mod utils;
 pub mod provider;
+pub mod functions;
 
 #[cfg(test)]
 pub mod test_utils;

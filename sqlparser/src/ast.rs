@@ -544,6 +544,62 @@ pub enum Expression {
         query: Box<Statement>,
         negated: bool,
     },
+    /// `CAST` an expression to a different data type e.g. `CAST(foo AS VARCHAR(123))`
+    Cast {
+        expr: Box<Expression>,
+        data_type: DataType,
+    },
+    /// This can represent ANSI SQL `DATE`, `TIME`, and `TIMESTAMP` literals (such as `DATE '2020-01-01'`),
+    TypedString {
+        data_type: DataType,
+        value: String,
+    },
+    /// Extract a field from a timestamp
+    Extract {
+        field: DateTimeField,
+        expr: Box<Expression>,
+    },
+    /// `IS NULL` operator
+    IsNull(Box<Expression>),
+    /// `IS NOT NULL` operator
+    IsNotNull(Box<Expression>),
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum DateTimeField {
+    Year,
+    Month,
+    Day,
+    Hour,
+    Minute,
+    Second,
+    Millisecond,
+    Microsecond,
+    Nanosecond,
+    DayOfWeek,
+    DayOfYear,
+    WeekOfYear,
+    Quarter,
+}
+
+impl Display for DateTimeField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DateTimeField::Year => write!(f, "YEAR"),
+            DateTimeField::Month => write!(f, "MONTH"),
+            DateTimeField::Day => write!(f, "DAY"),
+            DateTimeField::Hour => write!(f, "HOUR"),
+            DateTimeField::Minute => write!(f, "MINUTE"),
+            DateTimeField::Second => write!(f, "SECOND"),
+            DateTimeField::Millisecond => write!(f, "MILLISECOND"),
+            DateTimeField::Microsecond => write!(f, "MICROSECOND"),
+            DateTimeField::Nanosecond => write!(f, "NANOSECOND"),
+            DateTimeField::DayOfWeek => write!(f, "DOW"),
+            DateTimeField::DayOfYear => write!(f, "DOY"),
+            DateTimeField::WeekOfYear => write!(f, "WEEK"),
+            DateTimeField::Quarter => write!(f, "QUARTER"),
+        }
+    }
 }
 
 impl Display for Expression {
@@ -596,6 +652,17 @@ impl Display for Expression {
                 "{}",
                 idents.iter().map(|i| i.to_string()).collect::<Vec<String>>().join(".")
             ),
+            Expression::Cast { expr, data_type } => {
+                write!(f, "CAST({} AS {})", expr, data_type)
+            }
+            Expression::TypedString { data_type, value } => {
+                write!(f, "{} '{}'", data_type, value)
+            }
+            Expression::Extract { field, expr } => {
+                write!(f, "EXTRACT({} FROM {})", field, expr)
+            }
+            Expression::IsNull(expression) => write!(f, "{} IS NULL", expression),
+            Expression::IsNotNull(expression) => write!(f, "{} IS NOT NULL", expression),
         }
     }
 }
