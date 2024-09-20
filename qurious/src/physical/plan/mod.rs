@@ -11,7 +11,7 @@ mod values;
 pub use aggregate::*;
 pub use empty::EmptyRelation;
 pub use filter::Filter;
-pub use join::{join_schema, ColumnIndex, CrossJoin, Join, JoinFilter, JoinSide};
+pub use join::*;
 pub use limit::Limit;
 pub use projection::Projection;
 pub use scan::Scan;

@@ -480,6 +480,12 @@ impl<'a> SqlQueryPlanner<'a> {
                         let left = self.table_scan_to_plan(vec![*left])?;
                         let right = self.table_scan_to_plan(vec![*right])?;
 
+                        if sqlparser::ast::JoinType::Cross == join_type {
+                            return LogicalPlanBuilder::from(left)
+                                .cross_join(right)
+                                .map(|builder| builder.build());
+                        }
+
                         let filter_expr = on
                             .ok_or(Error::InternalError("Join clause requires an ON clause".to_owned()))
                             .and_then(|expr| self.sql_to_expr(expr))?;
@@ -501,10 +507,8 @@ impl<'a> SqlQueryPlanner<'a> {
                 }
             }
             _ => {
-                // handle cross join
                 let mut plans = froms.into_iter().map(|f| self.table_scan_to_plan(vec![f]));
-
-                let mut left = LogicalPlanBuilder::from(plans.next().unwrap()?);
+                let mut left = LogicalPlanBuilder::from(plans.next().expect("")?);
 
                 for right in plans {
                     left = left.cross_join(right?)?;
