@@ -241,6 +241,7 @@ impl Token {
             TokenType::Keyword(Keyword::Date) => Ok(DataType::Date),
             TokenType::Keyword(Keyword::Datetime) => Ok(DataType::Timestamp),
             TokenType::Keyword(Keyword::VarChar) => Ok(DataType::String),
+            TokenType::Keyword(Keyword::Double) => Ok(DataType::Float),
             _ => Err(Error::UnKnownDataType(self.clone())),
         }
     }

@@ -62,7 +62,11 @@ impl AsyncDB for &TestSession {
     type ColumnType = DefaultColumnType;
 
     async fn run(&mut self, sql: &str) -> Result<DBOutput<Self::ColumnType>, Self::Error> {
-        log::info!("Running SQL: {}", sql);
+        log::info!(
+            "Running SQL[{}]: {}",
+            self.path.file_name().unwrap().to_string_lossy(),
+            sql
+        );
 
         let is_query_sql = {
             let lower_sql = sql.trim_start().to_ascii_lowercase();

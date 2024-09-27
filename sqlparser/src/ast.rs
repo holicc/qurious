@@ -563,6 +563,31 @@ pub enum Expression {
     IsNull(Box<Expression>),
     /// `IS NOT NULL` operator
     IsNotNull(Box<Expression>),
+    /// `NOT foo` Unary operator
+    UnaryOperator {
+        op: UnaryOperator,
+        expr: Box<Expression>,
+    },
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum UnaryOperator {
+    /// Plus, e.g. `+9`
+    Plus,
+    /// Minus, e.g. `-9`
+    Minus,
+    /// Not, e.g. `NOT(true)`
+    Not,
+}
+
+impl Display for UnaryOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UnaryOperator::Plus => write!(f, "+"),
+            UnaryOperator::Minus => write!(f, "-"),
+            UnaryOperator::Not => write!(f, "NOT "),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -663,6 +688,9 @@ impl Display for Expression {
             }
             Expression::IsNull(expression) => write!(f, "{} IS NULL", expression),
             Expression::IsNotNull(expression) => write!(f, "{} IS NOT NULL", expression),
+            Expression::UnaryOperator { op, expr } => {
+                write!(f, "{}{}", op, expr)
+            }
         }
     }
 }
@@ -803,7 +831,6 @@ impl TryInto<bool> for Literal {
 #[derive(Clone, PartialEq, Debug)]
 pub enum BinaryOperator {
     // Logical
-    Not(Box<Expression>),
     Eq(Box<Expression>, Box<Expression>),
     NotEq(Box<Expression>, Box<Expression>),
     And(Box<Expression>, Box<Expression>),
@@ -818,17 +845,12 @@ pub enum BinaryOperator {
     Sub(Box<Expression>, Box<Expression>),
     Mul(Box<Expression>, Box<Expression>),
     Div(Box<Expression>, Box<Expression>),
-    Neg(Box<Expression>),
-    Pos(Box<Expression>),
 }
 
 impl Display for BinaryOperator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BinaryOperator::Not(e) => write!(f, "NOT {}", e),
             BinaryOperator::Sub(l, r) => write!(f, "{} - {}", l, r),
-            BinaryOperator::Neg(e) => write!(f, "-{}", e),
-            BinaryOperator::Pos(r) => write!(f, "+{}", r),
             BinaryOperator::Add(l, r) => write!(f, "{} + {}", l, r),
             BinaryOperator::Mul(l, r) => write!(f, "{} * {}", l, r),
             BinaryOperator::Div(l, r) => write!(f, "{} / {}", l, r),

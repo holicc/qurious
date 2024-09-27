@@ -50,6 +50,25 @@ macro_rules! build_timestamp_array {
         Ok(Arc::new($ARRY_TYPE::from_value(val, $size).with_timezone_opt($tz)))
     }};
 }
+
+#[macro_export]
+macro_rules! cast_and_get_scalar {
+    ($array: expr, $ARRAYTYPE: ident, $index: expr,$SCLARA: ident ) => {{
+        use arrow::array::Array;
+        let pary = $array
+            .as_any()
+            .downcast_ref::<arrow::array::$ARRAYTYPE>()
+            .ok_or(Error::InternalError(format!(
+                "could not cast value to {}",
+                stringify!($ARRAYTYPE)
+            )))?;
+        if pary.is_null($index) {
+            return Ok(ScalarValue::$SCLARA(None));
+        }
+        Ok(ScalarValue::$SCLARA(Some(pary.value($index))))
+    }};
+}
+
 pub fn repeat_array(ary: &ArrayRef, index: usize, size: usize) -> Result<ArrayRef> {
     match ary.data_type() {
         arrow::datatypes::DataType::Null => Ok(new_null_array(ary.data_type(), size)),

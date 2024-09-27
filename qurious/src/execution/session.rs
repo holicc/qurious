@@ -81,7 +81,6 @@ impl ExecuteSession {
 
     pub fn execute_logical_plan(&self, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
         let plan = self.optimizer.optimize(plan)?;
-
         match &plan {
             LogicalPlan::Ddl(ddl) => self.execute_ddl(ddl),
             LogicalPlan::Dml(stmt) => self.execute_dml(stmt),
@@ -255,14 +254,19 @@ mod tests {
         let session = ExecuteSession::new()?;
         session.sql("create table a(v1 int, v2 int);")?;
         session.sql("create table b(v3 int, v4 int);")?;
+        session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
 
         // session.sql("create table x(a int, b int);")?;
         // session.sql("create table y(c int, d int);")?;
 
-        session.sql("insert into a values (1, 1), (2, 2), (3, 3);")?;
-        session.sql("insert into b values (1, 100), (3, 300), (4, 400);")?;
+        println!("++++++++++++++");
 
-        let batch = session.sql("select v1, v2, v3, v4 from a full join b on v1 = v3;")?;
+        // session.sql("insert into a values (1, 1), (2, 2), (3, 3);")?;
+        // session.sql("insert into b values (1, 100), (3, 300), (4, 400);")?;
+        session.sql("insert into t values(1,4,2.5), (2,3,3.2), (3,4,4.7), (4,3,5.1)")?;
+
+
+        let batch = session.sql("select -1")?;
         // let batch = session.sql("select 1 > null")?;
 
         print_batches(&batch)?;

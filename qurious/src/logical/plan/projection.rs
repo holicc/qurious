@@ -17,7 +17,15 @@ impl Projection {
         Ok(Self {
             schema: exprs
                 .iter()
-                .map(|f| f.field(&input))
+                .map(|f| {
+                    println!("input: {:?} f: {:?}", input, f);
+
+                    let r = f.field(&input);
+
+                    println!("r: {:?}", r);
+
+                    r
+                })
                 .collect::<Result<Vec<FieldRef>>>()
                 .map(|fields| Arc::new(Schema::new(fields)))?,
             input: Box::new(input),

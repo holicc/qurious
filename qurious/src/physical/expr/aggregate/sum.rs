@@ -1,12 +1,13 @@
 use std::fmt::Debug;
 use std::{fmt::Display, sync::Arc};
 
-use arrow::array::{ArrayRef, ArrowNativeTypeOp, ArrowNumericType, AsArray};
+use arrow::array::{ArrayRef, ArrowNativeTypeOp, ArrowNumericType, AsArray, PrimitiveArray};
 use arrow::compute;
-use arrow::datatypes::{ArrowNativeType, DataType, Decimal128Type, Decimal256Type, Float64Type, Int64Type, UInt64Type};
+use arrow::datatypes::{DataType, Decimal128Type, Decimal256Type, Float64Type, Int64Type, UInt64Type};
 
 use super::{Accumulator, AggregateExpr};
 use crate::error::{Error, Result};
+use crate::{cast_and_get_scalar, internal_err};
 use crate::{datatypes::scalar::ScalarValue, physical::expr::PhysicalExpr};
 
 #[derive(Debug)]
@@ -75,17 +76,22 @@ impl<T: ArrowNumericType> Accumulator for SumAccumulator<T> {
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
-        let val = self
-            .sum
-            .ok_or(Error::InternalError("No value to evaluate".to_string()))?;
+        match self.sum {
+            Some(v) => {
+                let array = PrimitiveArray::<T>::new(vec![v].into(), None);
 
-        match T::DATA_TYPE {
-            DataType::UInt64 => Ok(ScalarValue::UInt64(val.to_usize().map(|x| x as u64))),
-            DataType::Int64 => Ok(ScalarValue::Int64(val.to_usize().map(|x| x as i64))),
-            // DataType::Float64 => Ok(ScalarValue::Float64(val)),
-            // DataType::Decimal128(_, _) => Box::new(SumAccumulator::<Decimal128Type>::new()),
-            // DataType::Decimal256(_, _) => Box::new(SumAccumulator::<Decimal256Type>::new()),
-            _ => Err(Error::InternalError(format!("Sum not supported for {}", T::DATA_TYPE))),
+                match T::DATA_TYPE {
+                    DataType::Null => Ok(ScalarValue::Null),
+                    DataType::Boolean => cast_and_get_scalar!(array, BooleanArray, 0, Boolean),
+                    DataType::Int8 => cast_and_get_scalar!(array, Int8Array, 0, Int8),
+                    DataType::Int16 => cast_and_get_scalar!(array, Int16Array, 0, Int16),
+                    DataType::Int32 => cast_and_get_scalar!(array, Int32Array, 0, Int32),
+                    DataType::Int64 => cast_and_get_scalar!(array, Int64Array, 0, Int64),
+                    DataType::Float64 => cast_and_get_scalar!(array, Float64Array, 0, Float64),
+                    _ => internal_err!("Unsupported data type: {}", T::DATA_TYPE),
+                }
+            }
+            None => Ok(ScalarValue::Null),
         }
     }
 }

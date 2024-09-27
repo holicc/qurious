@@ -41,10 +41,11 @@ pub enum LogicalExpr {
     Function(Function),
     IsNull(Box<LogicalExpr>),
     IsNotNull(Box<LogicalExpr>),
+    Negative(Box<LogicalExpr>),
 }
 
 macro_rules! impl_logical_expr_methods {
-    ($($variant:ident),+) => {
+    ($($variant:ident),+ $(,)?) => {
         impl LogicalExpr {
             pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
                 let base_plan = base_plan(plan);
@@ -61,19 +62,6 @@ macro_rules! impl_logical_expr_methods {
                 }
             }
         }
-
-        impl Display for LogicalExpr {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                match self {
-                    $(
-                        LogicalExpr::$variant(e) => write!(f, "{}", e),
-                    )+
-                    LogicalExpr::Literal(v) => write!(f, "{}", v),
-                    LogicalExpr::Wildcard => write!(f, "*"),
-                    _ => write!(f, "{}", self),
-                }
-            }
-        }
     };
 }
 
@@ -85,7 +73,19 @@ impl_logical_expr_methods! {
     Cast,
     Function,
     IsNotNull,
-    IsNull
+    IsNull,
+    Negative,
+}
+
+impl Display for LogicalExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogicalExpr::Negative(e) => write!(f, "- {}", e),
+            LogicalExpr::Literal(v) => write!(f, "{}", v),
+            LogicalExpr::Wildcard => write!(f, "*"),
+            _ => write!(f, "{}", self),
+        }
+    }
 }
 
 impl LogicalExpr {

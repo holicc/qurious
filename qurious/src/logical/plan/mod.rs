@@ -73,17 +73,34 @@ pub enum LogicalPlan {
 }
 
 impl LogicalPlan {
+    /// Get the relation of the logical plan.
+    /// eg:
+    ///     Projection: [name as a, age]
+    ///         TableScan: people -> [name, age]
+    /// The relation of the above plan is:  [(TableRelation('people'),SchemaRef('a','age'))]
     pub fn relation(&self) -> Vec<(&TableRelation, SchemaRef)> {
         if let LogicalPlan::TableScan(scan) = self {
             return vec![(&scan.relation, scan.schema())];
         }
 
-        self.children()
-            .unwrap_or_default()
-            .iter()
-            .map(|c| c.relation())
-            .flatten()
-            .collect()
+        let mut result = vec![];
+        let mut list = vec![self];
+
+        let mut schema = None;
+        while let Some(plan) = list.pop() {
+            if schema.is_none() {
+                schema = Some(plan.schema());
+            }
+            if let LogicalPlan::TableScan(scan) = plan {
+                result.push((&scan.relation, schema.take().unwrap()));
+            } else {
+                if let Some(children) = plan.children() {
+                    list.extend(children);
+                }
+            }
+        }
+
+        result
     }
 
     pub fn schema(&self) -> SchemaRef {

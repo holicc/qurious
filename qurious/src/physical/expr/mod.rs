@@ -6,6 +6,7 @@ mod function;
 mod is_not_null;
 mod is_null;
 mod literal;
+mod negative;
 
 pub use aggregate::{count::*, max::*, min::*, sum::*, Accumulator, AggregateExpr};
 pub use binary::BinaryExpr;
@@ -15,6 +16,7 @@ pub use function::*;
 pub use is_not_null::*;
 pub use is_null::*;
 pub use literal::Literal;
+pub use negative::*;
 
 use std::fmt::{Debug, Display};
 

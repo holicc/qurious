@@ -1020,9 +1020,18 @@ impl Operator for PrefixOperator {
 impl PrefixOperator {
     fn build(&self, rhs: Expression) -> Expression {
         match self {
-            PrefixOperator::Plus => Expression::BinaryOperator(ast::BinaryOperator::Pos(Box::new(rhs))),
-            PrefixOperator::Minus => Expression::BinaryOperator(ast::BinaryOperator::Neg(Box::new(rhs))),
-            PrefixOperator::Not => Expression::BinaryOperator(ast::BinaryOperator::Not(Box::new(rhs))),
+            PrefixOperator::Plus => Expression::UnaryOperator {
+                op: ast::UnaryOperator::Plus,
+                expr: Box::new(rhs),
+            },
+            PrefixOperator::Minus => Expression::UnaryOperator {
+                op: ast::UnaryOperator::Minus,
+                expr: Box::new(rhs),
+            },
+            PrefixOperator::Not => Expression::UnaryOperator {
+                op: ast::UnaryOperator::Not,
+                expr: Box::new(rhs),
+            },
             PrefixOperator::Date => Expression::TypedString {
                 data_type: DataType::Date,
                 value: rhs.to_string(),
@@ -1092,55 +1101,27 @@ impl Operator for InfixOperator {
 
 impl InfixOperator {
     pub fn build(&self, lhr: Expression, rhs: Expression) -> Result<Expression> {
+        macro_rules! build_binary_operator {
+            ($variant:ident) => {
+                Ok(Expression::BinaryOperator(ast::BinaryOperator::$variant(
+                    Box::new(lhr),
+                    Box::new(rhs),
+                )))
+            };
+        }
         match self {
-            InfixOperator::Add => Ok(Expression::BinaryOperator(ast::BinaryOperator::Add(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::Sub => Ok(Expression::BinaryOperator(ast::BinaryOperator::Sub(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::Mul => Ok(Expression::BinaryOperator(ast::BinaryOperator::Mul(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::Div => Ok(Expression::BinaryOperator(ast::BinaryOperator::Div(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::Gt => Ok(Expression::BinaryOperator(ast::BinaryOperator::Gt(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::Gte => Ok(Expression::BinaryOperator(ast::BinaryOperator::Gte(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::Lt => Ok(Expression::BinaryOperator(ast::BinaryOperator::Lt(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::Lte => Ok(Expression::BinaryOperator(ast::BinaryOperator::Lte(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::Eq => Ok(Expression::BinaryOperator(ast::BinaryOperator::Eq(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::NotEq => Ok(Expression::BinaryOperator(ast::BinaryOperator::NotEq(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::And => Ok(Expression::BinaryOperator(ast::BinaryOperator::And(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
-            InfixOperator::Or => Ok(Expression::BinaryOperator(ast::BinaryOperator::Or(
-                Box::new(lhr),
-                Box::new(rhs),
-            ))),
+            InfixOperator::Add => build_binary_operator!(Add),
+            InfixOperator::Sub => build_binary_operator!(Sub),
+            InfixOperator::Mul => build_binary_operator!(Mul),
+            InfixOperator::Div => build_binary_operator!(Div),
+            InfixOperator::Gt => build_binary_operator!(Gt),
+            InfixOperator::Gte => build_binary_operator!(Gte),
+            InfixOperator::Lt => build_binary_operator!(Lt),
+            InfixOperator::Lte => build_binary_operator!(Lte),
+            InfixOperator::Eq => build_binary_operator!(Eq),
+            InfixOperator::NotEq => build_binary_operator!(NotEq),
+            InfixOperator::And => build_binary_operator!(And),
+            InfixOperator::Or => build_binary_operator!(Or),
             _ => return Err(Error::UnKnownInfixOperator(format!("{:?}", self))),
         }
     }
@@ -2106,10 +2087,8 @@ mod tests {
 
     #[test]
     fn test_parse_select_statement() {
-        let stmt = parse_stmt("SELECT * FROM users;").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2124,13 +2103,11 @@ mod tests {
                 r#where: None,
                 group_by: None,
                 having: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT 1").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT 1",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2142,13 +2119,30 @@ mod tests {
                 r#where: None,
                 group_by: None,
                 having: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT id,t.id FROM test as t;").unwrap();
+        assert_stmt_eq(
+            "SELECT -1",
+            ast::Statement::Select(Box::new(Select {
+                with: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+                distinct: None,
+                columns: vec![SelectItem::UnNamedExpr(ast::Expression::UnaryOperator {
+                    op: ast::UnaryOperator::Minus,
+                    expr: Box::new(ast::Expression::Literal(ast::Literal::Int(1))),
+                })],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+            })),
+        );
 
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT id,t.id FROM test as t;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2166,13 +2160,11 @@ mod tests {
                 r#where: None,
                 group_by: None,
                 having: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT t.* FROM person as t").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT t.* FROM person as t",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -2187,7 +2179,7 @@ mod tests {
                 r#where: None,
                 group_by: None,
                 having: None,
-            }))
+            })),
         );
     }
 
@@ -3430,9 +3422,10 @@ mod tests {
 
         assert_eq!(
             stmt,
-            Expression::BinaryOperator(ast::BinaryOperator::Neg(Box::new(Expression::Literal(
-                ast::Literal::Int(123)
-            ))))
+            Expression::UnaryOperator {
+                op: ast::UnaryOperator::Minus,
+                expr: Box::new(Expression::Literal(ast::Literal::Int(123))),
+            }
         );
     }
 
@@ -3526,9 +3519,10 @@ mod tests {
             (
                 "-a * b",
                 Expression::BinaryOperator(ast::BinaryOperator::Mul(
-                    Box::new(Expression::BinaryOperator(ast::BinaryOperator::Neg(Box::new(
-                        Expression::Identifier("a".into()),
-                    )))),
+                    Box::new(Expression::UnaryOperator {
+                        op: ast::UnaryOperator::Minus,
+                        expr: Box::new(Expression::Identifier("a".into())),
+                    }),
                     Box::new(Expression::Identifier("b".into())),
                 )),
             ),
@@ -3590,12 +3584,13 @@ mod tests {
             ),
             (
                 "-(5 + 5)",
-                Expression::BinaryOperator(ast::BinaryOperator::Neg(Box::new(Expression::BinaryOperator(
-                    ast::BinaryOperator::Add(
+                Expression::UnaryOperator {
+                    op: ast::UnaryOperator::Minus,
+                    expr: (Box::new(Expression::BinaryOperator(ast::BinaryOperator::Add(
                         Box::new(Expression::Literal(ast::Literal::Int(5))),
                         Box::new(Expression::Literal(ast::Literal::Int(5))),
-                    ),
-                )))),
+                    )))),
+                },
             ),
         ];
 

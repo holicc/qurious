@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use arrow::{
     array::{
-        downcast_array, new_empty_array, new_null_array, ArrayData, AsArray, BooleanBufferBuilder, RecordBatch,
-        RecordBatchOptions, UInt32Array, UInt32Builder, UInt64Array, UInt64Builder,
+        downcast_array, new_null_array, ArrayData, AsArray, BooleanBufferBuilder, RecordBatch, RecordBatchOptions,
+        UInt32Array, UInt32Builder, UInt64Array, UInt64Builder,
     },
     compute::{self, concat_batches},
-    datatypes::{DataType, Field, Schema, SchemaBuilder, SchemaRef, UInt32Type},
+    datatypes::{DataType, Field, Schema, SchemaBuilder, SchemaRef},
 };
 
 use crate::{
@@ -86,9 +86,6 @@ impl PhysicalPlan for Join {
             return Ok(vec![]);
         }
 
-        let mut visited_left_indices = build_bitmap(&self.join_type, left_batch.num_rows());
-        let mut visited_right_indices = build_bitmap(&self.join_type, right_batch.num_rows());
-
         // build indices for left table and right table
         // create intermediate record batches for indices and filter
         // apply mask to left and right record batches and take columns
@@ -107,6 +104,9 @@ impl PhysicalPlan for Join {
             return Ok(vec![matched_batch]);
         }
 
+        let mut visited_left_indices = build_bitmap(&self.join_type, left_batch.num_rows());
+        let mut visited_right_indices = build_bitmap(&self.join_type, right_batch.num_rows());
+
         li.values().iter().for_each(|i| {
             if visited_left_indices.len() > 0 {
                 visited_left_indices.set_bit(*i as usize, true)
@@ -118,65 +118,42 @@ impl PhysicalPlan for Join {
             }
         });
 
-        let (left_indices, right_indices) = match self.join_type {
-            JoinType::Left => {
-                let left_indices = (0..visited_left_indices.len())
-                    .filter_map(|i| (!visited_left_indices.get_bit(i)).then_some(i as u64))
-                    .collect::<UInt64Array>();
+        let mut l = UInt64Builder::new();
+        let mut r = UInt32Builder::new();
 
-                let mut right_indices = UInt32Builder::with_capacity(left_indices.len());
-                right_indices.append_nulls(left_indices.len());
-                let right_indices = right_indices.finish();
-                (left_indices, right_indices)
-            }
-            JoinType::Right => {
-                let right_indices = (0..visited_right_indices.len())
-                    .filter_map(|i| (!visited_right_indices.get_bit(i)).then_some(i as u32))
-                    .collect::<UInt32Array>();
+        if self.join_type == JoinType::Left || self.join_type == JoinType::Full {
+            let left_indices = (0..visited_left_indices.len())
+                .filter_map(|i| (!visited_left_indices.get_bit(i)).then_some(i as u64))
+                .collect::<UInt64Array>();
 
-                let mut left_indices = UInt64Builder::with_capacity(right_indices.len());
-                left_indices.append_nulls(right_indices.len());
-                let left_indices = left_indices.finish();
-                (left_indices, right_indices)
-            }
-            JoinType::Full => {
-                let mut l = UInt64Builder::new();
-                let mut r = UInt32Builder::new();
+            let mut right_indices = UInt32Builder::with_capacity(left_indices.len());
+            right_indices.append_nulls(left_indices.len());
+            let right_indices = right_indices.finish();
 
-                let left_indices_1 = (0..visited_left_indices.len())
-                    .filter_map(|i| (!visited_left_indices.get_bit(i)).then_some(i as u64))
-                    .collect::<UInt64Array>();
+            l.extend(left_indices.iter());
+            r.extend(right_indices.iter());
+        }
 
-                let mut right_indices = UInt32Builder::with_capacity(left_indices_1.len());
-                right_indices.append_nulls(left_indices_1.len());
-                let right_indices_1 = right_indices.finish();
+        if self.join_type == JoinType::Right || self.join_type == JoinType::Full {
+            let right_indices = (0..visited_right_indices.len())
+                .filter_map(|i| (!visited_right_indices.get_bit(i)).then_some(i as u32))
+                .collect::<UInt32Array>();
 
-                l.extend(left_indices_1.iter());
-                r.extend(right_indices_1.iter());
+            let mut left_indices = UInt64Builder::with_capacity(right_indices.len());
+            left_indices.append_nulls(right_indices.len());
+            let left_indices = left_indices.finish();
 
-                let right_indices_2 = (0..visited_right_indices.len())
-                    .filter_map(|i| (!visited_right_indices.get_bit(i)).then_some(i as u32))
-                    .collect::<UInt32Array>();
-
-                let mut left_indices = UInt64Builder::with_capacity(right_indices_2.len());
-                left_indices.append_nulls(right_indices_2.len());
-                let left_indices_2 = left_indices.finish();
-
-                l.extend(left_indices_2.iter());
-                r.extend(right_indices_2.iter());
-
-                (l.finish(), r.finish())
-            }
-            _ => unreachable!(),
-        };
+            l.extend(left_indices.iter());
+            r.extend(right_indices.iter());
+        }
 
         let unmatched_batch = build_batch_from_indices(
             self.schema.clone(),
             &self.column_indices,
             &left_batch,
             &right_batch,
-            &left_indices,
-            &right_indices,
+            &l.finish(),
+            &r.finish(),
         )?;
 
         Ok(vec![matched_batch, unmatched_batch])

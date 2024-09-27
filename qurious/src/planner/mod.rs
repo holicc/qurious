@@ -24,7 +24,7 @@ use crate::{
     },
     physical::{
         self,
-        expr::{IsNotNull, IsNull, PhysicalExpr},
+        expr::{IsNotNull, IsNull, Negative, PhysicalExpr},
         plan::{ColumnIndex, JoinFilter, JoinSide, PhysicalPlan},
     },
 };
@@ -88,6 +88,9 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalExpr::IsNotNull(f) => self
                 .create_physical_expr(input_schema, f)
                 .map(|expr| Arc::new(IsNotNull::new(expr)) as Arc<dyn PhysicalExpr>),
+            LogicalExpr::Negative(neg) => self
+                .create_physical_expr(input_schema, neg)
+                .map(|expr| Arc::new(Negative::new(expr)) as Arc<dyn PhysicalExpr>),
             _ => unimplemented!("unsupported logical expression: {:?}", expr),
         }
     }
@@ -282,21 +285,28 @@ pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
     expr: LogicalExpr,
     schemas: &[&[(&TableRelation, SchemaRef)]],
 ) -> Result<LogicalExpr> {
-
     fn normalize_boxed(expr: Box<LogicalExpr>, schemas: &[&[(&TableRelation, SchemaRef)]]) -> Result<Box<LogicalExpr>> {
         normalize_col_with_schemas_and_ambiguity_check(*expr, schemas).map(Box::new)
     }
 
     match expr {
-        LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => normalize_boxed(expr, schemas).map(|expr| LogicalExpr::AggregateExpr(AggregateExpr { op, expr })),
-        LogicalExpr::SortExpr(SortExpr { expr, asc }) => normalize_boxed(expr, schemas).map(|expr| LogicalExpr::SortExpr(SortExpr { expr, asc })),
-        LogicalExpr::Alias(Alias { expr, name }) => normalize_boxed(expr, schemas).map(|expr| LogicalExpr::Alias(Alias { expr, name })),
+        LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => {
+            normalize_boxed(expr, schemas).map(|expr| LogicalExpr::AggregateExpr(AggregateExpr { op, expr }))
+        }
+        LogicalExpr::SortExpr(SortExpr { expr, asc }) => {
+            normalize_boxed(expr, schemas).map(|expr| LogicalExpr::SortExpr(SortExpr { expr, asc }))
+        }
+        LogicalExpr::Alias(Alias { expr, name }) => {
+            normalize_boxed(expr, schemas).map(|expr| LogicalExpr::Alias(Alias { expr, name }))
+        }
         LogicalExpr::BinaryExpr(BinaryExpr { left, op, right }) => {
             let left = normalize_boxed(left, schemas)?;
             let right = normalize_boxed(right, schemas)?;
             Ok(LogicalExpr::BinaryExpr(BinaryExpr { left, op, right }))
-        },
-        LogicalExpr::Column(col) => col.normalize_col_with_schemas_and_ambiguity_check(schemas).map(LogicalExpr::Column),
+        }
+        LogicalExpr::Column(col) => col
+            .normalize_col_with_schemas_and_ambiguity_check(schemas)
+            .map(LogicalExpr::Column),
         LogicalExpr::IsNull(expr) => normalize_boxed(expr, schemas).map(LogicalExpr::IsNull),
         LogicalExpr::IsNotNull(expr) => normalize_boxed(expr, schemas).map(LogicalExpr::IsNotNull),
         _ => Ok(expr),

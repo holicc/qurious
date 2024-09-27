@@ -724,23 +724,15 @@ impl<'a> SqlQueryPlanner<'a> {
             Expression::IsNotNull(expr) => self
                 .sql_to_expr(*expr)
                 .map(|expr| LogicalExpr::IsNotNull(Box::new(expr))),
+            Expression::UnaryOperator { op, expr } => self.sql_to_expr(*expr).map(|expr| match op {
+                sqlparser::ast::UnaryOperator::Minus => LogicalExpr::Negative(Box::new(expr)),
+                _ => todo!("UnaryOperator: {:?}", expr),
+            }),
             _ => todo!("sql_to_expr: {:?}", expr),
         }
     }
 
     fn handle_function(&self, name: &str, mut exprs: Vec<LogicalExpr>) -> Result<LogicalExpr> {
-        // match name.to_uppercase().as_str() {
-        //     "VERSION" => {
-        //         if !exprs.is_empty() {
-        //             return Err(Error::InternalError(
-        //                 "VERSION function should not have any arguments".to_string(),
-        //             ));
-        //         }
-        //         Ok(LogicalExpr::Literal(ScalarValue::Utf8(Some(utils::version()))))
-        //     }
-        //     _ => ,
-        // }
-
         if let Some(udf) = self.udfs.get(name.to_uppercase().as_str()) {
             return Ok(LogicalExpr::Function(Function {
                 func: udf.clone(),
@@ -775,16 +767,12 @@ impl<'a> SqlQueryPlanner<'a> {
             BinaryOperator::Gte(l, r) => gt_eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             BinaryOperator::Lt(l, r) => lt(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             BinaryOperator::Lte(l, r) => lt_eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-
             BinaryOperator::Or(l, r) => or(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             BinaryOperator::And(l, r) => and(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-
             BinaryOperator::Sub(l, r) => sub(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             BinaryOperator::Mul(l, r) => mul(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             BinaryOperator::Add(l, r) => add(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             BinaryOperator::Div(l, r) => div(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
-
-            _ => todo!("parse_binary_op: {:?}", op),
         })
     }
 
@@ -914,6 +902,7 @@ fn find_aggregate_exprs(exprs: &Vec<LogicalExpr>) -> Vec<AggregateExpr> {
         .iter()
         .flat_map(|expr| match expr {
             LogicalExpr::AggregateExpr(aggr) => vec![(aggr.clone())],
+            LogicalExpr::Alias(alias) => find_aggregate_exprs(&vec![alias.expr.as_ref().clone()]),
             LogicalExpr::BinaryExpr(BinaryExpr { left, right, .. }) => {
                 let mut left = find_aggregate_exprs(&vec![left.as_ref().clone()]);
                 let mut right = find_aggregate_exprs(&vec![right.as_ref().clone()]);
@@ -1139,6 +1128,8 @@ mod tests {
     #[test]
     fn test_empty_relation() {
         quick_test("SELECT 1", "Projection: (Int64(1))\n  Empty Relation\n");
+
+        quick_test("SELECT -1", "Projection: (- Int64(1))\n  Empty Relation\n");
     }
 
     #[test]
@@ -1290,6 +1281,11 @@ mod tests {
         quick_test(
             "SELECT name FROM person ORDER BY name",
             "Sort: person.name ASC\n  Projection: (person.name)\n    TableScan: person\n",
+        );
+
+        quick_test(
+            "SELECT name as a FROM person ORDER BY a",
+            "Sort: a ASC\n  Projection: (person.name)\n    TableScan: person\n",
         );
     }
 
