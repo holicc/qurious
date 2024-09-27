@@ -3,7 +3,6 @@ use crate::error::{Error, Result};
 use crate::physical::expr::AggregateExpr;
 use crate::physical::plan::PhysicalPlan;
 use arrow::array::RecordBatch;
-use arrow::compute::concat;
 use arrow::datatypes::SchemaRef;
 use std::sync::Arc;
 
@@ -43,15 +42,13 @@ impl PhysicalPlan for NoGroupingAggregate {
                     .iter()
                     .map(|batch| expr.expression().evaluate(&batch))
                     .collect::<Result<Vec<_>>>()
-                    .and_then(|array| {
-                        let array_ref = array.iter().map(|v| v.as_ref()).collect::<Vec<_>>();
-                        concat(&array_ref).map_err(|e| arrow_err!(e))
-                    })
             })
             .collect::<Result<Vec<_>>>()?;
 
-        for (accum, value) in accums.iter_mut().zip(values.iter()) {
-            accum.accumluate(value)?;
+        for (accum, values) in accums.iter_mut().zip(values.iter()) {
+            for ele in values {
+                accum.accumluate(ele)?;
+            }
         }
 
         let columns = accums

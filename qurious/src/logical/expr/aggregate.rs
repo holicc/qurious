@@ -71,7 +71,7 @@ impl AggregateExpr {
             Arc::new(Field::new(
                 format!("{}({})", self.op, col_name),
                 field.data_type().clone(),
-                false,
+                true,
             ))
         })
     }

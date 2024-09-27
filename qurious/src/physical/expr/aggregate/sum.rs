@@ -91,7 +91,7 @@ impl<T: ArrowNumericType> Accumulator for SumAccumulator<T> {
                     _ => internal_err!("Unsupported data type: {}", T::DATA_TYPE),
                 }
             }
-            None => Ok(ScalarValue::Null),
+            None => ScalarValue::try_from(T::DATA_TYPE),
         }
     }
 }

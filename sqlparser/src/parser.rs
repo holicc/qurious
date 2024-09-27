@@ -88,7 +88,7 @@ impl<'a> Parser<'a> {
                 }
                 let mut nullable = true;
                 let name = self.next_ident()?;
-                let datatype = self.next_token().and_then(|t| t.datatype())?;
+                let datatype = self.parse_data_type()?;
                 let primary_key = if self.next_if_token(TokenType::Keyword(Keyword::Primary)).is_some() {
                     self.next_except(TokenType::Keyword(Keyword::Key))?;
 
@@ -735,6 +735,26 @@ impl<'a> Parser<'a> {
             TokenType::Float | TokenType::Keyword(Keyword::Double) => Ok(DataType::Float),
             TokenType::Keyword(Keyword::Bool) | TokenType::Keyword(Keyword::Boolean) => Ok(DataType::Boolean),
             TokenType::Keyword(Keyword::Date) => Ok(DataType::Date),
+            TokenType::Keyword(Keyword::Decimal) => {
+                let (precision, scale) = if self.next_if_token(TokenType::LParen).is_some() {
+                    let precision = self
+                        .next_token()?
+                        .literal
+                        .parse()
+                        .map_err(|e| Error::ParseIntError(e, token.clone()))?;
+                    self.next_except(TokenType::Comma)?;
+                    let scale = self
+                        .next_token()?
+                        .literal
+                        .parse()
+                        .map_err(|e| Error::ParseIntError(e, token.clone()))?;
+                    self.next_except(TokenType::RParen)?;
+                    (Some(precision), Some(scale))
+                } else {
+                    (None, None)
+                };
+                Ok(DataType::Decimal(precision, scale))
+            }
             _ => Err(Error::ParserError(format!(
                 "[parse_data_type] unexpected token {:?}",
                 token
@@ -1320,6 +1340,24 @@ mod tests {
 
     #[test]
     fn test_parse_create_table() {
+        assert_stmt_eq(
+            "create table t(v1 decimal(10, 2) not null)",
+            Statement::CreateTable {
+                query: None,
+                table: "t".to_owned(),
+                columns: vec![ast::Column {
+                    name: "v1".to_owned(),
+                    datatype: DataType::Decimal(Some(10), Some(2)),
+                    nullable: false,
+                    unique: false,
+                    references: None,
+                    primary_key: false,
+                    index: false,
+                }],
+                check_exists: false,
+            },
+        );
+
         assert_stmt_eq(
             "create table t (a smallint not null);",
             Statement::CreateTable {

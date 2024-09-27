@@ -91,15 +91,24 @@ impl LogicalPlan {
             if schema.is_none() {
                 schema = Some(plan.schema());
             }
-            if let LogicalPlan::TableScan(scan) = plan {
-                result.push((&scan.relation, schema.take().unwrap()));
-            } else {
-                if let Some(children) = plan.children() {
-                    list.extend(children);
+
+            match plan {
+                LogicalPlan::Join(Join { left, right, .. }) => {
+                    list.push(left);
+                    list.push(right);
+                }
+                LogicalPlan::TableScan(scan) => {
+                    result.push((&scan.relation, schema.take().unwrap()));
+                }
+                _ => {
+                    if let Some(children) = plan.children() {
+                        list.extend(children);
+                    }
                 }
             }
-        }
 
+        }
+        
         result
     }
 

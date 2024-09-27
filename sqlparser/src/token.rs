@@ -63,6 +63,7 @@ pub enum Keyword {
     Timestamp,
     Double,
     SmallInt,
+    Decimal,
     /// extract a field from a timestamp
     Extract,
     Year,
@@ -129,6 +130,7 @@ impl TokenType {
             "timestamp" => TokenType::Keyword(Keyword::Timestamp),
             "double" | "float" => TokenType::Keyword(Keyword::Double),
             "smallint" => TokenType::Keyword(Keyword::SmallInt),
+            "decimal" => TokenType::Keyword(Keyword::Decimal),
             "primary" => TokenType::Keyword(Keyword::Primary),
             "key" => TokenType::Keyword(Keyword::Key),
             "with" => TokenType::Keyword(Keyword::With),
@@ -242,6 +244,7 @@ impl Token {
             TokenType::Keyword(Keyword::Datetime) => Ok(DataType::Timestamp),
             TokenType::Keyword(Keyword::VarChar) => Ok(DataType::String),
             TokenType::Keyword(Keyword::Double) => Ok(DataType::Float),
+
             _ => Err(Error::UnKnownDataType(self.clone())),
         }
     }

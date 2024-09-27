@@ -72,7 +72,7 @@ impl<'a> SqlQueryPlanner<'a> {
                         .into_iter()
                         .map(|col| {
                             let name = col.name.clone();
-                            let data_type = sql_to_arrow_data_type(&col.datatype);
+                            let data_type = sql_to_arrow_data_type(&col.datatype)?;
                             Ok(Field::new(&name, data_type, col.nullable))
                         })
                         .collect::<Result<Vec<_>>>()?,
@@ -707,11 +707,11 @@ impl<'a> SqlQueryPlanner<'a> {
             }
             Expression::Cast { expr, data_type } => {
                 let expr = self.sql_to_expr(*expr)?;
-                Ok(expr.cast_to(&sql_to_arrow_data_type(&data_type)))
+                Ok(expr.cast_to(&sql_to_arrow_data_type(&data_type)?))
             }
             Expression::TypedString { data_type, value } => Ok(LogicalExpr::Cast(CastExpr {
                 expr: Box::new(LogicalExpr::Literal(ScalarValue::Utf8(Some(value)))),
-                data_type: sql_to_arrow_data_type(&data_type),
+                data_type: sql_to_arrow_data_type(&data_type)?,
             })),
             Expression::Extract { field, expr } => self.handle_function(
                 "EXTRACT",
@@ -985,15 +985,25 @@ pub(crate) fn parse_csv_options(mut args: Vec<FunctionArgument>) -> Result<CsvRe
     Ok(options)
 }
 
-fn sql_to_arrow_data_type(data_type: &sqlparser::datatype::DataType) -> arrow::datatypes::DataType {
+fn sql_to_arrow_data_type(data_type: &sqlparser::datatype::DataType) -> Result<arrow::datatypes::DataType> {
     match data_type {
-        sqlparser::datatype::DataType::Integer => arrow::datatypes::DataType::Int64,
-        sqlparser::datatype::DataType::Boolean => arrow::datatypes::DataType::Boolean,
-        sqlparser::datatype::DataType::Float => arrow::datatypes::DataType::Float64,
-        sqlparser::datatype::DataType::String => arrow::datatypes::DataType::Utf8,
-        sqlparser::datatype::DataType::Date => arrow::datatypes::DataType::Date32,
-        sqlparser::datatype::DataType::Timestamp => arrow::datatypes::DataType::Timestamp(TimeUnit::Millisecond, None),
-        sqlparser::datatype::DataType::Int16 => arrow::datatypes::DataType::Int16,
+        sqlparser::datatype::DataType::Integer => Ok(arrow::datatypes::DataType::Int64),
+        sqlparser::datatype::DataType::Boolean => Ok(arrow::datatypes::DataType::Boolean),
+        sqlparser::datatype::DataType::Float => Ok(arrow::datatypes::DataType::Float64),
+        sqlparser::datatype::DataType::String =>Ok( arrow::datatypes::DataType::Utf8),
+        sqlparser::datatype::DataType::Date => Ok(arrow::datatypes::DataType::Date32),
+        sqlparser::datatype::DataType::Timestamp =>Ok(arrow::datatypes::DataType::Timestamp(TimeUnit::Millisecond, None)),
+        sqlparser::datatype::DataType::Int16 => Ok(arrow::datatypes::DataType::Int16),
+        sqlparser::datatype::DataType::Decimal(precision, scale) => match (precision,scale){
+            (Some(precision),Some(scale)) if *precision == 0 || *precision > 76 || (*scale as i8).unsigned_abs() > (*precision as u8) => internal_err!("Decimal(precision = {precision}, scale = {scale}) should satisfy `0 < precision <= 76`, and `scale <= precision`."),
+            (Some(precision),Some(scale)) if *precision > 38 && *precision <= 76  => Ok(arrow::datatypes::DataType::Decimal256(*precision, *scale)),
+            (Some(precision),Some(scale)) if *precision <= 38 => Ok(arrow::datatypes::DataType::Decimal128(*precision, *scale)),
+            (Some(precision),None) if *precision == 0 || *precision > 76 => internal_err!("Decimal(precision = {precision}) should satisfy `0 < precision <= 76`."),
+            (Some(precision),None) if *precision <= 38 => Ok(arrow::datatypes::DataType::Decimal128(*precision, 0)),
+            (Some(precision),None) if *precision > 38 && *precision <= 76 => Ok(arrow::datatypes::DataType::Decimal256(*precision, 0)),
+            (None,None) => Ok(arrow::datatypes::DataType::Decimal128(38, 10)),
+            _ => internal_err!("Cannot specify only scale for decimal data type")
+        },
     }
 }
 

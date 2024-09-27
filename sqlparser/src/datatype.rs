@@ -9,6 +9,7 @@ pub enum DataType {
     String,
     Date,
     Timestamp,
+    Decimal(Option<u8>, Option<i8>),
     Int16,
 }
 
@@ -22,6 +23,9 @@ impl Display for DataType {
             DataType::Date => write!(f, "Date"),
             DataType::Timestamp => write!(f, "Timestamp"),
             DataType::Int16 => write!(f, "Int16"),
+            DataType::Decimal(precision, scale) => {
+                write!(f, "Decimal({:?}, {:?})", precision, scale)
+            }
         }
     }
 }
