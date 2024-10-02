@@ -256,14 +256,14 @@ mod tests {
         session.sql("create table b(v3 int, v4 int);")?;
         session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
 
-        // session.sql("create table x(a int, b int);")?;
-        // session.sql("create table y(c int, d int);")?;
+        session.sql("create table x(a int, b int);")?;
+        session.sql("create table y(c int, d int);")?;
 
         println!("++++++++++++++");
 
         // session.sql("insert into a values (1, 1), (2, 2), (3, 3);")?;
         // session.sql("insert into b values (1, 100), (3, 300), (4, 400);")?;
-        session.sql("insert into t values(1,4,2.5), (2,3,3.2), (3,4,4.7), (4,3,5.1)")?;
+        session.sql("select a, b, c, d from x join y on a = c")?;
 
 
         let batch = session.sql("select -1")?;

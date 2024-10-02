@@ -88,7 +88,7 @@ impl Display for LogicalExpr {
             LogicalExpr::BinaryExpr(binary_expr) => write!(f, "{binary_expr}",),
             LogicalExpr::AggregateExpr(aggregate_expr) => write!(f, "{aggregate_expr}",),
             LogicalExpr::SortExpr(sort_expr) => write!(f, "{sort_expr}",),
-            LogicalExpr::Cast(cast_expr) => write!(f, "CAST ({} AS {})", cast_expr.expr, cast_expr.data_type),
+            LogicalExpr::Cast(cast_expr) => write!(f, "CAST({} AS {})", cast_expr.expr, cast_expr.data_type),
             LogicalExpr::Function(function) => write!(f, "{function}",),
             LogicalExpr::IsNull(logical_expr) => write!(f, "{} IS NULL", logical_expr),
             LogicalExpr::IsNotNull(logical_expr) => write!(f, "{} IS NOT NULL", logical_expr),

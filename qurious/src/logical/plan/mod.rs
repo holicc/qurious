@@ -88,17 +88,19 @@ impl LogicalPlan {
 
         let mut schema = None;
         while let Some(plan) = list.pop() {
-            if schema.is_none() {
-                schema = Some(plan.schema());
+            if let LogicalPlan::Projection(p) = plan {
+                if schema.is_none() {
+                    schema = Some(p.schema());
+                }
             }
 
             match plan {
-                LogicalPlan::Join(Join { left, right, .. }) => {
-                    list.push(left);
-                    list.push(right);
-                }
                 LogicalPlan::TableScan(scan) => {
-                    result.push((&scan.relation, schema.take().unwrap()));
+                    if schema.is_none() {
+                        result.push((&scan.relation, scan.schema()));
+                    } else {
+                        result.push((&scan.relation, schema.take().unwrap()));
+                    }
                 }
                 _ => {
                     if let Some(children) = plan.children() {
@@ -106,9 +108,8 @@ impl LogicalPlan {
                     }
                 }
             }
-
         }
-        
+
         result
     }
 
