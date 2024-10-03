@@ -5,10 +5,7 @@ use super::{
     expr::{AggregateExpr, LogicalExpr, SortExpr},
     plan::{Aggregate, CrossJoin, EmptyRelation, Join, Limit, LogicalPlan, Projection, Sort, TableScan},
 };
-use crate::{
-    common::join_type::JoinType, planner::normalize_col_with_schemas_and_ambiguity_check,
-    provider::table::TableProvider,
-};
+use crate::{common::join_type::JoinType, provider::table::TableProvider};
 use crate::{common::table_relation::TableRelation, error::Result};
 
 pub struct LogicalPlanBuilder {
@@ -101,23 +98,25 @@ impl LogicalPlanBuilder {
     }
 
     pub fn sort(self, order_by: Vec<SortExpr>) -> Result<Self> {
-        order_by
-            .into_iter()
-            .map(|sort| {
-                normalize_col_with_schemas_and_ambiguity_check(*sort.expr, &[&self.plan.relation()]).map(|expr| {
-                    SortExpr {
-                        expr: expr.into(),
-                        asc: sort.asc,
-                    }
-                })
-            })
-            .collect::<Result<_>>()
-            .map(|sort_exprs| LogicalPlanBuilder {
-                plan: LogicalPlan::Sort(Sort {
-                    exprs: sort_exprs,
-                    input: Box::new(self.plan),
-                }),
-            })
+        // TODO
+        // we need check if the column is ambiguous and columns is present in the schema
+        // if not present in the schema we should add missing columns to the schema and project them
+        // let missing_columns = order_by
+        //     .iter()
+        //     .flat_map(|sort|sort.expr.column_refs())
+        //     .filter(|col| !self.plan.has_column(col))
+        //     .collect::<Vec<_>>();
+
+        // if !missing_columns.is_empty() {
+        //     todo!("Add missing columns to the schema and project them");
+        // }
+
+        Ok(LogicalPlanBuilder {
+            plan: LogicalPlan::Sort(Sort {
+                exprs: order_by,
+                input: Box::new(self.plan),
+            }),
+        })
     }
 
     pub fn limit(self, fetch: Option<usize>, skip: usize) -> Self {

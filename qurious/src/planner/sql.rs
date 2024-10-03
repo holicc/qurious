@@ -400,6 +400,7 @@ impl<'a> SqlQueryPlanner<'a> {
         let mut plan = self.filter_expr(plan, select.r#where)?;
         // process the SELECT expressions
         let column_exprs = self.column_exprs(&plan, empty_from, select.columns)?;
+        let alias_map = extract_aliases(&column_exprs);
         // get aggregate expressions
         let aggr_exprs = find_aggregate_exprs(&column_exprs);
         // process the HAVING clause
@@ -423,9 +424,7 @@ impl<'a> SqlQueryPlanner<'a> {
 
         // process the ORDER BY clause
         let plan = if let Some(order_by) = select.order_by {
-            self.order_by_expr(order_by)
-                .and_then(|exprs| LogicalPlanBuilder::from(plan).sort(exprs))?
-                .build()
+            self.order_by_expr(plan, &alias_map, order_by)?
         } else {
             plan
         };
@@ -629,16 +628,32 @@ impl<'a> SqlQueryPlanner<'a> {
             .map(|plan| plan.build())
     }
 
-    fn order_by_expr(&self, order_by: Vec<(Expression, Order)>) -> Result<Vec<SortExpr>> {
+    fn order_by_expr(
+        &self,
+        plan: LogicalPlan,
+        alias: &HashMap<String, LogicalExpr>,
+        order_by: Vec<(Expression, Order)>,
+    ) -> Result<LogicalPlan> {
         order_by
             .into_iter()
-            .map(|(expr, order)| {
-                self.sql_to_expr(expr).map(|expr| SortExpr {
-                    expr: Box::new(expr),
-                    asc: order == Order::Asc,
+            .map(|(sort_expr, order)| {
+                let should_normalize = alias.contains_key(&sort_expr.to_string());
+                self.sql_to_expr(sort_expr).and_then(|expr| {
+                    let expr = if should_normalize {
+                        expr
+                    } else {
+                        normalize_col_with_schemas_and_ambiguity_check(expr, &[&plan.relation()])?
+                    };
+
+                    Ok(SortExpr {
+                        expr: Box::new(expr),
+                        asc: order == Order::Asc,
+                    })
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()
+            .and_then(|sort_exprs| LogicalPlanBuilder::from(plan).sort(sort_exprs))
+            .map(|builder| builder.build())
     }
 
     fn cte_tables(&mut self, ctes: Vec<Cte>) -> Result<()> {
@@ -881,6 +896,16 @@ impl<'a> SqlQueryPlanner<'a> {
     fn get_cte_table(&self, name: &str) -> Option<LogicalPlan> {
         self.ctes.get(name).map(|a| a.as_ref().clone())
     }
+}
+
+fn extract_aliases(column_exprs: &[LogicalExpr]) -> HashMap<String, LogicalExpr> {
+    column_exprs
+        .iter()
+        .filter_map(|expr| match expr {
+            LogicalExpr::Alias(alias) => Some((alias.name.clone(), alias.expr.as_ref().clone())),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>()
 }
 
 fn find_column_exprs(expr: &LogicalExpr) -> Result<Vec<LogicalExpr>> {
@@ -1293,11 +1318,10 @@ mod tests {
             "Sort: person.name ASC\n  Projection: (person.name)\n    TableScan: person\n",
         );
 
-        // FIXME
-        // quick_test(
-        //     "SELECT name as a FROM person ORDER BY a",
-        //     "Sort: a ASC\n  Projection: (person.name)\n    TableScan: person\n",
-        // );
+        quick_test(
+            "SELECT name as a FROM person ORDER BY a",
+            "Sort: a ASC\n  Projection: (person.name AS a)\n    TableScan: person\n",
+        );
     }
 
     #[test]

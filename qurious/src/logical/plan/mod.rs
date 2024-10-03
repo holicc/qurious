@@ -24,7 +24,7 @@ pub use sub_query::SubqueryAlias;
 
 use arrow::datatypes::SchemaRef;
 
-use super::expr::LogicalExpr;
+use super::expr::{Column, LogicalExpr};
 use crate::common::table_relation::TableRelation;
 use crate::error::Result;
 
@@ -172,6 +172,10 @@ impl LogicalPlan {
         }
 
         iter(self, &mut f)
+    }
+
+    pub fn has_column(&self, _col: &Column) -> bool {
+        todo!()
     }
 }
 

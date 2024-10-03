@@ -146,6 +146,10 @@ impl LogicalExpr {
             _ => Err(Error::InternalError(format!("Expect column, got {:?}", self))),
         }
     }
+
+    pub fn column_refs(&self) -> HashSet<&Column> {
+        todo!()
+    }
 }
 
 pub(crate) fn get_expr_value(expr: LogicalExpr) -> Result<i64> {

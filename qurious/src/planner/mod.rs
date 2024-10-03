@@ -285,6 +285,10 @@ pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
     expr: LogicalExpr,
     schemas: &[&[(&TableRelation, SchemaRef)]],
 ) -> Result<LogicalExpr> {
+    if schemas.is_empty() {
+        return Ok(expr);
+    }
+
     fn normalize_boxed(expr: Box<LogicalExpr>, schemas: &[&[(&TableRelation, SchemaRef)]]) -> Result<Box<LogicalExpr>> {
         normalize_col_with_schemas_and_ambiguity_check(*expr, schemas).map(Box::new)
     }
