@@ -740,6 +740,7 @@ impl<'a> Parser<'a> {
                 Ok(DataType::Integer)
             }
             TokenType::Keyword(Keyword::SmallInt) => Ok(DataType::Int16),
+            TokenType::Keyword(Keyword::BigInt) => Ok(DataType::Int64),
             TokenType::Float | TokenType::Keyword(Keyword::Double) => Ok(DataType::Float),
             TokenType::Keyword(Keyword::Bool) | TokenType::Keyword(Keyword::Boolean) => Ok(DataType::Boolean),
             TokenType::Keyword(Keyword::Date) => Ok(DataType::Date),

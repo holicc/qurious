@@ -11,6 +11,7 @@ pub enum DataType {
     Timestamp,
     Decimal(Option<u8>, Option<i8>),
     Int16,
+    Int64,
 }
 
 impl Display for DataType {
@@ -26,6 +27,7 @@ impl Display for DataType {
             DataType::Decimal(precision, scale) => {
                 write!(f, "Decimal({:?}, {:?})", precision, scale)
             }
+            DataType::Int64 => write!(f, "Int64"),
         }
     }
 }

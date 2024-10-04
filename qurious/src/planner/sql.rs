@@ -658,8 +658,11 @@ impl<'a> SqlQueryPlanner<'a> {
 
     fn cte_tables(&mut self, ctes: Vec<Cte>) -> Result<()> {
         for cte in ctes {
-            if self.ctes.contains_key(&cte.alias){
-                return Err(Error::InternalError(format!("CTE with name {} already exists", cte.alias)));
+            if self.ctes.contains_key(&cte.alias) {
+                return Err(Error::InternalError(format!(
+                    "CTE with name {} already exists",
+                    cte.alias
+                )));
             }
 
             let plan = self
@@ -1023,6 +1026,7 @@ fn sql_to_arrow_data_type(data_type: &sqlparser::datatype::DataType) -> Result<a
         sqlparser::datatype::DataType::Date => Ok(arrow::datatypes::DataType::Date32),
         sqlparser::datatype::DataType::Timestamp =>Ok(arrow::datatypes::DataType::Timestamp(TimeUnit::Millisecond, None)),
         sqlparser::datatype::DataType::Int16 => Ok(arrow::datatypes::DataType::Int16),
+        sqlparser::datatype::DataType::Int64 => Ok(arrow::datatypes::DataType::Int64),
         sqlparser::datatype::DataType::Decimal(precision, scale) => match (precision,scale){
             (Some(precision),Some(scale)) if *precision == 0 || *precision > 76 || (*scale as i8).unsigned_abs() > (*precision as u8) => internal_err!("Decimal(precision = {precision}, scale = {scale}) should satisfy `0 < precision <= 76`, and `scale <= precision`."),
             (Some(precision),Some(scale)) if *precision > 38 && *precision <= 76  => Ok(arrow::datatypes::DataType::Decimal256(*precision, *scale)),
