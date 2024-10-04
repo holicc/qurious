@@ -658,6 +658,10 @@ impl<'a> SqlQueryPlanner<'a> {
 
     fn cte_tables(&mut self, ctes: Vec<Cte>) -> Result<()> {
         for cte in ctes {
+            if self.ctes.contains_key(&cte.alias){
+                return Err(Error::InternalError(format!("CTE with name {} already exists", cte.alias)));
+            }
+
             let plan = self
                 .select_to_plan(*cte.query)
                 .and_then(|plan| self.apply_table_alias(plan, cte.alias.clone()))

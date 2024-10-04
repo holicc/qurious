@@ -285,7 +285,7 @@ pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
     expr: LogicalExpr,
     schemas: &[&[(&TableRelation, SchemaRef)]],
 ) -> Result<LogicalExpr> {
-    if schemas.is_empty() {
+    if schemas.is_empty() || schemas.iter().all(|s| s.is_empty()) {
         return Ok(expr);
     }
 

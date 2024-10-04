@@ -20,13 +20,15 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
 
     pub tables: Vec<TableInfo>,
+    pub ctes: Vec<TableInfo>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(sql: &'a str) -> Parser<'a> {
         Parser {
-            tables: Vec::new(),
             lexer: Lexer::new(sql),
+            tables: Vec::new(),
+            ctes: Vec::new(),
         }
     }
 
@@ -56,7 +58,7 @@ impl<'a> Parser<'a> {
                 let check_exists = self.parse_if_exists()?;
                 let table = self.next_ident()?;
 
-                self.tables.push(TableInfo {
+                self.add_relation_table(TableInfo {
                     name: table.clone(),
                     alias: None,
                     args: vec![],
@@ -164,7 +166,7 @@ impl<'a> Parser<'a> {
 
         let table = self.next_ident()?;
 
-        self.tables.push(TableInfo {
+        self.add_relation_table(TableInfo {
             name: table.clone(),
             alias: None,
             args: vec![],
@@ -205,7 +207,7 @@ impl<'a> Parser<'a> {
         let table = self.next_ident()?;
         let alias = self.parse_alias()?;
 
-        self.tables.push(TableInfo {
+        self.add_relation_table(TableInfo {
             name: table.clone(),
             alias: alias.clone(),
             args: vec![],
@@ -374,11 +376,17 @@ impl<'a> Parser<'a> {
             let token = self.next_token()?;
             match token.token_type {
                 TokenType::Keyword(Keyword::Select) => ctes.push(Cte {
-                    alias: cte_table_name,
+                    alias: cte_table_name.clone(),
                     query: Box::new(self.parse_select()?),
                 }),
                 _ => return Err(Error::UnexpectedToken(token)),
             }
+
+            self.add_cte_table(TableInfo {
+                name: cte_table_name,
+                alias: None,
+                args: vec![],
+            });
 
             self.next_except(TokenType::RParen)?;
 
@@ -669,7 +677,7 @@ impl<'a> Parser<'a> {
 
         let alias = self.parse_alias()?;
 
-        self.tables.push(TableInfo {
+        self.add_relation_table(TableInfo {
             name: table_name.clone(),
             alias: alias.clone(),
             args: args.clone(),
@@ -1006,6 +1014,20 @@ impl<'a> Parser<'a> {
     }
 }
 
+impl<'a> Parser<'a> {
+    fn add_relation_table(&mut self, table: TableInfo) {
+        if !self.tables.contains(&table) && !self.ctes.contains(&table) {
+            self.tables.push(table);
+        }
+    }
+
+    fn add_cte_table(&mut self, table: TableInfo) {
+        if !self.ctes.contains(&table) {
+            self.ctes.push(table);
+        }
+    }
+}
+
 trait Operator: Sized {
     fn from(token: &Token) -> Option<Self>;
 
@@ -1286,6 +1308,72 @@ mod tests {
 
     #[test]
     fn test_collect_tables() {
+        let mut parser = Parser::new(
+            "
+        WITH 
+            t1 AS (SELECT name FROM person),
+            t2 AS (SELECT * FROM t1)
+        SELECT * FROM t2",
+        );
+        let _ = parser.parse().unwrap();
+
+        assert_eq!(
+            parser.tables,
+            vec![TableInfo {
+                name: "person".to_owned(),
+                alias: None,
+                args: vec![]
+            },]
+        );
+        assert_eq!(
+            parser.ctes,
+            vec![
+                TableInfo {
+                    name: "t1".to_owned(),
+                    alias: None,
+                    args: vec![]
+                },
+                TableInfo {
+                    name: "t2".to_owned(),
+                    alias: None,
+                    args: vec![]
+                },
+            ]
+        );
+
+        let mut parser = Parser::new("WITH cte AS (SELECT name FROM person) SELECT * FROM cte");
+        let _ = parser.parse().unwrap();
+
+        assert_eq!(
+            parser.tables,
+            vec![TableInfo {
+                name: "person".to_owned(),
+                alias: None,
+                args: vec![]
+            }]
+        );
+        assert_eq!(
+            parser.ctes,
+            vec![TableInfo {
+                name: "cte".to_owned(),
+                alias: None,
+                args: vec![]
+            }]
+        );
+
+        let mut parser = Parser::new("WITH cte AS (SELECT 1) SELECT * FROM cte");
+        let _ = parser.parse().unwrap();
+
+        assert!(parser.tables.is_empty());
+        assert_eq!(
+            parser.ctes,
+            vec![TableInfo {
+                name: "cte".to_owned(),
+                alias: None,
+                args: vec![]
+            }]
+        );
+
         let mut parser = Parser::new("SELECT * FROM person");
         let _ = parser.parse().unwrap();
 

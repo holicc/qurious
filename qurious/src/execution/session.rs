@@ -252,22 +252,25 @@ mod tests {
     #[test]
     fn test_create_table() -> Result<()> {
         let session = ExecuteSession::new()?;
-        session.sql("create table a(v1 int, v2 int);")?;
-        session.sql("create table b(v3 int, v4 int);")?;
-        session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
+        // session.sql("create table a(v1 int, v2 int);")?;
+        // session.sql("create table b(v3 int, v4 int);")?;
+        // session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
 
-        session.sql("create table x(a int, b int);")?;
-        session.sql("create table y(c int, d int);")?;
+        // session.sql("create table x(a int, b int);")?;
+        // session.sql("create table y(c int, d int);")?;
 
-        println!("++++++++++++++");
+        // println!("++++++++++++++");
 
         // session.sql("insert into a values (1, 1), (2, 2), (3, 3);")?;
         // session.sql("insert into b values (1, 100), (3, 300), (4, 400);")?;
-        session.sql("select a, b, c, d from x join y on a = c")?;
+        // session.sql("select a, b, c, d from x join y on a = c")?;
 
 
-        let batch = session.sql("select -1")?;
-        // let batch = session.sql("select 1 > null")?;
+        let batch = session.sql("
+        WITH 
+            cte AS (SELECT 42 AS i),     
+            cte2 AS (SELECT i*100 AS x FROM cte)
+        SELECT * FROM cte2;")?;
 
         print_batches(&batch)?;
 
