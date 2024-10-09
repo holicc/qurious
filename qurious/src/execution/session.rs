@@ -13,7 +13,7 @@ use crate::internal_err;
 use crate::logical::plan::{
     CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, Filter, LogicalPlan,
 };
-use crate::optimizer::Optimzier;
+use crate::optimizer::Optimizer;
 use crate::planner::sql::{parse_csv_options, parse_file_path, SqlQueryPlanner};
 use crate::planner::QueryPlanner;
 use crate::provider::catalog::CatalogProvider;
@@ -32,7 +32,7 @@ pub struct ExecuteSession {
     planner: Arc<dyn QueryPlanner>,
     table_factory: DefaultTableFactory,
     catalog_list: CatalogProviderList,
-    optimizer: Optimzier,
+    optimizer: Optimizer,
     udfs: RwLock<HashMap<String, Arc<dyn UserDefinedFunction>>>,
 }
 
@@ -59,7 +59,7 @@ impl ExecuteSession {
             planner: Arc::new(DefaultQueryPlanner::default()),
             catalog_list,
             table_factory: DefaultTableFactory::new(),
-            optimizer: Optimzier::new(),
+            optimizer: Optimizer::new(),
             udfs,
         })
     }
@@ -252,25 +252,18 @@ mod tests {
     #[test]
     fn test_create_table() -> Result<()> {
         let session = ExecuteSession::new()?;
-        // session.sql("create table a(v1 int, v2 int);")?;
+        session.sql("create table a(v1 int, v2 int);")?;
         // session.sql("create table b(v3 int, v4 int);")?;
-        // session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
+        session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
 
         // session.sql("create table x(a int, b int);")?;
         // session.sql("create table y(c int, d int);")?;
 
-        // println!("++++++++++++++");
-
-        // session.sql("insert into a values (1, 1), (2, 2), (3, 3);")?;
+        session.sql("insert into a values (1, 1), (2, 2), (3, 3);")?;
         // session.sql("insert into b values (1, 100), (3, 300), (4, 400);")?;
         // session.sql("select a, b, c, d from x join y on a = c")?;
-
-
-        let batch = session.sql("
-        WITH 
-            cte AS (SELECT 42 AS i),     
-            cte2 AS (SELECT i*100 AS x FROM cte)
-        SELECT * FROM cte2;")?;
+        println!("++++++++++++++");
+        let batch = session.sql("with cte as (select v1 as i from a) select i*100 from cte")?;
 
         print_batches(&batch)?;
 

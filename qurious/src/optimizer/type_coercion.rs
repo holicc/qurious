@@ -1,57 +1,57 @@
+use std::sync::Arc;
+
+use arrow::datatypes::Schema;
+
 use super::OptimizerRule;
+use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::error::Result;
 use crate::logical::expr::{BinaryExpr, LogicalExpr};
-use crate::logical::plan::{base_plan, LogicalPlan, Transformed};
-use crate::utils;
+use crate::logical::plan::LogicalPlan;
+use crate::utils::{self, merge_schema};
 
 #[derive(Default)]
-pub struct TypeCoercion {}
+pub struct TypeCoercion;
 
 impl OptimizerRule for TypeCoercion {
     fn name(&self) -> &str {
         "type_coercion"
     }
 
-    fn optimize(&self, base_plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
-        let plan = base_plan.clone();
-        let plan = if let LogicalPlan::Filter(mut filter) = plan {
-            if let Transformed::Yes(new_expr) = type_coercion(base_plan, &filter.expr)? {
-                filter.expr = new_expr;
-            }
-            LogicalPlan::Filter(filter)
-        } else {
-            plan
-        };
+    fn optimize(&self, base_plan: LogicalPlan) -> Result<LogicalPlan> {
+        let mut merged_schema = Arc::new(Schema::empty());
+        let schema = base_plan.schema();
 
-        plan.map_expr(type_coercion).map(Some)
+        for input in base_plan.children().into_iter().flat_map(|x| x) {
+            merged_schema = merge_schema(&schema, &input.schema()).map(Arc::new)?;
+        }
+
+        base_plan
+            .transform(|plan| plan.map_exprs(|expr| type_coercion(&merged_schema, expr)))
+            .data()
     }
 }
 
-fn type_coercion(plan: &LogicalPlan, expr: &LogicalExpr) -> Result<Transformed<LogicalExpr>> {
+fn type_coercion(plan: &Arc<Schema>, expr: LogicalExpr) -> Result<Transformed<LogicalExpr>> {
     match expr {
-        LogicalExpr::BinaryExpr(binary_op) => coerce_binary_op(base_plan(plan), binary_op)
+        LogicalExpr::BinaryExpr(binary_op) => coerce_binary_op(plan, binary_op)
             .map(LogicalExpr::BinaryExpr)
-            .map(Transformed::Yes),
-        _ => Ok(Transformed::No),
+            .map(Transformed::yes),
+        _ => Ok(Transformed::no(expr.clone())),
     }
 }
 
-fn coerce_binary_op(plan: &LogicalPlan, expr: &BinaryExpr) -> Result<BinaryExpr> {
-    let ll = expr.left.field(plan)?;
-    let rr = expr.right.field(plan)?;
-    let left_type = ll.data_type();
-    let right_type = rr.data_type();
+fn coerce_binary_op(schema: &Arc<Schema>, expr: BinaryExpr) -> Result<BinaryExpr> {
+    let left_type = expr.left.data_type(schema)?;
+    let right_type = expr.right.data_type(schema)?;
 
-    let (l, r) = if left_type == right_type {
-        (expr.left.as_ref().clone(), expr.right.as_ref().clone())
-    } else {
-        let final_type = utils::get_input_types(left_type, right_type);
-        (expr.left.cast_to(&final_type), expr.right.cast_to(&final_type))
-    };
+    if left_type != right_type {
+        let final_type = utils::get_input_types(&left_type, &right_type);
+        return Ok(BinaryExpr {
+            left: Box::new(expr.left.cast_to(&final_type)),
+            op: expr.op,
+            right: Box::new(expr.right.cast_to(&final_type)),
+        });
+    }
 
-    Ok(BinaryExpr {
-        left: Box::new(l),
-        op: expr.op.clone(),
-        right: Box::new(r),
-    })
+    Ok(expr)
 }

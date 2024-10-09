@@ -1,4 +1,4 @@
-use arrow::datatypes::{DataType, Field, FieldRef};
+use arrow::datatypes::{DataType, Field, FieldRef, Schema};
 
 use crate::datatypes::operator::Operator;
 use crate::error::Result;
@@ -28,12 +28,12 @@ impl BinaryExpr {
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
         Ok(Arc::new(Field::new(
             format!("({} {} {})", self.left, self.op, self.right),
-            self.get_result_type(plan)?,
-            false,
+            self.get_result_type(&plan.schema())?,
+            true,
         )))
     }
 
-    pub fn get_result_type(&self, plan: &LogicalPlan) -> Result<DataType> {
+    pub fn get_result_type(&self, schema: &Arc<Schema>) -> Result<DataType> {
         match self.op {
             Operator::Eq
             | Operator::NotEq
@@ -46,12 +46,10 @@ impl BinaryExpr {
                 return Ok(DataType::Boolean);
             }
             _ => {
-                let ll = self.left.field(plan)?;
-                let rr = self.right.field(plan)?;
-                let left_type = ll.data_type();
-                let right_type = rr.data_type();
+                let left_type = self.left.data_type(schema)?;
+                let right_type = self.right.data_type(schema)?;
 
-                Ok(utils::get_input_types(left_type, right_type))
+                Ok(utils::get_input_types(&left_type, &right_type))
             }
         }
     }

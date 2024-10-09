@@ -3,13 +3,17 @@ use std::{
     sync::Arc,
 };
 
-use arrow::datatypes::{Field, Schema, TimeUnit};
+use arrow::datatypes::{Field, Schema, SchemaRef, TimeUnit};
 use sqlparser::ast::{
     Assignment, BinaryOperator, Cte, Expression, From, FunctionArgument, Literal, Order, Select, SelectItem, Statement,
 };
 
 use crate::{
-    common::{join_type::JoinType, table_relation::TableRelation},
+    common::{
+        join_type::JoinType,
+        table_relation::TableRelation,
+        transformed::{TransformNode, Transformed, TransformedResult, TreeNodeRecursion},
+    },
     datasource::file::csv::CsvReadOptions,
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
@@ -28,21 +32,29 @@ use crate::{
 
 use self::alias::Alias;
 
-use crate::planner::normalize_col_with_schemas_and_ambiguity_check;
+#[derive(Default, Debug)]
+struct Context {
+    ctes: HashMap<String, LogicalPlan>,
+    relations: HashMap<TableRelation, SchemaRef>,
+    /// table alias -> original table name
+    table_aliase: HashMap<String, TableRelation>,
+}
 
 pub struct SqlQueryPlanner<'a> {
-    ctes: HashMap<String, Arc<LogicalPlan>>,
+    contexts: Vec<Context>,
+    // TODO move those field to PlannerContext trait
     udfs: &'a HashMap<String, Arc<dyn UserDefinedFunction>>,
     relations: HashMap<TableRelation, Arc<dyn TableProvider>>,
 }
 
+// export the public functions
 impl<'a> SqlQueryPlanner<'a> {
     pub fn new(
         relations: HashMap<TableRelation, Arc<dyn TableProvider>>,
         udfs: &'a HashMap<String, Arc<dyn UserDefinedFunction>>,
     ) -> Self {
         SqlQueryPlanner {
-            ctes: HashMap::default(),
+            contexts: vec![Context::default()],
             relations,
             udfs,
         }
@@ -53,11 +65,7 @@ impl<'a> SqlQueryPlanner<'a> {
         relations: HashMap<TableRelation, Arc<dyn TableProvider>>,
         udfs: &'a HashMap<String, Arc<dyn UserDefinedFunction>>,
     ) -> Result<LogicalPlan> {
-        let mut planner = SqlQueryPlanner {
-            ctes: HashMap::default(),
-            relations,
-            udfs,
-        };
+        let mut planner = SqlQueryPlanner::new(relations, udfs);
 
         match stmt {
             Statement::Select(select) => planner.select_to_plan(*select),
@@ -158,6 +166,88 @@ impl<'a> SqlQueryPlanner<'a> {
     }
 }
 
+// functions for Context
+impl<'a> SqlQueryPlanner<'a> {
+    fn add_relation(&mut self, relation: TableRelation, schema: SchemaRef, alias: Option<String>) -> Result<()> {
+        let context = self.current_context();
+        context.relations.insert(relation.clone(), schema);
+
+        if let Some(alias) = alias {
+            if context.table_aliase.contains_key(&alias) {
+                return internal_err!("Table alias {} already exists", alias);
+            }
+            context.table_aliase.insert(alias, relation);
+        }
+
+        Ok(())
+    }
+
+    fn get_table_source(&self, table_name: &str) -> Result<Arc<dyn TableProvider>> {
+        self.relations
+            .get(&table_name.into())
+            .map(|a| a.clone())
+            .ok_or(Error::TableNotFound(table_name.to_owned()))
+    }
+
+    fn get_cte_table(&self, name: &str) -> Option<LogicalPlan> {
+        self.contexts
+            .iter()
+            .rev()
+            .find_map(|context| context.ctes.get(name).cloned())
+    }
+
+    fn add_cte_table(&mut self, name: String, plan: LogicalPlan) -> Result<()> {
+        let context = self.current_context();
+        if context.ctes.contains_key(&name) {
+            return internal_err!("CTE with name {} already exists", name);
+        }
+
+        context.ctes.insert(name, plan);
+        Ok(())
+    }
+
+    fn current_context(&mut self) -> &mut Context {
+        self.contexts.last_mut().expect("Context stack is empty")
+    }
+
+    fn new_context_scope<U, F>(&mut self, f: F) -> Result<U>
+    where
+        F: FnOnce(&mut Self) -> Result<U>,
+    {
+        self.contexts.push(Context::default());
+        let result = f(self);
+        self.contexts.pop();
+        result
+    }
+
+    fn get_relation(&self, column_name: &str) -> Result<Option<TableRelation>> {
+        // find from relations
+        let mut matched = self
+            .contexts
+            .iter()
+            .flat_map(|ctx| &ctx.relations)
+            .filter_map(|(relation, provider)| provider.column_with_name(column_name).map(|_| relation.clone()))
+            .collect::<Vec<_>>();
+
+        match matched.len() {
+            0 => Ok(None),
+            1 => Ok(matched.pop()),
+            _ => internal_err!("Column \"{}\" is ambiguous", column_name,),
+        }
+    }
+
+    /// find the relation of the table
+    fn find_relation(&self, table: &TableRelation) -> Option<TableRelation> {
+        self.contexts.iter().rev().find_map(|ctx| {
+            ctx.relations
+                .contains_key(table)
+                .then(|| table.clone())
+                .or(ctx.table_aliase.get(&table.to_string()).cloned())
+        })
+    }
+}
+
+// functions for Binder
 impl<'a> SqlQueryPlanner<'a> {
     fn update_to_plan(
         &mut self,
@@ -167,40 +257,41 @@ impl<'a> SqlQueryPlanner<'a> {
     ) -> Result<LogicalPlan> {
         let table_source = self.get_table_source(&table)?;
         let table_schema = table_source.schema();
-        let input = LogicalPlanBuilder::scan(table.clone(), table_source, None)
+        let relation: TableRelation = table.into();
+
+        self.add_relation(relation.clone(), table_schema.clone(), None)?;
+
+        let input = LogicalPlanBuilder::scan(relation.clone(), table_source, None)
             .map(|builder| builder.build())
             .and_then(|plan| self.filter_expr(plan, r#where))?;
-        let relations = input.relation();
 
+        // update set a = 1
+        // key: target_column value: expr
         let mut assign_map: HashMap<String, LogicalExpr> = assignments
             .into_iter()
             .map(|assign| {
                 let name = assign.target.to_string();
-                let value = self
-                    .sql_to_expr(assign.value)
-                    .and_then(|e| normalize_col_with_schemas_and_ambiguity_check(e, &[&relations]))?;
+                let value = self.sql_to_expr(assign.value)?;
                 Ok((name, value))
             })
             .collect::<Result<_>>()?;
 
         // zip table relation with schema field
-        let exprs = relations
-            .into_iter()
-            .map(|(r, s)| s.fields().iter().map(|f| (r.clone(), f.clone())).collect::<Vec<_>>())
-            .flatten()
-            .map(|(r, f)| match assign_map.remove(f.name()) {
-                Some(expr) => expr.cast_to(f.data_type()).alias(f.name()),
-                None => LogicalExpr::Column(Column {
-                    name: f.name().to_owned(),
-                    relation: Some(r.clone()),
-                }),
+        let exprs = table_schema
+            .fields()
+            .iter()
+            .map(|f| {
+                assign_map
+                    .remove(f.name())
+                    .map(|expr| expr.cast_to(f.data_type()).alias(f.name()))
+                    .unwrap_or(LogicalExpr::Column(Column::new(f.name(), Some(relation.clone()))))
             })
             .collect::<Vec<_>>();
 
         let plan = LogicalPlanBuilder::project(input, exprs)?;
 
         Ok(LogicalPlan::Dml(DmlStatement {
-            relation: table.into(),
+            relation,
             op: plan::DmlOperator::Update,
             schema: table_schema,
             input: Box::new(plan),
@@ -210,11 +301,15 @@ impl<'a> SqlQueryPlanner<'a> {
     fn delete_to_plan(&mut self, table: String, r#where: Option<Expression>) -> Result<LogicalPlan> {
         let table_source = self.get_table_source(&table)?;
         let table_schema = table_source.schema();
-        let plan = LogicalPlanBuilder::scan(table.clone(), table_source, None)?.build();
+        let relation: TableRelation = table.into();
+
+        self.add_relation(relation.clone(), table_schema.clone(), None)?;
+
+        let plan = LogicalPlanBuilder::scan(relation.clone(), table_source, None)?.build();
         let plan = self.filter_expr(plan, r#where)?;
 
         Ok(LogicalPlan::Dml(DmlStatement {
-            relation: table.into(),
+            relation,
             op: plan::DmlOperator::Delete,
             schema: table_schema,
             input: Box::new(plan),
@@ -392,15 +487,11 @@ impl<'a> SqlQueryPlanner<'a> {
         }
         // process `from` clause
         let plan = self.table_scan_to_plan(select.from)?;
-        let empty_from = match plan {
-            LogicalPlan::EmptyRelation(_) => true,
-            _ => false,
-        };
+        let empty_from = matches!(plan, LogicalPlan::EmptyRelation(_));
         // process the WHERE clause
         let mut plan = self.filter_expr(plan, select.r#where)?;
         // process the SELECT expressions
         let column_exprs = self.column_exprs(&plan, empty_from, select.columns)?;
-        let alias_map = extract_aliases(&column_exprs);
         // get aggregate expressions
         let aggr_exprs = find_aggregate_exprs(&column_exprs);
         // process the HAVING clause
@@ -413,7 +504,7 @@ impl<'a> SqlQueryPlanner<'a> {
         if select.group_by.is_some() || !aggr_exprs.is_empty() {
             plan = self.aggregate_plan(
                 plan,
-                &column_exprs,
+                column_exprs.clone(),
                 aggr_exprs,
                 select.group_by.unwrap_or_default(),
                 having,
@@ -424,7 +515,7 @@ impl<'a> SqlQueryPlanner<'a> {
 
         // process the ORDER BY clause
         let plan = if let Some(order_by) = select.order_by {
-            self.order_by_expr(plan, &alias_map, order_by)?
+            self.order_by_expr(plan, order_by)?
         } else {
             plan
         };
@@ -466,6 +557,8 @@ impl<'a> SqlQueryPlanner<'a> {
                             let source = self.get_table_source(&name)?;
                             LogicalPlanBuilder::scan(relation.clone(), source, None)?.build()
                         };
+
+                        self.add_relation(relation, scan.schema(), alias.clone())?;
 
                         (scan, alias)
                     }
@@ -529,6 +622,8 @@ impl<'a> SqlQueryPlanner<'a> {
                     .cloned()
                     .ok_or(Error::TableNotFound(path))?;
 
+                self.add_relation(relation.clone(), provider.schema(), None)?;
+
                 (relation, provider)
             }
             _ => todo!(),
@@ -539,9 +634,7 @@ impl<'a> SqlQueryPlanner<'a> {
 
     fn filter_expr(&self, mut plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {
         if let Some(filter) = expr {
-            let filter_expr = self
-                .sql_to_expr(filter)
-                .and_then(|e| normalize_col_with_schemas_and_ambiguity_check(e, &[&plan.relation()]))?;
+            let filter_expr = self.sql_to_expr(filter)?;
             // we should parse filter first and then apply it to the table scan
             match &mut plan {
                 LogicalPlan::TableScan(table) => {
@@ -556,65 +649,44 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn apply_table_alias(&mut self, plan: LogicalPlan, alias: String) -> Result<LogicalPlan> {
-        match plan {
-            LogicalPlan::TableScan(mut table) => {
-                let relation = self
-                    .relations
-                    .remove(&table.relation)
-                    .ok_or(Error::TableNotFound(format!(
-                        "Can't apply table alias: {} to relation: {}, because relation not exists",
-                        alias, table.relation
-                    )))?;
-                let new_relation: TableRelation = alias.clone().into();
-                self.relations.insert(new_relation.clone(), relation);
-                // apply alias to table scan plan
-                table.relation = new_relation;
-
-                Ok(LogicalPlan::TableScan(table))
-            }
-            _ => Ok(plan),
-        }
+    fn apply_table_alias(&mut self, input: LogicalPlan, alias: String) -> Result<LogicalPlan> {
+        SubqueryAlias::try_new(input, &alias).map(LogicalPlan::SubqueryAlias)
     }
 
     fn aggregate_plan(
         &self,
         input: LogicalPlan,
-        select_exprs: &[LogicalExpr],
-        aggr_exprs: Vec<AggregateExpr>,
+        select_exprs: Vec<LogicalExpr>,
+        aggr_exprs: Vec<LogicalExpr>,
         group_by: Vec<Expression>,
         _having_expr: Option<LogicalExpr>,
     ) -> Result<LogicalPlan> {
         let group_exprs = group_by
             .into_iter()
-            .map(|expr| {
-                self.sql_to_expr(expr)
-                    .and_then(|expr| normalize_col_with_schemas_and_ambiguity_check(expr, &[&input.relation()]))
-            })
+            .map(|expr| self.sql_to_expr(expr))
             .collect::<Result<Vec<_>>>()?;
-
-        let agg_and_group_by_column_exprs = aggr_exprs
-            .iter()
-            .map(AggregateExpr::as_column)
-            .chain(group_exprs.iter().map(LogicalExpr::as_column))
-            .collect::<Result<Vec<_>>>()?;
+        let agg_and_group_by_column_exprs = aggr_exprs.iter().chain(group_exprs.iter()).collect::<Vec<_>>();
         let select_exprs_post_aggr = select_exprs
-            .iter()
+            .into_iter()
             .map(|expr| {
-                // if expr is one of the group by columns or aggregate columns, we should convert to column
-                if agg_and_group_by_column_exprs.iter().any(|e| e == expr) {
-                    return expr.as_column();
-                }
-                Ok(expr.clone())
+                expr.transform(|nested_expr| {
+                    // if expr is one of the group by columns or aggregate columns, we should convert to column
+                    if agg_and_group_by_column_exprs.contains(&&nested_expr) {
+                        return nested_expr.as_column().map(Transformed::yes);
+                    }
+                    Ok(Transformed::no(nested_expr))
+                })
+                .data()
             })
             .collect::<Result<Vec<_>>>()?;
 
-        for col_expr in select_exprs_post_aggr.iter().flat_map(|f| match find_column_exprs(f) {
-            Ok(v) => v.into_iter().map(|i| Ok(i)).collect(),
-            Err(e) => vec![Err(e)],
-        }) {
-            let col_expr = col_expr?;
-            if agg_and_group_by_column_exprs.iter().all(|e| e != &col_expr) {
+        let agg_and_group_columns = agg_and_group_by_column_exprs
+            .iter()
+            .map(|expr| expr.as_column())
+            .collect::<Result<Vec<_>>>()?;
+
+        for col_expr in select_exprs_post_aggr.iter().flat_map(find_columns_exprs) {
+            if !agg_and_group_columns.contains(&col_expr) {
                 return Err(Error::InternalError(format!(
                     "column [{}] must appear in the GROUP BY clause or be used in an aggregate function",
                     col_expr
@@ -628,27 +700,13 @@ impl<'a> SqlQueryPlanner<'a> {
             .map(|plan| plan.build())
     }
 
-    fn order_by_expr(
-        &self,
-        plan: LogicalPlan,
-        alias: &HashMap<String, LogicalExpr>,
-        order_by: Vec<(Expression, Order)>,
-    ) -> Result<LogicalPlan> {
+    fn order_by_expr(&self, plan: LogicalPlan, order_by: Vec<(Expression, Order)>) -> Result<LogicalPlan> {
         order_by
             .into_iter()
             .map(|(sort_expr, order)| {
-                let should_normalize = alias.contains_key(&sort_expr.to_string());
-                self.sql_to_expr(sort_expr).and_then(|expr| {
-                    let expr = if should_normalize {
-                        expr
-                    } else {
-                        normalize_col_with_schemas_and_ambiguity_check(expr, &[&plan.relation()])?
-                    };
-
-                    Ok(SortExpr {
-                        expr: Box::new(expr),
-                        asc: order == Order::Asc,
-                    })
+                self.sql_to_expr(sort_expr).map(|expr| SortExpr {
+                    expr: Box::new(expr),
+                    asc: order == Order::Asc,
                 })
             })
             .collect::<Result<Vec<_>>>()
@@ -657,40 +715,23 @@ impl<'a> SqlQueryPlanner<'a> {
     }
 
     fn cte_tables(&mut self, ctes: Vec<Cte>) -> Result<()> {
-        for cte in ctes {
-            if self.ctes.contains_key(&cte.alias) {
-                return Err(Error::InternalError(format!(
-                    "CTE with name {} already exists",
-                    cte.alias
-                )));
-            }
-
-            let plan = self
-                .select_to_plan(*cte.query)
+        ctes.into_iter().try_for_each(|cte| {
+            self.new_context_scope(|planner| planner.select_to_plan(*cte.query))
                 .and_then(|plan| self.apply_table_alias(plan, cte.alias.clone()))
-                .map(|plan| {
-                    let schema = plan.schema();
-                    Arc::new(LogicalPlan::SubqueryAlias(SubqueryAlias {
-                        input: Arc::new(plan),
-                        alias: cte.alias.clone(),
-                        schema,
-                    }))
-                })?;
-
-            self.ctes.insert(cte.alias, plan);
-        }
-
-        Ok(())
+                .and_then(|plan| self.add_cte_table(cte.alias, plan))
+        })
     }
 
-    fn column_exprs(&self, plan: &LogicalPlan, empty_from: bool, columns: Vec<SelectItem>) -> Result<Vec<LogicalExpr>> {
+    fn column_exprs(
+        &mut self,
+        plan: &LogicalPlan,
+        empty_from: bool,
+        columns: Vec<SelectItem>,
+    ) -> Result<Vec<LogicalExpr>> {
         columns
             .into_iter()
             .flat_map(|col| match self.sql_select_item_to_expr(plan, col, empty_from) {
-                Ok(vec) => vec
-                    .into_iter()
-                    .map(|expr| normalize_col_with_schemas_and_ambiguity_check(expr, &[&plan.relation()]))
-                    .collect(),
+                Ok(vec) => vec.into_iter().map(Ok).collect(),
                 Err(err) => vec![Err(err)],
             })
             .collect::<Result<Vec<LogicalExpr>>>()
@@ -705,12 +746,27 @@ impl<'a> SqlQueryPlanner<'a> {
                         idents.len()
                     )));
                 }
+
+                let name = normalize_ident(idents.remove(1));
+                let relation = idents.remove(0).value.into();
+                if self.find_relation(&relation).is_none() {
+                    return internal_err!(
+                        "Column [\"{}\"] not found in table [\"{}\"] or table not exists",
+                        name,
+                        relation
+                    );
+                }
+
                 Ok(LogicalExpr::Column(Column {
-                    name: normalize_ident(idents.remove(1)),
-                    relation: Some(idents.remove(0).value.into()),
+                    name,
+                    relation: Some(relation),
                 }))
             }
-            Expression::Identifier(ident) => Ok(column(&normalize_ident(ident))),
+            Expression::Identifier(ident) => {
+                let col_name = normalize_ident(ident);
+                self.get_relation(&col_name)
+                    .map(|relation| LogicalExpr::Column(Column::new(col_name, relation)))
+            }
             Expression::Literal(lit) => match lit {
                 Literal::Int(i) => Ok(LogicalExpr::Literal(ScalarValue::Int64(Some(i)))),
                 Literal::Float(f) => Ok(LogicalExpr::Literal(ScalarValue::Float64(Some(f)))),
@@ -754,18 +810,18 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn handle_function(&self, name: &str, mut exprs: Vec<LogicalExpr>) -> Result<LogicalExpr> {
+    fn handle_function(&self, name: &str, mut args: Vec<LogicalExpr>) -> Result<LogicalExpr> {
         if let Some(udf) = self.udfs.get(name.to_uppercase().as_str()) {
             return Ok(LogicalExpr::Function(Function {
                 func: udf.clone(),
-                args: exprs,
+                args,
             }));
         }
 
         if let Ok(op) = name.try_into() {
             return Ok(LogicalExpr::AggregateExpr(AggregateExpr {
                 op,
-                expr: Box::new(exprs.pop().ok_or(Error::InternalError(
+                expr: Box::new(args.pop().ok_or(Error::InternalError(
                     "Aggregate function should have at least one expr".to_string(),
                 ))?),
             }));
@@ -799,7 +855,7 @@ impl<'a> SqlQueryPlanner<'a> {
     }
 
     fn sql_select_item_to_expr(
-        &self,
+        &mut self,
         plan: &LogicalPlan,
         item: SelectItem,
         empty_relation: bool,
@@ -876,13 +932,18 @@ impl<'a> SqlQueryPlanner<'a> {
                 // expand schema
                 let quanlified_prefix = idents.join(".").into();
 
-                if self.relations.contains_key(&quanlified_prefix) {
-                    return // expand schema
-                        plan.schema()
-                            .flattened_fields()
-                            .into_iter()
-                            .map(|field| Ok(column(field.name())))
-                            .collect();
+                if self.find_relation(&quanlified_prefix).is_some() {
+                    return plan
+                        .schema()
+                        .fields()
+                        .iter()
+                        .map(|field| {
+                            Ok(LogicalExpr::Column(Column::new(
+                                field.name(),
+                                Some(quanlified_prefix.clone()),
+                            )))
+                        })
+                        .collect();
                 }
 
                 Err(Error::InternalError(format!(
@@ -892,58 +953,6 @@ impl<'a> SqlQueryPlanner<'a> {
             }
         }
     }
-
-    fn get_table_source(&self, table_name: &str) -> Result<Arc<dyn TableProvider>> {
-        self.relations
-            .get(&table_name.into())
-            .map(|a| a.clone())
-            .ok_or(Error::TableNotFound(table_name.to_owned()))
-    }
-
-    fn get_cte_table(&self, name: &str) -> Option<LogicalPlan> {
-        self.ctes.get(name).map(|a| a.as_ref().clone())
-    }
-}
-
-fn extract_aliases(column_exprs: &[LogicalExpr]) -> HashMap<String, LogicalExpr> {
-    column_exprs
-        .iter()
-        .filter_map(|expr| match expr {
-            LogicalExpr::Alias(alias) => Some((alias.name.clone(), alias.expr.as_ref().clone())),
-            _ => None,
-        })
-        .collect::<HashMap<_, _>>()
-}
-
-fn find_column_exprs(expr: &LogicalExpr) -> Result<Vec<LogicalExpr>> {
-    match expr {
-        LogicalExpr::Alias(alias) => find_column_exprs(&alias.expr),
-        LogicalExpr::AggregateExpr(aggr) => Ok(vec![aggr.as_column()?]),
-        LogicalExpr::BinaryExpr(BinaryExpr { left, right, .. }) => {
-            let mut left = find_column_exprs(left)?;
-            let mut right = find_column_exprs(right)?;
-            left.append(&mut right);
-            Ok(left)
-        }
-        _ => Ok(vec![expr.clone()]),
-    }
-}
-
-fn find_aggregate_exprs(exprs: &Vec<LogicalExpr>) -> Vec<AggregateExpr> {
-    exprs
-        .iter()
-        .flat_map(|expr| match expr {
-            LogicalExpr::AggregateExpr(aggr) => vec![(aggr.clone())],
-            LogicalExpr::Alias(alias) => find_aggregate_exprs(&vec![alias.expr.as_ref().clone()]),
-            LogicalExpr::BinaryExpr(BinaryExpr { left, right, .. }) => {
-                let mut left = find_aggregate_exprs(&vec![left.as_ref().clone()]);
-                let mut right = find_aggregate_exprs(&vec![right.as_ref().clone()]);
-                left.append(&mut right);
-                left
-            }
-            _ => vec![],
-        })
-        .collect::<Vec<_>>()
 }
 
 pub(crate) fn parse_file_path(args: &mut Vec<FunctionArgument>) -> Result<String> {
@@ -1015,6 +1024,44 @@ pub(crate) fn parse_csv_options(mut args: Vec<FunctionArgument>) -> Result<CsvRe
     }
 
     Ok(options)
+}
+
+fn find_columns_exprs(expr: &LogicalExpr) -> Vec<LogicalExpr> {
+    let mut columns = vec![];
+    expr.apply(|nested_expr| {
+        if let LogicalExpr::Column(_) = nested_expr {
+            columns.push(nested_expr.clone());
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })
+    .expect("[find_columns_exprs] should not fail");
+
+    columns
+}
+
+fn find_aggregate_exprs(exprs: &Vec<LogicalExpr>) -> Vec<LogicalExpr> {
+    exprs
+        .iter()
+        .flat_map(|expr| {
+            let mut exprs = vec![];
+            expr.apply(|nested_expr| {
+                if let LogicalExpr::AggregateExpr(_) = nested_expr {
+                    if !exprs.contains(nested_expr) {
+                        exprs.push(nested_expr.clone());
+                    }
+                }
+                Ok(TreeNodeRecursion::Continue)
+            })
+            .expect("[find_aggregate_exprs] should not fail");
+
+            exprs
+        })
+        .fold(vec![], |mut acc, expr| {
+            if !acc.contains(&expr) {
+                acc.push(expr)
+            }
+            acc
+        })
 }
 
 fn sql_to_arrow_data_type(data_type: &sqlparser::datatype::DataType) -> Result<arrow::datatypes::DataType> {
@@ -1101,7 +1148,7 @@ mod tests {
 
     #[test]
     fn test_update() {
-        quick_test("UPDATE tbl SET id=0 WHERE id IS NULL;", "Dml: op=[Update] table=[tbl]\n  Projection: (CAST(Int64(0) AS Int32) AS id, tbl.name, tbl.age)\n    Filter: tbl.id IS NULL\n      TableScan: tbl\n");
+        quick_test("UPDATE tbl SET id = 0 WHERE id IS NULL;", "Dml: op=[Update] table=[tbl]\n  Projection: (CAST(Int64(0) AS Int32) AS id, tbl.name, tbl.age)\n    Filter: tbl.id IS NULL\n      TableScan: tbl\n");
 
         quick_test("UPDATE tbl SET id = 1, name = 2;", "Dml: op=[Update] table=[tbl]\n  Projection: (CAST(Int64(1) AS Int32) AS id, CAST(Int64(2) AS Utf8) AS name, tbl.age)\n    TableScan: tbl\n");
     }
@@ -1178,6 +1225,11 @@ mod tests {
     #[test]
     fn test_select_column() {
         quick_test(
+            "SELECT person.id,a.name as c FROM person as a",
+            "Projection: (person.id, a.name AS c)\n  SubqueryAlias: a\n    TableScan: person\n",
+        );
+
+        quick_test(
             "SELECT id,name FROM person",
             "Projection: (person.id, person.name)\n  TableScan: person\n",
         );
@@ -1194,7 +1246,7 @@ mod tests {
 
         quick_test(
             "SELECT address FROM person",
-            "Internal Error: Column \"address\" not found in any table",
+            "Arrow Error: Schema error: Unable to get field named \"address\". Valid fields: [\"id\", \"name\", \"first_name\", \"age\"]",
         );
 
         quick_test(
@@ -1212,11 +1264,14 @@ mod tests {
             "Projection: (person.age, person.first_name, person.id, person.name, person.id)\n  TableScan: person\n",
         );
 
-        quick_test("SELECT t.id FROM person as t", "Projection: (t.id)\n  TableScan: t\n");
+        quick_test(
+            "SELECT t.id FROM person as t",
+            "Projection: (t.id)\n  SubqueryAlias: t\n    TableScan: person\n",
+        );
 
         quick_test(
             "SELECT t.* FROM person as t",
-            "Projection: (t.id, t.name, t.first_name, t.age)\n  TableScan: t\n",
+            "Projection: (t.id, t.name, t.first_name, t.age)\n  SubqueryAlias: t\n    TableScan: person\n",
         );
     }
 
@@ -1234,7 +1289,7 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person as t WHERE t.id = 2",
-            "Projection: (t.age, t.first_name, t.id, t.name)\n  Filter: t.id = Int64(2)\n    TableScan: t\n",
+            "Projection: (t.age, t.first_name, t.id, t.name)\n  Filter: t.id = Int64(2)\n    SubqueryAlias: t\n      TableScan: person\n",
         );
     }
 
@@ -1242,12 +1297,12 @@ mod tests {
     fn test_join() {
         quick_test(
             "SELECT p.id FROM person as p,a,b",
-            "Projection: (p.id)\n  CrossJoin\n    CrossJoin\n      TableScan: p\n      TableScan: a\n    TableScan: b\n",
+            "Projection: (p.id)\n  CrossJoin\n    CrossJoin\n      SubqueryAlias: p\n        TableScan: person\n      TableScan: a\n    TableScan: b\n",
         );
 
         quick_test(
             "SELECT p.id,a.id FROM person as p,a,b",
-            "Projection: (p.id, a.id)\n  CrossJoin\n    CrossJoin\n      TableScan: p\n      TableScan: a\n    TableScan: b\n",
+            "Projection: (p.id, a.id)\n  CrossJoin\n    CrossJoin\n      SubqueryAlias: p\n        TableScan: person\n      TableScan: a\n    TableScan: b\n",
         );
 
         quick_test(
@@ -1264,7 +1319,7 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person as p,a WHERE p.id = 1",
-            "Projection: (p.age, p.first_name, a.id, p.id, a.name, p.name)\n  Filter: p.id = Int64(1)\n    CrossJoin\n      TableScan: p\n      TableScan: a\n",
+            "Projection: (p.age, p.first_name, a.id, p.id, a.name, p.name)\n  Filter: p.id = Int64(1)\n    CrossJoin\n      SubqueryAlias: p\n        TableScan: person\n      TableScan: a\n",
         );
 
         quick_test(
@@ -1411,7 +1466,8 @@ mod tests {
             file::parquet::read_parquet("./tests/testdata/file/case2.parquet").unwrap(),
         );
 
-        let stmt = Parser::new(sql).parse().unwrap();
+        let mut parser = Parser::new(sql);
+        let stmt = parser.parse().unwrap();
         let udfs = all_builtin_functions()
             .into_iter()
             .map(|udf| (udf.name().to_uppercase().to_string(), udf))

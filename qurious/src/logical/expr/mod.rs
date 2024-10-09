@@ -20,13 +20,14 @@ pub use literal::*;
 pub use sort::*;
 
 use crate::common::table_relation::TableRelation;
+use crate::common::transformed::{TransformNode, Transformed, TreeNodeRecursion};
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::{Error, Result};
+use crate::internal_err;
 use crate::logical::plan::LogicalPlan;
-use arrow::datatypes::{DataType, Field, FieldRef};
+use arrow::datatypes::{DataType, Field, FieldRef, Schema};
 
 use self::alias::Alias;
-use crate::logical::plan::base_plan;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LogicalExpr {
@@ -48,10 +49,9 @@ macro_rules! impl_logical_expr_methods {
     ($($variant:ident),+ $(,)?) => {
         impl LogicalExpr {
             pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
-                let base_plan = base_plan(plan);
                 match self {
                     $(
-                        LogicalExpr::$variant(e) => e.field(&base_plan),
+                        LogicalExpr::$variant(e) => e.field(plan),
                     )+
                     LogicalExpr::Literal(v) => Ok(Arc::new(v.to_field())),
                     LogicalExpr::Wildcard => Ok(Arc::new(Field::new("*", DataType::Null, true))),
@@ -140,15 +140,118 @@ impl LogicalExpr {
     pub fn as_column(&self) -> Result<LogicalExpr> {
         match self {
             LogicalExpr::Column(_) => Ok(self.clone()),
-            LogicalExpr::Wildcard | LogicalExpr::BinaryExpr(_) | LogicalExpr::AggregateExpr(_) => Ok(
-                LogicalExpr::Column(Column::new(format!("{}", self), None::<TableRelation>)),
-            ),
+            LogicalExpr::AggregateExpr(agg) => agg.as_column(),
+            LogicalExpr::Literal(_) | LogicalExpr::Wildcard | LogicalExpr::BinaryExpr(_) => Ok(LogicalExpr::Column(
+                Column::new(format!("{}", self), None::<TableRelation>),
+            )),
             _ => Err(Error::InternalError(format!("Expect column, got {:?}", self))),
         }
     }
 
     pub fn column_refs(&self) -> HashSet<&Column> {
         todo!()
+    }
+
+    pub fn data_type(&self, schema: &Arc<Schema>) -> Result<DataType> {
+        match self {
+            LogicalExpr::Alias(Alias { expr, .. }) => expr.data_type(schema),
+            LogicalExpr::Column(column) => {
+                let field = schema.field_with_name(&column.name)?;
+                Ok(field.data_type().clone())
+            }
+            LogicalExpr::Literal(scalar_value) => Ok(scalar_value.data_type()),
+            LogicalExpr::BinaryExpr(binary_expr) => binary_expr.get_result_type(schema),
+            LogicalExpr::Cast(cast_expr) => Ok(cast_expr.data_type.clone()),
+            LogicalExpr::Function(function) => Ok(function.func.return_type()),
+            LogicalExpr::AggregateExpr(AggregateExpr { expr, .. })
+            | LogicalExpr::SortExpr(SortExpr { expr, .. })
+            | LogicalExpr::Negative(expr) => expr.data_type(schema),
+            LogicalExpr::IsNull(_) | LogicalExpr::IsNotNull(_) => Ok(DataType::Boolean),
+            LogicalExpr::Wildcard => internal_err!("Wildcard has no data type"),
+        }
+    }
+}
+
+impl TransformNode for LogicalExpr {
+    fn map_children<F: FnMut(Self) -> Result<Transformed<Self>>>(self, mut f: F) -> Result<Transformed<Self>> {
+        Ok(match self {
+            LogicalExpr::Alias(Alias { expr, name }) => f(*expr)?.update(|expr| {
+                LogicalExpr::Alias(Alias {
+                    expr: Box::new(expr),
+                    name,
+                })
+            }),
+            LogicalExpr::BinaryExpr(BinaryExpr { left, op, right }) => {
+                let left = f(*left)?;
+                let right = f(*right)?;
+                let transformed = left.transformed || right.transformed;
+                Transformed {
+                    data: LogicalExpr::BinaryExpr(BinaryExpr {
+                        left: left.update(Box::new).data,
+                        op,
+                        right: right.update(Box::new).data,
+                    }),
+                    transformed,
+                }
+            }
+            LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => f(*expr)?.update(|expr| {
+                LogicalExpr::AggregateExpr(AggregateExpr {
+                    op,
+                    expr: Box::new(expr),
+                })
+            }),
+            LogicalExpr::SortExpr(SortExpr { expr, asc }) => f(*expr)?.update(|expr| {
+                LogicalExpr::SortExpr(SortExpr {
+                    expr: Box::new(expr),
+                    asc,
+                })
+            }),
+            LogicalExpr::Cast(CastExpr { expr, data_type }) => f(*expr)?.update(|expr| {
+                LogicalExpr::Cast(CastExpr {
+                    expr: Box::new(expr),
+                    data_type,
+                })
+            }),
+            LogicalExpr::Function(Function { func, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|expr| f(expr).map(|expr| expr.data))
+                    .collect::<Result<Vec<_>>>()?;
+                Transformed::yes(LogicalExpr::Function(Function { func, args }))
+            }
+            LogicalExpr::IsNull(expr) => f(*expr)?.update(|expr| LogicalExpr::IsNull(Box::new(expr))),
+            LogicalExpr::IsNotNull(expr) => f(*expr)?.update(|expr| LogicalExpr::IsNotNull(Box::new(expr))),
+            LogicalExpr::Negative(expr) => f(*expr)?.update(|expr| LogicalExpr::Negative(Box::new(expr))),
+
+            LogicalExpr::Wildcard | LogicalExpr::Column(_) | LogicalExpr::Literal(_) => Transformed::no(self),
+        })
+    }
+
+    fn apply_children<'n, F>(&'n self, mut f: F) -> Result<TreeNodeRecursion>
+    where
+        F: FnMut(&'n Self) -> Result<TreeNodeRecursion>,
+    {
+        let children = match self {
+            LogicalExpr::BinaryExpr(BinaryExpr { left, right, .. }) => vec![left.as_ref(), right.as_ref()],
+            LogicalExpr::Function(function) => function.args.iter().map(|expr| expr).collect(),
+            LogicalExpr::Negative(expr)
+            | LogicalExpr::Cast(CastExpr { expr, .. })
+            | LogicalExpr::AggregateExpr(AggregateExpr { expr, .. })
+            | LogicalExpr::SortExpr(SortExpr { expr, .. })
+            | LogicalExpr::IsNull(expr)
+            | LogicalExpr::IsNotNull(expr)
+            | LogicalExpr::Alias(Alias { expr, .. }) => vec![expr.as_ref()],
+            LogicalExpr::Wildcard | LogicalExpr::Column(_) | LogicalExpr::Literal(_) => vec![],
+        };
+
+        for expr in children {
+            match f(expr)? {
+                TreeNodeRecursion::Continue => {}
+                TreeNodeRecursion::Stop => return Ok(TreeNodeRecursion::Stop),
+            }
+        }
+
+        Ok(TreeNodeRecursion::Continue)
     }
 }
 

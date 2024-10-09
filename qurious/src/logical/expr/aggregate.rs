@@ -1,11 +1,11 @@
-use arrow::datatypes::{Field, FieldRef};
+use arrow::datatypes::{DataType, Field, FieldRef};
 
 use crate::error::{Error, Result};
 use crate::logical::expr::LogicalExpr;
 use crate::logical::plan::LogicalPlan;
+use std::convert::TryFrom;
 use std::fmt::Display;
 use std::sync::Arc;
-use std::convert::TryFrom;
 
 use super::Column;
 
@@ -40,7 +40,10 @@ impl TryFrom<String> for AggregateOperator {
             "max" => Ok(AggregateOperator::Max),
             "avg" => Ok(AggregateOperator::Avg),
             "count" => Ok(AggregateOperator::Count),
-            _ => Err(Error::InternalError(format!("{} is not a valid aggregate operator", value))),
+            _ => Err(Error::InternalError(format!(
+                "{} is not a valid aggregate operator",
+                value
+            ))),
         }
     }
 }
@@ -61,28 +64,35 @@ pub struct AggregateExpr {
 
 impl AggregateExpr {
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
-        self.expr.field(plan).map(|field| {
+        self.expr.field(plan).and_then(|field| {
             let col_name = if let LogicalExpr::Column(inner) = self.expr.as_ref() {
                 &inner.quanlified_name()
             } else {
                 field.name()
             };
 
-            Arc::new(Field::new(
+            Ok(Arc::new(Field::new(
                 format!("{}({})", self.op, col_name),
-                field.data_type().clone(),
+                self.infer_type(field.data_type())?,
                 true,
-            ))
+            )))
         })
     }
 
-    pub fn as_column(&self) -> Result<LogicalExpr> {
+    pub(crate) fn as_column(&self) -> Result<LogicalExpr> {
         self.expr.as_column().map(|inner_col| {
             LogicalExpr::Column(Column {
                 name: format!("{}({})", self.op, inner_col),
                 relation: None,
             })
         })
+    }
+
+    pub(crate) fn infer_type(&self, expr_data_type: &DataType) -> Result<DataType> {
+        match self.op {
+            AggregateOperator::Count => Ok(DataType::Int64),
+            _ => Ok(expr_data_type.clone()),
+        }
     }
 }
 
@@ -91,20 +101,3 @@ impl Display for AggregateExpr {
         write!(f, "{}({})", self.op, self.expr)
     }
 }
-
-// macro_rules! make_aggregate_expr_fn {
-//     ($name: ident, $op: expr, $re: ident) => {
-//         pub fn $name(expr: LogicalExpr) -> $re {
-//             $re {
-//                 op: $op,
-//                 expr: Box::new(expr),
-//             }
-//         }
-//     };
-// }
-
-// make_aggregate_expr_fn!(sum, AggregateOperator::Sum, AggregateExpr);
-// make_aggregate_expr_fn!(min, AggregateOperator::Min, AggregateExpr);
-// make_aggregate_expr_fn!(max, AggregateOperator::Max, AggregateExpr);
-// make_aggregate_expr_fn!(avg, AggregateOperator::Avg, AggregateExpr);
-// make_aggregate_expr_fn!(count, AggregateOperator::Count, AggregateExpr);

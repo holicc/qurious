@@ -3,24 +3,22 @@ use itertools::Itertools;
 
 use super::LogicalPlan;
 use crate::error::Result;
-use crate::logical::expr::{AggregateExpr, LogicalExpr};
+use crate::logical::expr::LogicalExpr;
 use std::fmt::Display;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct Aggregate {
-    /// The schema description of the aggregate output
     pub schema: SchemaRef,
     pub input: Box<LogicalPlan>,
     pub group_expr: Vec<LogicalExpr>,
-    pub aggr_expr: Vec<AggregateExpr>,
+    pub aggr_expr: Vec<LogicalExpr>,
 }
 
 impl Aggregate {
-    pub fn try_new(input: LogicalPlan, group_expr: Vec<LogicalExpr>, aggr_expr: Vec<AggregateExpr>) -> Result<Self> {
+    pub fn try_new(input: LogicalPlan, group_expr: Vec<LogicalExpr>, aggr_expr: Vec<LogicalExpr>) -> Result<Self> {
         let group_expr = group_expr.into_iter().unique().collect::<Vec<_>>();
         let aggr_expr = aggr_expr.into_iter().unique().collect::<Vec<_>>();
-
         let group_fields = group_expr.iter().map(|f| f.field(&input));
         let agg_fields = aggr_expr.iter().map(|f| f.field(&input));
 

@@ -2,7 +2,7 @@ use arrow::datatypes::Schema;
 use std::sync::Arc;
 
 use super::{
-    expr::{AggregateExpr, LogicalExpr, SortExpr},
+    expr::{LogicalExpr, SortExpr},
     plan::{Aggregate, CrossJoin, EmptyRelation, Join, Limit, LogicalPlan, Projection, Sort, TableScan},
 };
 use crate::{common::join_type::JoinType, provider::table::TableProvider};
@@ -92,7 +92,7 @@ impl LogicalPlanBuilder {
         })
     }
 
-    pub fn aggregate(self, group_expr: Vec<LogicalExpr>, aggr_expr: Vec<AggregateExpr>) -> Result<Self> {
+    pub fn aggregate(self, group_expr: Vec<LogicalExpr>, aggr_expr: Vec<LogicalExpr>) -> Result<Self> {
         Aggregate::try_new(self.plan, group_expr, aggr_expr)
             .map(|s| LogicalPlanBuilder::from(LogicalPlan::Aggregate(s)))
     }

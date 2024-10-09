@@ -24,14 +24,10 @@ pub use sub_query::SubqueryAlias;
 
 use arrow::datatypes::SchemaRef;
 
-use super::expr::{Column, LogicalExpr};
+use super::expr::LogicalExpr;
 use crate::common::table_relation::TableRelation;
+use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::error::Result;
-
-pub enum Transformed<T> {
-    Yes(T),
-    No,
-}
 
 #[macro_export]
 macro_rules! impl_logical_plan {
@@ -73,44 +69,12 @@ pub enum LogicalPlan {
 }
 
 impl LogicalPlan {
-    /// Get the relation of the logical plan.
-    /// eg:
-    ///     Projection: [name as a, age]
-    ///         TableScan: people -> [name, age]
-    /// The relation of the above plan is:  [(TableRelation('people'),SchemaRef('a','age'))]
-    pub fn relation(&self) -> Vec<(&TableRelation, SchemaRef)> {
-        if let LogicalPlan::TableScan(scan) = self {
-            return vec![(&scan.relation, scan.schema())];
+    pub fn relation(&self) -> Option<TableRelation> {
+        match self {
+            LogicalPlan::TableScan(s) => Some(s.relation.clone()),
+            LogicalPlan::SubqueryAlias(SubqueryAlias { alias, .. }) => Some(alias.clone()),
+            _ => None,
         }
-
-        let mut result = vec![];
-        let mut list = vec![self];
-
-        let mut schema = None;
-        while let Some(plan) = list.pop() {
-            if let LogicalPlan::Projection(p) = plan {
-                if schema.is_none() {
-                    schema = Some(p.schema());
-                }
-            }
-
-            match plan {
-                LogicalPlan::TableScan(scan) => {
-                    if schema.is_none() {
-                        result.push((&scan.relation, scan.schema()));
-                    } else {
-                        result.push((&scan.relation, schema.take().unwrap()));
-                    }
-                }
-                _ => {
-                    if let Some(children) = plan.children() {
-                        list.extend(children);
-                    }
-                }
-            }
-        }
-
-        result
     }
 
     pub fn schema(&self) -> SchemaRef {
@@ -149,32 +113,74 @@ impl LogicalPlan {
         }
     }
 
-    pub fn map_expr<F>(self, mut f: F) -> Result<Self>
+    pub fn map_exprs<F>(self, mut f: F) -> Result<Transformed<Self>>
     where
-        F: FnMut(&LogicalPlan, &LogicalExpr) -> Result<Transformed<LogicalExpr>>,
+        F: FnMut(LogicalExpr) -> Result<Transformed<LogicalExpr>>,
     {
-        fn iter<F: FnMut(&LogicalPlan, &LogicalExpr) -> Result<Transformed<LogicalExpr>>>(
-            mut plan: LogicalPlan,
-            f: &mut F,
-        ) -> Result<LogicalPlan> {
-            match &mut plan {
-                LogicalPlan::Projection(proj) => {
-                    for expr in &mut proj.exprs {
-                        if let Transformed::Yes(new_expr) = f(&proj.input, expr)? {
-                            *expr = new_expr;
-                        }
-                    }
-                }
-                _ => {}
+        match self {
+            LogicalPlan::Projection(Projection { schema, input, exprs }) => exprs
+                .into_iter()
+                .map(|expr| f(expr).data())
+                .collect::<Result<Vec<_>>>()
+                .map(|exprs| Transformed::yes(LogicalPlan::Projection(Projection { schema, input, exprs }))),
+            LogicalPlan::Aggregate(Aggregate {
+                schema,
+                input,
+                group_expr,
+                aggr_expr,
+            }) => {
+                let group_expr = group_expr
+                    .into_iter()
+                    .map(|expr| f(expr).data())
+                    .collect::<Result<Vec<_>>>()?;
+                let aggr_expr = aggr_expr
+                    .into_iter()
+                    .map(|expr| f(expr).data())
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Transformed::yes(LogicalPlan::Aggregate(Aggregate {
+                    schema,
+                    input,
+                    group_expr,
+                    aggr_expr,
+                })))
             }
-
-            Ok(plan)
+            _ => Ok(Transformed::no(self)),
         }
+    }
+}
 
-        iter(self, &mut f)
+impl TransformNode for LogicalPlan {
+    fn map_children<F: FnMut(Self) -> Result<Transformed<Self>>>(self, mut f: F) -> Result<Transformed<Self>> {
+        Ok(match self {
+            LogicalPlan::Projection(Projection { schema, input, exprs }) => f(*input)?.update(|input| {
+                LogicalPlan::Projection(Projection {
+                    schema,
+                    input: Box::new(input),
+                    exprs,
+                })
+            }),
+            LogicalPlan::Aggregate(Aggregate {
+                schema,
+                input,
+                group_expr,
+                aggr_expr,
+            }) => f(*input)?.update(|input| {
+                LogicalPlan::Aggregate(Aggregate {
+                    schema,
+                    input: Box::new(input),
+                    group_expr,
+                    aggr_expr,
+                })
+            }),
+
+            _ => Transformed::no(self),
+        })
     }
 
-    pub fn has_column(&self, _col: &Column) -> bool {
+    fn apply_children<'n, F>(&'n self, _f: F) -> Result<crate::common::transformed::TreeNodeRecursion>
+    where
+        F: FnMut(&'n Self) -> Result<crate::common::transformed::TreeNodeRecursion>,
+    {
         todo!()
     }
 }

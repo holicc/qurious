@@ -1,5 +1,8 @@
 use arrow::datatypes::SchemaRef;
 
+use crate::common::table_relation::TableRelation;
+use crate::error::Result;
+
 use super::LogicalPlan;
 use std::{
     fmt::{self, Display, Formatter},
@@ -9,11 +12,20 @@ use std::{
 #[derive(Debug, Clone)]
 pub struct SubqueryAlias {
     pub input: Arc<LogicalPlan>,
-    pub alias: String,
+    pub alias: TableRelation,
     pub schema: SchemaRef,
 }
 
 impl SubqueryAlias {
+    pub fn try_new(input: LogicalPlan, alias: &str) -> Result<Self> {
+        let schema = input.schema();
+        Ok(Self {
+            input: Arc::new(input),
+            alias: alias.into(),
+            schema,
+        })
+    }
+
     pub fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }

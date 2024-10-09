@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use arrow::datatypes::{FieldRef, SchemaRef};
+use arrow::datatypes::FieldRef;
 
 use crate::arrow_err;
 use crate::common::table_relation::TableRelation;
@@ -38,38 +38,6 @@ impl Column {
         } else {
             self.name.clone()
         }
-    }
-
-    pub fn normalize_col_with_schemas_and_ambiguity_check(
-        self,
-        schemas: &[&[(&TableRelation, SchemaRef)]],
-    ) -> Result<Self> {
-        if self.relation.is_some() {
-            return Ok(self);
-        }
-
-        for schema_level in schemas {
-            let mut matched = schema_level
-                .iter()
-                .filter_map(|(relation, schema)| schema.field_with_name(&self.name).map(|f| (relation, f)).ok())
-                .collect::<Vec<_>>();
-
-            if matched.len() > 1 {
-                return Err(Error::InternalError(format!("Column \"{}\" is ambiguous", self.name)));
-            }
-
-            if let Some((relation, _)) = matched.pop() {
-                return Ok(Self {
-                    name: self.name,
-                    relation: Some((*relation).clone()),
-                });
-            }
-        }
-
-        Err(Error::InternalError(format!(
-            "Column \"{}\" not found in any table",
-            self.name
-        )))
     }
 }
 

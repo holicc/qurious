@@ -1,7 +1,10 @@
 pub mod array;
 pub mod batch;
 
-use arrow::datatypes::DataType;
+use std::sync::Arc;
+
+use crate::error::Result;
+use arrow::datatypes::{DataType, Schema, SchemaBuilder};
 use sqlparser::ast::Ident;
 
 use crate::logical::plan::LogicalPlan;
@@ -47,4 +50,10 @@ pub fn get_input_types(left_type: &DataType, right_type: &DataType) -> DataType 
         (DataType::UInt8, _) | (_, DataType::UInt8) => DataType::UInt8,
         _ => unimplemented!("Type coercion not supported for {:?} and {:?}", left_type, right_type),
     }
+}
+
+pub fn merge_schema(a: &Arc<Schema>, b: &Arc<Schema>) -> Result<Schema> {
+    let mut builder = SchemaBuilder::from(a.as_ref());
+    b.fields().iter().try_for_each(|f| builder.try_merge(f))?;
+    Ok(builder.finish())
 }

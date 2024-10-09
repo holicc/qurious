@@ -5,7 +5,7 @@ use arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
 use crate::{
     error::Result,
     logical::{
-        expr::{self, LogicalExpr},
+        expr::LogicalExpr,
         plan::{Aggregate, Filter, LogicalPlan, Projection},
     },
     planner::QueryPlanner,
@@ -50,7 +50,7 @@ impl DataFrame {
         })
     }
 
-    pub fn aggregate(self, group_by: Vec<LogicalExpr>, aggr_expr: Vec<expr::AggregateExpr>) -> Result<Self> {
+    pub fn aggregate(self, group_by: Vec<LogicalExpr>, aggr_expr: Vec<LogicalExpr>) -> Result<Self> {
         Aggregate::try_new(self.plan.clone(), group_by, aggr_expr).map(|a| Self {
             planner: self.planner,
             plan: LogicalPlan::Aggregate(a),

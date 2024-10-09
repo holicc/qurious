@@ -9,13 +9,12 @@ use arrow::{
 
 use crate::{
     arrow_err,
-    common::table_relation::TableRelation,
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
+    internal_err,
     logical::{
         expr::{
-            alias::Alias, AggregateExpr, AggregateOperator, BinaryExpr, CastExpr, Column, Function, LogicalExpr,
-            SortExpr,
+            alias::Alias, AggregateOperator, BinaryExpr, CastExpr, Column, Function, LogicalExpr,
         },
         plan::{
             Aggregate, CrossJoin, EmptyRelation, Filter, Join, LogicalPlan, Projection, Sort, SubqueryAlias, TableScan,
@@ -100,6 +99,7 @@ impl DefaultQueryPlanner {
     // Physical plan functions
     fn physical_plan_projection(&self, projection: &Projection) -> Result<Arc<dyn PhysicalPlan>> {
         let physical_plan = self.create_physical_plan(&projection.input)?;
+
         let input_schema = physical_plan.schema();
         let exprs: Vec<Arc<dyn PhysicalExpr>> = projection
             .exprs
@@ -134,11 +134,14 @@ impl DefaultQueryPlanner {
             .aggr_expr
             .iter()
             .map(|e| {
+                let LogicalExpr::AggregateExpr(agg_expr) = e else {
+                    return internal_err!("LogicalExpr should be AggregateExpr, but got {:?}", e);
+                };
                 // use base plan for aggregate expr
-                self.create_physical_expr(&aggregate.input.schema(), &e.expr)
+                self.create_physical_expr(&aggregate.input.schema(), &agg_expr.expr)
                     .and_then(|expr| {
                         let return_type = e.field(&aggregate.input).map(|f| f.data_type().clone())?;
-                        match e.op {
+                        match agg_expr.op {
                             AggregateOperator::Sum => {
                                 Ok(Arc::new(physical::expr::SumAggregateExpr::new(expr, return_type))
                                     as Arc<dyn physical::expr::AggregateExpr>)
@@ -280,39 +283,3 @@ impl DefaultQueryPlanner {
     }
 }
 
-/// Normalize the columns in the expression using the provided schemas and check for ambiguity
-pub(crate) fn normalize_col_with_schemas_and_ambiguity_check(
-    expr: LogicalExpr,
-    schemas: &[&[(&TableRelation, SchemaRef)]],
-) -> Result<LogicalExpr> {
-    if schemas.is_empty() || schemas.iter().all(|s| s.is_empty()) {
-        return Ok(expr);
-    }
-
-    fn normalize_boxed(expr: Box<LogicalExpr>, schemas: &[&[(&TableRelation, SchemaRef)]]) -> Result<Box<LogicalExpr>> {
-        normalize_col_with_schemas_and_ambiguity_check(*expr, schemas).map(Box::new)
-    }
-
-    match expr {
-        LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => {
-            normalize_boxed(expr, schemas).map(|expr| LogicalExpr::AggregateExpr(AggregateExpr { op, expr }))
-        }
-        LogicalExpr::SortExpr(SortExpr { expr, asc }) => {
-            normalize_boxed(expr, schemas).map(|expr| LogicalExpr::SortExpr(SortExpr { expr, asc }))
-        }
-        LogicalExpr::Alias(Alias { expr, name }) => {
-            normalize_boxed(expr, schemas).map(|expr| LogicalExpr::Alias(Alias { expr, name }))
-        }
-        LogicalExpr::BinaryExpr(BinaryExpr { left, op, right }) => {
-            let left = normalize_boxed(left, schemas)?;
-            let right = normalize_boxed(right, schemas)?;
-            Ok(LogicalExpr::BinaryExpr(BinaryExpr { left, op, right }))
-        }
-        LogicalExpr::Column(col) => col
-            .normalize_col_with_schemas_and_ambiguity_check(schemas)
-            .map(LogicalExpr::Column),
-        LogicalExpr::IsNull(expr) => normalize_boxed(expr, schemas).map(LogicalExpr::IsNull),
-        LogicalExpr::IsNotNull(expr) => normalize_boxed(expr, schemas).map(LogicalExpr::IsNotNull),
-        _ => Ok(expr),
-    }
-}

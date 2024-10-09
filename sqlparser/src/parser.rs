@@ -551,6 +551,8 @@ impl<'a> Parser<'a> {
                                 .filter_map(|i| if i.value == "*" { None } else { Some(i.value.clone()) })
                                 .collect(),
                         )
+                    } else if let Some(alias) = alias {
+                        SelectItem::ExprWithAlias(expr, alias)
                     } else {
                         SelectItem::UnNamedExpr(expr)
                     }
@@ -2214,6 +2216,28 @@ mod tests {
 
     #[test]
     fn test_parse_select_statement() {
+        assert_stmt_eq(
+            "SELECT person.id as p_id FROM person",
+            ast::Statement::Select(Box::new(ast::Select {
+                with: None,
+                distinct: None,
+                columns: vec![ast::SelectItem::ExprWithAlias(
+                    ast::Expression::CompoundIdentifier(vec!["person".into(), "id".into()]),
+                    "p_id".to_owned(),
+                )],
+                from: vec![ast::From::Table {
+                    name: "person".to_owned(),
+                    alias: None,
+                }],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+
         assert_stmt_eq(
             "SELECT * FROM users;",
             ast::Statement::Select(Box::new(Select {

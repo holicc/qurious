@@ -1,7 +1,9 @@
+mod count_wildcard_rule;
 mod optimize_projections;
 mod push_down_projections;
 mod type_coercion;
 
+use count_wildcard_rule::CountWildcardRule;
 use type_coercion::TypeCoercion;
 
 use crate::{error::Result, logical::plan::LogicalPlan};
@@ -9,33 +11,28 @@ use crate::{error::Result, logical::plan::LogicalPlan};
 pub trait OptimizerRule {
     fn name(&self) -> &str;
 
-    fn optimize(&self, plan: &LogicalPlan) -> Result<Option<LogicalPlan>>;
+    fn optimize(&self, plan: LogicalPlan) -> Result<LogicalPlan>;
 }
 
-pub struct Optimzier {
+pub struct Optimizer {
     rules: Vec<Box<dyn OptimizerRule + Sync + Send>>,
 }
 
-impl Optimzier {
+impl Optimizer {
     pub fn new() -> Self {
         Self {
             rules: vec![
-                // Box::new(OptimizeProjections::default()),
-                Box::new(TypeCoercion::default()),
+                Box::new(CountWildcardRule),
+                Box::new(TypeCoercion::default())
             ],
         }
     }
 
     pub fn optimize(&self, plan: &LogicalPlan) -> Result<LogicalPlan> {
-        let mut plan = plan.clone();
+        let mut current_plan = plan.clone();
         for rule in &self.rules {
-            match rule.optimize(&plan)? {
-                Some(new_plan) => {
-                    plan = new_plan;
-                }
-                None => {}
-            }
+            current_plan = rule.optimize(current_plan)?;
         }
-        Ok(plan)
+        Ok(current_plan)
     }
 }
