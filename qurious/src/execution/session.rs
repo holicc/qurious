@@ -253,17 +253,18 @@ mod tests {
     fn test_create_table() -> Result<()> {
         let session = ExecuteSession::new()?;
         session.sql("create table a(v1 int, v2 int);")?;
-        // session.sql("create table b(v3 int, v4 int);")?;
-        session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
+        session.sql("create table b(v1 int, v2 float);")?;
+        // session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
 
         // session.sql("create table x(a int, b int);")?;
         // session.sql("create table y(c int, d int);")?;
 
-        session.sql("insert into a values (1, 1), (2, 2), (3, 3);")?;
+        session.sql("insert into a values (1,10), (2,20), (3,30), (4,40)")?;
+        session.sql("insert into b select v1, v2 from a;")?;
         // session.sql("insert into b values (1, 100), (3, 300), (4, 400);")?;
         // session.sql("select a, b, c, d from x join y on a = c")?;
         println!("++++++++++++++");
-        let batch = session.sql("with cte as (select v1 as i from a) select i*100 from cte")?;
+        let batch = session.sql("select * from b")?;
 
         print_batches(&batch)?;
 

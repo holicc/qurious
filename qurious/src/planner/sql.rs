@@ -325,97 +325,93 @@ impl<'a> SqlQueryPlanner<'a> {
     ) -> Result<LogicalPlan> {
         let table_source = self.get_table_source(&table)?;
         let table_schema = table_source.schema();
-        let input = if let Some(query) = query {
-            let plan = self.select_to_plan(query)?;
-            // check INSERT's input plan schema is compatible with table schema
-            if plan.schema().fields().len() != table_schema.fields().len() {
-                return Err(Error::InternalError(format!(
-                    "INSERT statement requires the same number of columns as the table: {}",
-                    table
-                )));
-            }
-
-            plan
+        // if value_indices[i] = Some(j), it means that the value of the i-th target table's column is
+        // derived from the j-th output of the source.
+        //
+        // if value_indices[i] = None, it means that the value of the i-th target table's column is
+        // not provided, and should be filled with a default value later.
+        let (fields, value_indices) = if columns.is_empty() {
+            (
+                table_schema.fields().iter().map(|f| f.as_ref()).collect::<Vec<_>>(),
+                (0..table_schema.fields().len()).map(Some).collect::<Vec<_>>(),
+            )
         } else {
-            let mut column_indices: HashMap<&String, usize> = HashMap::default();
             let mut value_indices = vec![None; table_schema.fields().len()];
-            let row = values.first().ok_or(Error::InternalError(
-                "INSERT statement requires at least one value".to_owned(),
-            ))?;
-            // check if columns are specified in the INSERT statement
-            // if not, we will use the default values
-            if columns.is_empty() {
-                row.iter().enumerate().for_each(|(i, _)| value_indices[i] = Some(i));
-            } else {
-                for (c_index, col) in columns.iter().enumerate() {
-                    let name = match col {
-                        Expression::Identifier(name) => &name.value,
-                        _ => {
-                            return Err(Error::InternalError(
-                                "INSERT statement requires column name to be an identifier".to_owned(),
-                            ))
-                        }
-                    };
-
-                    column_indices.insert(name, c_index);
-
-                    let index = table_schema.index_of(name)?;
-                    if value_indices[index].is_some() {
-                        return Err(Error::InternalError(format!(
-                            "Column [{}] is specified more than once",
-                            name
-                        )));
-                    }
-
-                    value_indices[index] = Some(index);
-                }
-            }
-            // convert values to logical plan
-            let plan = self.values_to_plan(values)?;
-            let schema = plan.schema();
-            // check if all columns have values, if not, fill with default values
-            let exprs = value_indices
+            let fields = columns
                 .into_iter()
                 .enumerate()
-                .map(|(i, value_index)| {
-                    let target_field = table_schema.field(i);
-                    match value_index {
-                        Some(v) => {
-                            // the index of `v` is the index of the table_schema field
-                            // not the index of the `values` plan schema field
-                            // so we need to transform it to the `values` plan schema field index
-                            let target_field = table_schema.field(v);
-                            let v = column_indices.get(target_field.name()).unwrap_or(&v);
+                .map(|(i, expr)| {
+                    let Expression::Identifier(name) = expr else {
+                        return internal_err!(
+                            "INSERT statement requires column name to be an identifier, but got: {}",
+                            expr
+                        );
+                    };
+                    let col_name = normalize_ident(name);
+                    let index = table_schema.index_of(&col_name)?;
 
-                            Ok(column(schema.field(*v).name())
-                                .cast_to(target_field.data_type())
-                                .alias(target_field.name()))
-                        }
-                        None => {
-                            let default_value = table_source.get_column_default(target_field.name());
-                            if !target_field.is_nullable() && default_value.is_none() {
-                                return Err(Error::InternalError(format!(
-                                    "Column [{}] does not have a default value and does not allow NULLs",
-                                    target_field.name()
-                                )));
-                            }
-                            Ok(LogicalExpr::Literal(default_value.unwrap_or(ScalarValue::Null))
-                                .cast_to(target_field.data_type())
-                                .alias(target_field.name()))
-                        }
+                    if value_indices[index].is_some() {
+                        return internal_err!("Column [{}] is specified more than once", col_name);
                     }
+                    value_indices[index] = Some(i);
+                    Ok(table_schema.field(index))
                 })
-                .collect::<Result<Vec<LogicalExpr>>>()?;
-            // convert values to expressions
-            LogicalPlanBuilder::project(plan, exprs)?
+                .collect::<Result<Vec<_>>>()?;
+
+            (fields, value_indices)
         };
 
-        Ok(LogicalPlan::Dml(DmlStatement {
-            relation: table.into(),
-            op: plan::DmlOperator::Insert,
-            schema: table_schema,
-            input: Box::new(input),
-        }))
+        // build source value plan
+        let source = if let Some(query) = query {
+            self.select_to_plan(query)?
+        } else {
+            self.values_to_plan(values)?
+        };
+        if source.schema().fields().len() != fields.len() {
+            return internal_err!(
+                "INSERT statement requires the {} columns, but got {} columns",
+                fields.len(),
+                source.schema().fields().len(),
+            );
+        }
+        // check if all columns have values, if not, fill with default values
+        let source_schema = source.schema();
+        let exprs = value_indices
+            .into_iter()
+            .enumerate()
+            .map(|(i, value_index)| {
+                let target_field = table_schema.field(i);
+                match value_index {
+                    Some(v) => {
+                        let target_field = table_schema.field(v);
+                        Ok(column(source_schema.field(v).name())
+                            .cast_to(target_field.data_type())
+                            .alias(target_field.name()))
+                    }
+                    None => {
+                        let default_value = table_source.get_column_default(target_field.name());
+                        if !target_field.is_nullable() && default_value.is_none() {
+                            return internal_err!(
+                                "Column [{}] does not have a default value and does not allow NULLs",
+                                target_field.name()
+                            );
+                        }
+                        Ok(LogicalExpr::Literal(default_value.unwrap_or(ScalarValue::Null))
+                            .cast_to(target_field.data_type())
+                            .alias(target_field.name()))
+                    }
+                }
+            })
+            .collect::<Result<Vec<LogicalExpr>>>()?;
+
+        LogicalPlanBuilder::project(source, exprs).map(|input| {
+            LogicalPlan::Dml(DmlStatement {
+                relation: table.into(),
+                op: plan::DmlOperator::Insert,
+                schema: table_schema,
+                input: Box::new(input),
+            })
+        })
     }
 
     fn drop_table_to_plan(&mut self, table: String, check_exists: bool) -> Result<LogicalPlan> {
@@ -1130,19 +1126,19 @@ mod tests {
     fn test_insert() {
         quick_test(
             "INSERT INTO tbl VALUES (1), (2), (3);",
-            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (CAST(column1 AS Int32) AS id, CAST(Utf8('default_name') AS Utf8) AS name, CAST(null AS Int32) AS age)\n    Values: [[Int64(1)], [Int64(2)], [Int64(3)]]\n",
+            "Internal Error: INSERT statement requires the 3 columns, but got 1 columns",
         );
         // insert with not exists column
         quick_test("INSERT INTO tbl(noexists,id,name) VALUES (1,1,'')", "Arrow Error: Schema error: Unable to get field named \"noexists\". Valid fields: [\"id\", \"name\", \"age\"]");
         // insert the result of a query into a table
         quick_test(
             "INSERT INTO tbl SELECT * FROM other_tbl;",
-            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (other_tbl.age, other_tbl.id, other_tbl.name)\n    TableScan: other_tbl\n",
+            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (CAST(age AS Int32) AS id, CAST(id AS Utf8) AS name, CAST(name AS Int32) AS age)\n    Projection: (other_tbl.age, other_tbl.id, other_tbl.name)\n      TableScan: other_tbl\n",
         );
         // insert values into the "i" column, inserting the default value into other columns
         quick_test(
             "INSERT INTO tbl(id,age) VALUES (1,10), (2,12), (3,13);",
-            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (CAST(column1 AS Int32) AS id, CAST(Utf8('default_name') AS Utf8) AS name, CAST(column2 AS Int32) AS age)\n    Values: [[Int64(1), Int64(10)], [Int64(2), Int64(12)], [Int64(3), Int64(13)]]\n",
+            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (CAST(column1 AS Int32) AS id, CAST(Utf8('default_name') AS Utf8) AS name, CAST(column2 AS Utf8) AS name)\n    Values: [[Int64(1), Int64(10)], [Int64(2), Int64(12)], [Int64(3), Int64(13)]]\n",
         );
     }
 
