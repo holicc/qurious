@@ -252,19 +252,19 @@ mod tests {
     #[test]
     fn test_create_table() -> Result<()> {
         let session = ExecuteSession::new()?;
-        session.sql("create table t (v1 int, v2 int)")?;
+        session.sql("create table t (v1 int, v2 int);")?;
         // session.sql("create table b(v1 int, v2 float);")?;
         // session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
 
         // session.sql("create table x(a int, b int);")?;
         // session.sql("create table y(c int, d int);")?;
 
-        session.sql("insert into t values (1,1), (2,1), (3,2), (4,2), (5,3)")?;
+        session.sql("insert into t values (1, 0), ( 2, 2), (3, 15), (2, 12), (3, 9), (1, 5);")?;
         // session.sql("insert into b select v1, v2 from a;")?;
         // session.sql("INSERT INTO test VALUES (1, 1), (2, 2), (3, 3), (3, 5), (NULL, NULL);")?;
         // session.sql("select a, b, c, d from x join y on a = c")?;
         println!("++++++++++++++");
-        let batch = session.sql("select v1 + 1 + count(*) from t group by v1 + 1")?;
+        let batch = session.sql("select v1, v2 from t order by v1 asc, v2 desc")?;
 
         print_batches(&batch)?;
 

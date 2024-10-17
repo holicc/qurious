@@ -484,6 +484,9 @@ impl<'a> Parser<'a> {
             let expr = self.parse_expression(0)?;
             let mut order = ast::Order::Asc;
 
+            if self.next_if_token(TokenType::Keyword(Keyword::Asc)).is_some() {
+                order = ast::Order::Asc;
+            }
             if self.next_if_token(TokenType::Keyword(Keyword::Desc)).is_some() {
                 order = ast::Order::Desc;
             }
@@ -2698,13 +2701,11 @@ mod tests {
 
     #[test]
     fn test_parse_order_by() {
-        let stmt = parse_stmt("SELECT * FROM users ORDER BY id;").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users ORDER BY id;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
-                order_by: Some(vec![(ast::Expression::Identifier("id".into()), ast::Order::Asc,)]),
+                order_by: Some(vec![(ast::Expression::Identifier("id".into()), ast::Order::Asc)]),
                 limit: None,
                 offset: None,
                 having: None,
@@ -2716,16 +2717,14 @@ mod tests {
                 }],
                 r#where: None,
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users ORDER BY id ASC;").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users ORDER BY id ASC;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
-                order_by: Some(vec![(ast::Expression::Identifier("id".into()), ast::Order::Asc,)]),
+                order_by: Some(vec![(ast::Expression::Identifier("id".into()), ast::Order::Asc)]),
                 limit: None,
                 offset: None,
                 having: None,
@@ -2737,19 +2736,17 @@ mod tests {
                 }],
                 r#where: None,
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users ORDER BY id,name,age;").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users ORDER BY id,name,age;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: Some(vec![
-                    (ast::Expression::Identifier("id".into()), ast::Order::Asc,),
-                    (ast::Expression::Identifier("name".into()), ast::Order::Asc,),
-                    (ast::Expression::Identifier("age".into()), ast::Order::Asc,),
+                    (ast::Expression::Identifier("id".into()), ast::Order::Asc),
+                    (ast::Expression::Identifier("name".into()), ast::Order::Asc),
+                    (ast::Expression::Identifier("age".into()), ast::Order::Asc),
                 ]),
                 limit: None,
                 offset: None,
@@ -2762,16 +2759,14 @@ mod tests {
                 }],
                 r#where: None,
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users ORDER BY id DESC;").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users ORDER BY id DESC;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
-                order_by: Some(vec![(ast::Expression::Identifier("id".into()), ast::Order::Desc,)]),
+                order_by: Some(vec![(ast::Expression::Identifier("id".into()), ast::Order::Desc)]),
                 limit: None,
                 offset: None,
                 having: None,
@@ -2783,18 +2778,16 @@ mod tests {
                 }],
                 r#where: None,
                 group_by: None,
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users ORDER BY id DESC, name ASC;").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users ORDER BY id DESC, name ASC;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: Some(vec![
-                    (ast::Expression::Identifier("id".into()), ast::Order::Desc,),
-                    (ast::Expression::Identifier("name".into()), ast::Order::Asc,),
+                    (ast::Expression::Identifier("id".into()), ast::Order::Desc),
+                    (ast::Expression::Identifier("name".into()), ast::Order::Asc),
                 ]),
                 limit: None,
                 offset: None,
@@ -2807,7 +2800,29 @@ mod tests {
                 }],
                 r#where: None,
                 group_by: None,
-            }))
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT * FROM users ORDER BY id ASC, name DESC;",
+            ast::Statement::Select(Box::new(Select {
+                with: None,
+                order_by: Some(vec![
+                    (ast::Expression::Identifier("id".into()), ast::Order::Asc),
+                    (ast::Expression::Identifier("name".into()), ast::Order::Desc),
+                ]),
+                limit: None,
+                offset: None,
+                having: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: String::from("users"),
+                    alias: None,
+                }],
+                r#where: None,
+                group_by: None,
+            })),
         );
     }
 
@@ -3721,8 +3736,8 @@ mod tests {
                         Box::new(Expression::BinaryOperator(ast::BinaryOperator::Add(
                             Box::new(Expression::Literal(ast::Literal::Int(2))),
                             Box::new(Expression::Literal(ast::Literal::Int(3))),
-                        )),
-                    )))),
+                        ))),
+                    ))),
                     Box::new(Expression::Literal(ast::Literal::Int(4))),
                 )),
             ),

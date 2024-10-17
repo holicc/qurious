@@ -1409,6 +1409,11 @@ mod tests {
     #[test]
     fn test_order_by() {
         quick_test(
+            "SELECT name FROM person ORDER BY name asc, age desc",
+            "Sort: person.name ASC\n  Projection: (person.name)\n    TableScan: person\n",
+        );
+
+        quick_test(
             "SELECT name FROM person ORDER BY name",
             "Sort: person.name ASC\n  Projection: (person.name)\n    TableScan: person\n",
         );
