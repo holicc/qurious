@@ -1410,7 +1410,7 @@ mod tests {
     fn test_order_by() {
         quick_test(
             "SELECT name FROM person ORDER BY name asc, age desc",
-            "Sort: person.name ASC\n  Projection: (person.name)\n    TableScan: person\n",
+            "Sort: person.name ASC, person.age DESC\n  Projection: (person.name)\n    TableScan: person\n",
         );
 
         quick_test(
