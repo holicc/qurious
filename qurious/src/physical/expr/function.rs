@@ -21,7 +21,11 @@ impl Function {
 
 impl PhysicalExpr for Function {
     fn evaluate(&self, input: &RecordBatch) -> Result<ArrayRef> {
-        let inputs = self.args.iter().map(|arg| arg.evaluate(input)).collect::<Result<Vec<_>>>()?;
+        let inputs = self
+            .args
+            .iter()
+            .map(|arg| arg.evaluate(input))
+            .collect::<Result<Vec<_>>>()?;
         self.func.eval(inputs)
     }
 }

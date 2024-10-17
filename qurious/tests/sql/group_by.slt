@@ -4,7 +4,7 @@ create table t (v1 int, v2 int)
 statement ok
 insert into t values (1,1), (2,1), (3,2), (4,2), (5,3)
 
-statement error
+statement error 
 select v2 + 1, v1 from t group by v2 + 1
 
 statement error

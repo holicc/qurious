@@ -18,15 +18,20 @@ impl OptimizerRule for TypeCoercion {
     }
 
     fn optimize(&self, base_plan: LogicalPlan) -> Result<LogicalPlan> {
-        let mut merged_schema = Arc::new(Schema::empty());
-        let schema = base_plan.schema();
-
-        for input in base_plan.children().into_iter().flat_map(|x| x) {
-            merged_schema = merge_schema(&schema, &input.schema()).map(Arc::new)?;
-        }
-
         base_plan
-            .transform(|plan| plan.map_exprs(|expr| type_coercion(&merged_schema, expr)))
+            .transform(|plan| {
+                if matches!(plan, LogicalPlan::TableScan(_)) {
+                    return Ok(Transformed::no(plan));
+                }
+                let mut merged_schema = Arc::new(Schema::empty());
+                let schema = plan.schema();
+
+                for input in plan.children().into_iter().flat_map(|x| x) {
+                    merged_schema = merge_schema(&schema, &input.schema()).map(Arc::new)?;
+                }
+
+                plan.map_exprs(|expr| type_coercion(&merged_schema, expr))
+            })
             .data()
     }
 }

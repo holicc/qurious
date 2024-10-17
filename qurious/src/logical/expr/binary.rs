@@ -27,7 +27,7 @@ impl BinaryExpr {
 
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
         Ok(Arc::new(Field::new(
-            format!("({} {} {})", self.left, self.op, self.right),
+            self.to_string(),
             self.get_result_type(&plan.schema())?,
             true,
         )))

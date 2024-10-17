@@ -3,7 +3,7 @@ pub struct SessionConfig {
     pub default_schema: String,
 }
 
-impl Default for SessionConfig{
+impl Default for SessionConfig {
     fn default() -> Self {
         Self {
             default_catalog: "qurious".to_string(),

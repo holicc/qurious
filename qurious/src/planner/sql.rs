@@ -38,6 +38,7 @@ struct Context {
     relations: HashMap<TableRelation, SchemaRef>,
     /// table alias -> original table name
     table_aliase: HashMap<String, TableRelation>,
+    columns_alias: HashMap<String, LogicalExpr>,
 }
 
 pub struct SqlQueryPlanner<'a> {
@@ -244,6 +245,22 @@ impl<'a> SqlQueryPlanner<'a> {
                 .then(|| table.clone())
                 .or(ctx.table_aliase.get(&table.to_string()).cloned())
         })
+    }
+
+    fn add_column_alias(&mut self, name: String, expr: LogicalExpr) -> Result<()> {
+        let context = self.current_context();
+        if context.columns_alias.contains_key(&name) {
+            return internal_err!("Column alias {} already exists", name);
+        }
+        context.columns_alias.insert(name, expr);
+        Ok(())
+    }
+
+    fn get_column_alias(&self, name: &str) -> Option<LogicalExpr> {
+        self.contexts
+            .iter()
+            .rev()
+            .find_map(|ctx| ctx.columns_alias.get(name).cloned())
     }
 }
 
@@ -488,6 +505,8 @@ impl<'a> SqlQueryPlanner<'a> {
         let mut plan = self.filter_expr(plan, select.r#where)?;
         // process the SELECT expressions
         let column_exprs = self.column_exprs(&plan, empty_from, select.columns)?;
+        // sort exprs
+        let sort_exprs = self.order_by_exprs(select.order_by.unwrap_or_default())?;
         // get aggregate expressions
         let aggr_exprs = find_aggregate_exprs(&column_exprs);
         // process the HAVING clause
@@ -498,20 +517,38 @@ impl<'a> SqlQueryPlanner<'a> {
         };
         // process the GROUP BY clause or process aggregation in SELECT
         if select.group_by.is_some() || !aggr_exprs.is_empty() {
-            plan = self.aggregate_plan(
-                plan,
-                column_exprs.clone(),
-                aggr_exprs,
-                select.group_by.unwrap_or_default(),
-                having,
-            )?;
+            let group_by_exprs = select
+                .group_by
+                .unwrap_or_default()
+                .into_iter()
+                .map(|expr| {
+                    let col = self.sql_to_expr(expr)?;
+
+                    col.transform(|expr| match expr {
+                        LogicalExpr::Column(col) => {
+                            if col.relation.is_none() {
+                                if let Some(data) = self.get_column_alias(&col.name) {
+                                    return Ok(Transformed::yes(data));
+                                }
+                            }
+                            Ok(Transformed::no(LogicalExpr::Column(col)))
+                        }
+                        _ => Ok(Transformed::no(expr)),
+                    })
+                    .data()
+                })
+                .collect::<Result<_>>()?;
+
+            plan = self.aggregate_plan(plan, column_exprs.clone(), aggr_exprs, group_by_exprs, having)?;
         } else {
             plan = LogicalPlanBuilder::project(plan, column_exprs)?;
         }
 
         // process the ORDER BY clause
-        let plan = if let Some(order_by) = select.order_by {
-            self.order_by_expr(plan, order_by)?
+        let plan = if !sort_exprs.is_empty() {
+            LogicalPlanBuilder::from(plan)
+                .sort(sort_exprs)
+                .map(|builder| builder.build())?
         } else {
             plan
         };
@@ -654,13 +691,9 @@ impl<'a> SqlQueryPlanner<'a> {
         input: LogicalPlan,
         select_exprs: Vec<LogicalExpr>,
         aggr_exprs: Vec<LogicalExpr>,
-        group_by: Vec<Expression>,
+        group_exprs: Vec<LogicalExpr>,
         _having_expr: Option<LogicalExpr>,
     ) -> Result<LogicalPlan> {
-        let group_exprs = group_by
-            .into_iter()
-            .map(|expr| self.sql_to_expr(expr))
-            .collect::<Result<Vec<_>>>()?;
         let agg_and_group_by_column_exprs = aggr_exprs.iter().chain(group_exprs.iter()).collect::<Vec<_>>();
         let select_exprs_post_aggr = select_exprs
             .into_iter()
@@ -683,10 +716,13 @@ impl<'a> SqlQueryPlanner<'a> {
 
         for col_expr in select_exprs_post_aggr.iter().flat_map(find_columns_exprs) {
             if !agg_and_group_columns.contains(&col_expr) {
-                return Err(Error::InternalError(format!(
-                    "column [{}] must appear in the GROUP BY clause or be used in an aggregate function",
-                    col_expr
-                )));
+                return internal_err!("column [{}] must appear in the GROUP BY clause or be used in an aggregate function, validate columns: [{}]",
+                    col_expr,
+                    agg_and_group_columns
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "));
             }
         }
 
@@ -696,7 +732,7 @@ impl<'a> SqlQueryPlanner<'a> {
             .map(|plan| plan.build())
     }
 
-    fn order_by_expr(&self, plan: LogicalPlan, order_by: Vec<(Expression, Order)>) -> Result<LogicalPlan> {
+    fn order_by_exprs(&self, order_by: Vec<(Expression, Order)>) -> Result<Vec<SortExpr>> {
         order_by
             .into_iter()
             .map(|(sort_expr, order)| {
@@ -706,8 +742,6 @@ impl<'a> SqlQueryPlanner<'a> {
                 })
             })
             .collect::<Result<Vec<_>>>()
-            .and_then(|sort_exprs| LogicalPlanBuilder::from(plan).sort(sort_exprs))
-            .map(|builder| builder.build())
     }
 
     fn cte_tables(&mut self, ctes: Vec<Cte>) -> Result<()> {
@@ -858,9 +892,11 @@ impl<'a> SqlQueryPlanner<'a> {
     ) -> Result<Vec<LogicalExpr>> {
         match item {
             SelectItem::UnNamedExpr(expr) => self.sql_to_expr(expr).map(|v| vec![v]),
-            SelectItem::ExprWithAlias(expr, alias) => self
-                .sql_to_expr(expr)
-                .map(|col| vec![LogicalExpr::Alias(Alias::new(alias, col))]),
+            SelectItem::ExprWithAlias(expr, alias) => {
+                let col = self.sql_to_expr(expr)?;
+                self.add_column_alias(alias.clone(), col.clone())?;
+                Ok(vec![LogicalExpr::Alias(Alias::new(alias, col))])
+            }
             SelectItem::Wildcard => {
                 if empty_relation {
                     return Err(Error::InternalError(
@@ -1366,7 +1402,7 @@ mod tests {
         quick_test(sql, expected);
 
         let sql = "SELECT * FROM person GROUP BY name";
-        let expected = "Internal Error: column [person.age] must appear in the GROUP BY clause or be used in an aggregate function";
+        let expected = "Internal Error: column [person.age] must appear in the GROUP BY clause or be used in an aggregate function, validate columns: [person.name]";
         quick_test(sql, expected);
     }
 

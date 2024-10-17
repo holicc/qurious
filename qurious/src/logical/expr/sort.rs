@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::logical::expr::LogicalExpr;
 
-#[derive(Debug, Clone, PartialEq, Eq,Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SortExpr {
     pub expr: Box<LogicalExpr>,
     pub asc: bool,

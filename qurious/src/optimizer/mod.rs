@@ -21,10 +21,7 @@ pub struct Optimizer {
 impl Optimizer {
     pub fn new() -> Self {
         Self {
-            rules: vec![
-                Box::new(CountWildcardRule),
-                Box::new(TypeCoercion::default())
-            ],
+            rules: vec![Box::new(CountWildcardRule), Box::new(TypeCoercion::default())],
         }
     }
 

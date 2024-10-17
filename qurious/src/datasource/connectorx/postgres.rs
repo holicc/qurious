@@ -199,7 +199,7 @@ impl TableProvider for PostgresTableProvider {
 
 fn to_arrow_type(col_type: &str) -> DataType {
     match col_type {
-        "bigint"|"integer" => DataType::Int64,
+        "bigint" | "integer" => DataType::Int64,
         "smallint" => DataType::Int16,
         "character varying" => DataType::Utf8,
         "character" => DataType::Utf8,

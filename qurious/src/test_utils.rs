@@ -6,7 +6,10 @@ use arrow::{
     util,
 };
 
-use crate::{datasource::memory::MemoryTable, physical::plan::{PhysicalPlan, Scan}};
+use crate::{
+    datasource::memory::MemoryTable,
+    physical::plan::{PhysicalPlan, Scan},
+};
 
 #[macro_export]
 macro_rules! build_mem_datasource {

@@ -98,7 +98,6 @@ impl LogicalPlan {
     pub fn children(&self) -> Option<Vec<&LogicalPlan>> {
         match self {
             LogicalPlan::EmptyRelation(_) | LogicalPlan::Values(_) => None,
-
             LogicalPlan::Projection(p) => p.children(),
             LogicalPlan::Filter(f) => f.children(),
             LogicalPlan::Aggregate(a) => a.children(),
@@ -137,6 +136,7 @@ impl LogicalPlan {
                     .into_iter()
                     .map(|expr| f(expr).data())
                     .collect::<Result<Vec<_>>>()?;
+
                 Ok(Transformed::yes(LogicalPlan::Aggregate(Aggregate {
                     schema,
                     input,
@@ -172,7 +172,12 @@ impl TransformNode for LogicalPlan {
                     aggr_expr,
                 })
             }),
-
+            LogicalPlan::Sort(Sort { exprs, input }) => f(*input)?.update(|input| {
+                LogicalPlan::Sort(Sort {
+                    exprs,
+                    input: Box::new(input),
+                })
+            }),
             _ => Transformed::no(self),
         })
     }

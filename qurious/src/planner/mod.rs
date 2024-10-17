@@ -13,9 +13,7 @@ use crate::{
     error::{Error, Result},
     internal_err,
     logical::{
-        expr::{
-            alias::Alias, AggregateOperator, BinaryExpr, CastExpr, Column, Function, LogicalExpr,
-        },
+        expr::{alias::Alias, AggregateOperator, BinaryExpr, CastExpr, Column, Function, LogicalExpr},
         plan::{
             Aggregate, CrossJoin, EmptyRelation, Filter, Join, LogicalPlan, Projection, Sort, SubqueryAlias, TableScan,
             Values,
@@ -282,4 +280,3 @@ impl DefaultQueryPlanner {
         Ok(Arc::new(physical::expr::Function::new(function.func.clone(), args)))
     }
 }
-

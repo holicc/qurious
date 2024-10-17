@@ -22,7 +22,7 @@ fn count_wildcard_rule(expr: LogicalExpr) -> Result<Transformed<LogicalExpr>> {
         if AggregateOperator::Count == agg.op && LogicalExpr::Wildcard == *agg.expr {
             return Ok(Transformed::yes(LogicalExpr::AggregateExpr(AggregateExpr {
                 op: AggregateOperator::Count,
-                expr: Box::new(LogicalExpr::Literal(ScalarValue::Int64(Some(1)))),
+                expr: Box::new(LogicalExpr::Literal(ScalarValue::from(1))),
             })));
         }
     }

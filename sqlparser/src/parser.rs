@@ -797,11 +797,16 @@ impl<'a> Parser<'a> {
         };
 
         let negated = self.next_if_token(TokenType::Keyword(Keyword::Not)).is_some();
-
-        while let Some(infix) = self.next_if_operator::<InfixOperator>(precedence) {
-            if infix.precedence() < precedence {
+        loop {
+            if self.get_nexr_precedence() <= precedence {
                 break;
             }
+            let infix = self
+                .next_if_operator::<InfixOperator>(precedence)
+                .ok_or(Error::ParserError(format!(
+                    "[parse_expression] unexpected token {:?}",
+                    self.peek()?
+                )))?;
             lhs = match infix {
                 InfixOperator::In => self.parse_in_expr(lhs, negated)?,
                 InfixOperator::DoubleColon => self.parse_data_type().map(|dt| Expression::Cast {
@@ -821,7 +826,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 _ => infix.build(lhs, self.parse_expression(infix.precedence())?)?,
-            }
+            };
         }
 
         Ok(lhs)
@@ -1002,6 +1007,14 @@ impl<'a> Parser<'a> {
         O::from(&self.lexer.next())
     }
 
+    fn get_nexr_precedence(&mut self) -> u8 {
+        self.lexer
+            .peek()
+            .and_then(|t| Operator::from(t))
+            .map(|op: InfixOperator| op.precedence())
+            .unwrap_or_default()
+    }
+
     fn next_if_token(&mut self, token: TokenType) -> Option<Token> {
         self.lexer.peek().filter(|t| t.token_type == token)?;
         Some(self.lexer.next())
@@ -1147,28 +1160,18 @@ impl Operator for InfixOperator {
 impl InfixOperator {
     pub fn build(&self, lhr: Expression, rhs: Expression) -> Result<Expression> {
         macro_rules! build_binary_operator {
-            ($variant:ident) => {
-                Ok(Expression::BinaryOperator(ast::BinaryOperator::$variant(
-                    Box::new(lhr),
-                    Box::new(rhs),
-                )))
+            ($($variant: ident),+ $(,)?) => {
+                match self {
+                    $(InfixOperator::$variant => Ok(Expression::BinaryOperator(ast::BinaryOperator::$variant(
+                        Box::new(lhr),
+                        Box::new(rhs),
+                    ))),)+
+                    _ => Err(Error::UnKnownInfixOperator(format!("{:?}", self)))
+                }
             };
         }
-        match self {
-            InfixOperator::Add => build_binary_operator!(Add),
-            InfixOperator::Sub => build_binary_operator!(Sub),
-            InfixOperator::Mul => build_binary_operator!(Mul),
-            InfixOperator::Div => build_binary_operator!(Div),
-            InfixOperator::Gt => build_binary_operator!(Gt),
-            InfixOperator::Gte => build_binary_operator!(Gte),
-            InfixOperator::Lt => build_binary_operator!(Lt),
-            InfixOperator::Lte => build_binary_operator!(Lte),
-            InfixOperator::Eq => build_binary_operator!(Eq),
-            InfixOperator::NotEq => build_binary_operator!(NotEq),
-            InfixOperator::And => build_binary_operator!(And),
-            InfixOperator::Or => build_binary_operator!(Or),
-            _ => return Err(Error::UnKnownInfixOperator(format!("{:?}", self))),
-        }
+
+        build_binary_operator!(Add, Sub, Mul, Div, Gt, Gte, Lt, Lte, Eq, NotEq, And, Or)
     }
 }
 
@@ -1184,7 +1187,7 @@ mod tests {
 
     fn assert_stmt_eq(sql: &str, stmt: Statement) {
         let result = parse_stmt(sql).unwrap();
-        assert_eq!(result, stmt);
+        assert_eq!(result, stmt, "Runing SQL: {}", sql);
     }
 
     #[test]
@@ -3584,6 +3587,16 @@ mod tests {
     fn test_parse_infix_expression() {
         let tests = vec![
             (
+                "1 + 2 + 3",
+                Expression::BinaryOperator(ast::BinaryOperator::Add(
+                    Box::new(Expression::BinaryOperator(ast::BinaryOperator::Add(
+                        Box::new(Expression::Literal(ast::Literal::Int(1))),
+                        Box::new(Expression::Literal(ast::Literal::Int(2))),
+                    ))),
+                    Box::new(Expression::Literal(ast::Literal::Int(3))),
+                )),
+            ),
+            (
                 "1 + 2",
                 Expression::BinaryOperator(ast::BinaryOperator::Add(
                     Box::new(Expression::Literal(ast::Literal::Int(1))),
@@ -3703,14 +3716,14 @@ mod tests {
             (
                 "1 + (2 + 3) + 4",
                 Expression::BinaryOperator(ast::BinaryOperator::Add(
-                    Box::new(Expression::Literal(ast::Literal::Int(1))),
                     Box::new(Expression::BinaryOperator(ast::BinaryOperator::Add(
+                        Box::new(Expression::Literal(ast::Literal::Int(1))),
                         Box::new(Expression::BinaryOperator(ast::BinaryOperator::Add(
                             Box::new(Expression::Literal(ast::Literal::Int(2))),
                             Box::new(Expression::Literal(ast::Literal::Int(3))),
-                        ))),
-                        Box::new(Expression::Literal(ast::Literal::Int(4))),
-                    ))),
+                        )),
+                    )))),
+                    Box::new(Expression::Literal(ast::Literal::Int(4))),
                 )),
             ),
             (
@@ -3746,7 +3759,7 @@ mod tests {
         ];
 
         for test in tests {
-            assert_eq!(parse_expr(test.0).unwrap(), test.1)
+            assert_eq!(parse_expr(test.0).unwrap(), test.1, "test expression: {}", test.0)
         }
     }
 
