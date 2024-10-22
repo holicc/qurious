@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::{
     expr::{LogicalExpr, SortExpr},
-    plan::{Aggregate, CrossJoin, EmptyRelation, Join, Limit, LogicalPlan, Projection, Sort, TableScan},
+    plan::{Aggregate, CrossJoin, EmptyRelation, Filter, Join, Limit, LogicalPlan, Projection, Sort, TableScan},
 };
 use crate::{common::join_type::JoinType, provider::table::TableProvider};
 use crate::{common::table_relation::TableRelation, error::Result};
@@ -25,6 +25,16 @@ impl LogicalPlanBuilder {
 
     pub fn project(input: LogicalPlan, exprs: impl IntoIterator<Item = impl Into<LogicalExpr>>) -> Result<LogicalPlan> {
         Projection::try_new(input, exprs.into_iter().map(|exp| exp.into()).collect()).map(LogicalPlan::Projection)
+    }
+
+    pub fn filter(input: LogicalPlan, predicate: LogicalExpr) -> Result<LogicalPlan> {
+        Filter::try_new(input, predicate).map(LogicalPlan::Filter)
+    }
+
+    pub fn having(self, predicate: LogicalExpr) -> Result<Self> {
+        Ok(LogicalPlanBuilder {
+            plan: LogicalPlan::Filter(Filter::try_new(self.plan, predicate)?.into()),
+        })
     }
 
     pub fn add_project(self, exprs: impl IntoIterator<Item = impl Into<LogicalExpr>>) -> Result<Self> {

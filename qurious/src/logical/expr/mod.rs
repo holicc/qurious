@@ -20,7 +20,7 @@ pub use literal::*;
 pub use sort::*;
 
 use crate::common::table_relation::TableRelation;
-use crate::common::transformed::{TransformNode, Transformed, TreeNodeRecursion};
+use crate::common::transformed::{TransformNode, Transformed, TransformedResult, TreeNodeRecursion};
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::{Error, Result};
 use crate::internal_err;
@@ -97,6 +97,16 @@ impl Display for LogicalExpr {
 }
 
 impl LogicalExpr {
+    pub fn rebase_expr(self, base_exprs: &[&LogicalExpr]) -> Result<Self> {
+        self.transform(|nested_expr| {
+            if base_exprs.contains(&&nested_expr) {
+                return nested_expr.as_column().map(Transformed::yes);
+            }
+            Ok(Transformed::no(nested_expr))
+        })
+        .data()
+    }
+
     pub fn using_columns(&self) -> HashSet<Column> {
         let mut columns = HashSet::new();
         let mut stack = vec![self];

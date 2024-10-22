@@ -264,7 +264,7 @@ mod tests {
         // session.sql("INSERT INTO test VALUES (1, 1), (2, 2), (3, 3), (3, 5), (NULL, NULL);")?;
         // session.sql("select a, b, c, d from x join y on a = c")?;
         println!("++++++++++++++");
-        let batch = session.sql("select v1, v2 from t order by v1 asc, v2 desc")?;
+        let batch = session.sql("select 42")?;
 
         print_batches(&batch)?;
 

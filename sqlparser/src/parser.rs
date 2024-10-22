@@ -297,21 +297,11 @@ impl<'a> Parser<'a> {
 
         let columns = self.parse_columns()?;
 
-        if self.next_if_token(TokenType::Keyword(Keyword::From)).is_none() {
-            return Ok(Select {
-                with: None,
-                distinct,
-                columns,
-                from: vec![],
-                r#where: None,
-                group_by: None,
-                having: None,
-                order_by: None,
-                limit: None,
-                offset: None,
-            });
-        }
-        let from = self.parse_from_statment()?;
+        let from = if self.next_if_token(TokenType::Keyword(Keyword::From)).is_none() {
+            vec![]
+        } else {
+            self.parse_from_statment()?
+        };
 
         let r#where = if self.next_if_token(TokenType::Keyword(Keyword::Where)).is_some() {
             Some(self.parse_expression(0)?)
@@ -3347,10 +3337,8 @@ mod tests {
 
     #[test]
     fn test_parse_group_by() {
-        let stmt = parse_stmt("SELECT * FROM users GROUP BY id;").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users GROUP BY id;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -3365,13 +3353,11 @@ mod tests {
                 }],
                 r#where: None,
                 group_by: Some(vec![Expression::Identifier("id".into())]),
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users GROUP BY id, name;").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users GROUP BY id, name;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -3389,13 +3375,11 @@ mod tests {
                     Expression::Identifier("id".into()),
                     Expression::Identifier("name".into()),
                 ]),
-            }))
+            })),
         );
 
-        let stmt = parse_stmt("SELECT * FROM users GROUP BY id, name HAVING id = 1;").unwrap();
-
-        assert_eq!(
-            stmt,
+        assert_stmt_eq(
+            "SELECT * FROM users GROUP BY id, name HAVING id = 1;",
             ast::Statement::Select(Box::new(Select {
                 with: None,
                 order_by: None,
@@ -3416,7 +3400,57 @@ mod tests {
                     Expression::Identifier("id".into()),
                     Expression::Identifier("name".into()),
                 ]),
-            }))
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT id, name FROM user GROUP BY id, name HAVING count(name) > 2",
+            ast::Statement::Select(Box::new(Select {
+                with: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+                having: Some(Expression::BinaryOperator(ast::BinaryOperator::Gt(
+                    Box::new(Expression::Function(
+                        "count".to_owned(),
+                        vec![Expression::Identifier("name".into())],
+                    )),
+                    Box::new(Expression::Literal(ast::Literal::Int(2))),
+                ))),
+                distinct: None,
+                columns: vec![
+                    SelectItem::UnNamedExpr(Expression::Identifier("id".into())),
+                    SelectItem::UnNamedExpr(Expression::Identifier("name".into())),
+                ],
+                from: vec![ast::From::Table {
+                    name: "user".to_owned(),
+                    alias: None,
+                }],
+                r#where: None,
+                group_by: Some(vec![
+                    Expression::Identifier("id".into()),
+                    Expression::Identifier("name".into()),
+                ]),
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT 42 HAVING 42 > 108",
+            ast::Statement::Select(Box::new(Select {
+                with: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+                having: Some(Expression::BinaryOperator(ast::BinaryOperator::Gt(
+                    Box::new(Expression::Literal(ast::Literal::Int(42))),
+                    Box::new(Expression::Literal(ast::Literal::Int(108))),
+                ))),
+                distinct: None,
+                columns: vec![SelectItem::UnNamedExpr(Expression::Literal(ast::Literal::Int(42)))],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+            })),
         );
     }
 
