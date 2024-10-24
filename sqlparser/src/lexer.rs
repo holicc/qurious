@@ -39,14 +39,14 @@ impl<'a> Lexer<'a> {
             return tok;
         }
 
-        self.skip_whitespace();
+        self.skip();
 
         let literal = char::from(self.cur_ch).to_string();
         let tok = match self.cur_ch {
             EMPTY_CHAR => Token::new(TokenType::EOF, "".to_owned(), self.location()),
             '=' => Token::new(TokenType::Eq, "=".to_owned(), self.location()),
             '!' => {
-                if self.peek_char() == '=' {
+                if self.peek_char() == &'=' {
                     self.read_char();
                     Token::new(TokenType::NotEq, "!=".to_owned(), self.location())
                 } else {
@@ -54,7 +54,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             '<' => {
-                if self.peek_char() == '=' {
+                if self.peek_char() == &'=' {
                     self.read_char();
                     Token::new(TokenType::Lte, "<=".to_owned(), self.location())
                 } else {
@@ -62,7 +62,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             '>' => {
-                if self.peek_char() == '=' {
+                if self.peek_char() == &'=' {
                     self.read_char();
                     Token::new(TokenType::Gte, ">=".to_owned(), self.location())
                 } else {
@@ -88,7 +88,16 @@ impl<'a> Lexer<'a> {
             '[' => Token::new(TokenType::LSquareBrace, literal, self.location()),
             ']' => Token::new(TokenType::RSquareBrace, literal, self.location()),
             '}' => Token::new(TokenType::RBrace, literal, self.location()),
-            '-' => Token::new(TokenType::Minus, literal, self.location()),
+            '-' => {
+                if self.peek_char() == &'-' {
+                    while self.cur_ch != '\n' && self.cur_ch != EMPTY_CHAR {
+                        self.read_char();
+                    }
+                    return self.next();
+                }
+
+                Token::new(TokenType::Minus, literal, self.location())
+            }
             '*' => Token::new(TokenType::Asterisk, literal, self.location()),
             '/' => Token::new(TokenType::Slash, literal, self.location()),
             '?' => Token::new(TokenType::Question, literal, self.location()),
@@ -169,14 +178,29 @@ impl<'a> Lexer<'a> {
         number
     }
 
-    fn skip_whitespace(&mut self) {
-        while self.cur_ch.is_ascii_whitespace() {
-            self.read_char();
+    /// skip: new line \ whitespace \ comment \ tab
+    fn skip(&mut self) {
+        loop {
+            match self.cur_ch {
+                a if a.is_whitespace() => {
+                    self.read_char();
+                }
+                '\n' | '\t' => {
+                    self.read_char();
+                }
+                '\r' => {
+                    self.read_char();
+                    if let Some('\n') = self.peekable.peek() {
+                        self.read_char();
+                    }
+                }
+                _ => return,
+            }
         }
     }
 
-    fn peek_char(&mut self) -> char {
-        self.peekable.peek().copied().unwrap_or(EMPTY_CHAR)
+    fn peek_char(&mut self) -> &char {
+        self.peekable.peek().unwrap_or(&EMPTY_CHAR)
     }
 }
 

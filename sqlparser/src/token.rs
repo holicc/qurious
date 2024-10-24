@@ -51,6 +51,12 @@ pub enum Keyword {
     Right,
     Full,
     Cross,
+    /// Copy statement keywords
+    Copy,
+    To,
+    Format,
+    Header,
+    Delimiter,
 
     /// data types
     Int,
@@ -79,13 +85,12 @@ pub enum Keyword {
 pub enum TokenType {
     ILLIGAL,
     EOF,
-    // Identifiers + literals
+    /// Identifiers + literals
     Ident,
     String,
     Int,
     Float,
-
-    // Operators
+    /// Operators
     Assign,
     Plus,
     Minus,
@@ -103,8 +108,7 @@ pub enum TokenType {
     NotEq,
     Lte,
     Gte,
-
-    // Delimiters
+    /// Delimiters
     Comma,
     Semicolon,
     Colon,
@@ -112,7 +116,7 @@ pub enum TokenType {
     Period,
     DoubleColon,
     Question,
-
+    /// Keywords
     Keyword(Keyword),
 }
 
@@ -179,6 +183,11 @@ impl TokenType {
             "full" => TokenType::Keyword(Keyword::Full),
             "cross" => TokenType::Keyword(Keyword::Cross),
             "null" => TokenType::Keyword(Keyword::Null),
+            "copy" => TokenType::Keyword(Keyword::Copy),
+            "to" => TokenType::Keyword(Keyword::To),
+            "format" => TokenType::Keyword(Keyword::Format),
+            "header" => TokenType::Keyword(Keyword::Header),
+            "delimiter" => TokenType::Keyword(Keyword::Delimiter),
             // extract a field from a timestamp
             "extract" => TokenType::Keyword(Keyword::Extract),
             "year" => TokenType::Keyword(Keyword::Year),

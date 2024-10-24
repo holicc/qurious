@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        self, Assignment, Cte, DateTimeField, Expression, FunctionArgument, Ident, ObjectName, OnConflict, Order,
-        Select, SelectItem, Statement, StructField, With,
+        self, Assignment, CopyOption, CopySource, CopyTarget, Cte, DateTimeField, Expression, FunctionArgument, Ident,
+        ObjectName, OnConflict, Order, Select, SelectItem, Statement, StructField, With,
     },
     datatype::DataType,
     error::{Error, Result},
@@ -42,8 +42,54 @@ impl<'a> Parser<'a> {
             TokenType::Keyword(Keyword::Delete) => self.parse_delete_statement(),
             TokenType::Keyword(Keyword::Create) => self.parse_create_statement(),
             TokenType::Keyword(Keyword::Drop) => self.parse_drop_statement(),
+            TokenType::Keyword(Keyword::Copy) => self.parse_copy_statement(),
             _ => Err(Error::UnexpectedToken(token)),
         }
+    }
+
+    fn parse_copy_statement(&mut self) -> Result<Statement> {
+        let token = self.peek()?;
+        let source = match token.token_type {
+            TokenType::Keyword(Keyword::Select) => {
+                self.parse_select().map(|query| CopySource::Query(Box::new(query)))?
+            }
+            _ => {
+                let table = self.parse_object_name()?;
+
+                let mut columns = vec![];
+                if self.next_if_token(TokenType::LParen).is_some() {
+                    columns = self.parse_comma_separated(Parser::parse_ident)?;
+                    self.next_except(TokenType::RParen)?;
+                }
+
+                CopySource::Table {
+                    table_name: table,
+                    columns,
+                }
+            }
+        };
+
+        let to = if self.next_if_token(TokenType::Keyword(Keyword::From)).is_some() {
+            false
+        } else if self.next_if_token(TokenType::Keyword(Keyword::To)).is_some() {
+            true
+        } else {
+            return Err(Error::UnexpectedToken(self.peek()?.clone()));
+        };
+
+        let target = self.parse_literal_string().map(|file| CopyTarget::File { file })?;
+        let mut options = vec![];
+        if self.next_if_token(TokenType::LParen).is_some() {
+            options = self.parse_comma_separated(Parser::parse_copy_option)?;
+            self.next_except(TokenType::RParen)?;
+        }
+
+        Ok(Statement::Copy {
+            source,
+            to,
+            target,
+            options,
+        })
     }
 
     fn parse_drop_statement(&mut self) -> Result<Statement> {
@@ -389,6 +435,17 @@ impl<'a> Parser<'a> {
             recursive: false,
             cte_tables: ctes,
         })
+    }
+
+    fn parse_copy_option(&mut self) -> Result<CopyOption> {
+        let token = self.next_token()?;
+
+        match token.token_type {
+            TokenType::Keyword(Keyword::Format) => self.parse_ident().map(CopyOption::Format),
+            TokenType::Keyword(Keyword::Header) => Ok(CopyOption::Header(true)),
+            TokenType::Keyword(Keyword::Delimiter) => self.parse_literal_char().map(CopyOption::Delimiter),
+            _ => Err(Error::UnexpectedToken(token)),
+        }
     }
 
     fn parse_on_conflict(&mut self) -> Result<OnConflict> {
@@ -912,11 +969,35 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_literal_string(&mut self) -> Result<String> {
+        self.next_except(TokenType::String).map(|s| s.literal)
+    }
+
+    fn parse_literal_char(&mut self) -> Result<char> {
+        let token = self.next_token()?;
+        if token.token_type != TokenType::String || token.literal.len() != 1 {
+            return Err(Error::UnexpectedToken(token));
+        }
+        Ok(token.literal.chars().next().unwrap())
+    }
+
     fn parse_assignment(&mut self) -> Result<Assignment> {
         let target = self.parse_comma_separated(Parser::parse_ident).map(ObjectName)?;
         self.next_except(TokenType::Eq)?;
         let value = self.parse_expression(0)?;
         Ok(Assignment { target, value })
+    }
+
+    fn parse_object_name(&mut self) -> Result<ObjectName> {
+        let mut idents = vec![];
+        loop {
+            idents.push(self.parse_ident()?);
+            if self.next_if_token(TokenType::Period).is_none() {
+                break;
+            }
+        }
+
+        Ok(ObjectName(idents))
     }
 
     fn parse_comma_separated<T, F>(&mut self, mut f: F) -> Result<Vec<T>>
@@ -942,7 +1023,7 @@ impl<'a> Parser<'a> {
                 id: None,
                 value: Expression::Literal(ast::Literal::String(token.literal)),
             }),
-            TokenType::Ident => {
+            TokenType::Ident | TokenType::Keyword(Keyword::Header) => {
                 self.next_except(TokenType::Eq)?;
                 Ok(FunctionArgument {
                     id: Some(Ident {
@@ -1173,7 +1254,10 @@ mod tests {
     use std::vec;
 
     use super::Parser;
-    use crate::ast::{self, Assignment, DateTimeField, Expression, FunctionArgument, Select, SelectItem, Statement};
+    use crate::ast::{
+        self, Assignment, CopyOption, CopySource, CopyTarget, DateTimeField, Expression, FunctionArgument, Ident,
+        Select, SelectItem, Statement,
+    };
     use crate::datatype::DataType;
     use crate::error::Result;
     use crate::parser::TableInfo;
@@ -1181,6 +1265,89 @@ mod tests {
     fn assert_stmt_eq(sql: &str, stmt: Statement) {
         let result = parse_stmt(sql).unwrap();
         assert_eq!(result, stmt, "Runing SQL: {}", sql);
+    }
+
+    #[test]
+    fn test_copy() {
+        assert_stmt_eq(
+            "COPY test FROM 'test.csv';",
+            Statement::Copy {
+                source: CopySource::Table {
+                    table_name: vec!["test".to_owned()].into(),
+                    columns: vec![],
+                },
+                to: false,
+                target: CopyTarget::File {
+                    file: "test.csv".to_owned(),
+                },
+                options: vec![],
+            },
+        );
+
+        assert_stmt_eq(
+            "COPY lineitem FROM 'lineitem.pq' (FORMAT PARQUET);",
+            Statement::Copy {
+                source: CopySource::Table {
+                    table_name: vec!["lineitem".to_owned()].into(),
+                    columns: vec![],
+                },
+                to: false,
+                target: CopyTarget::File {
+                    file: "lineitem.pq".to_owned(),
+                },
+                options: vec![CopyOption::Format(Ident {
+                    value: "PARQUET".to_owned(),
+                    quote_style: None,
+                })],
+            },
+        );
+
+        assert_stmt_eq(
+            "COPY lineitem TO 'lineitem.csv' (FORMAT CSV, DELIMITER '|', HEADER);",
+            Statement::Copy {
+                source: CopySource::Table {
+                    table_name: vec!["lineitem".to_owned()].into(),
+                    columns: vec![],
+                },
+                to: true,
+                target: CopyTarget::File {
+                    file: "lineitem.csv".to_owned(),
+                },
+                options: vec![
+                    CopyOption::Format(Ident {
+                        value: "CSV".to_owned(),
+                        quote_style: None,
+                    }),
+                    CopyOption::Delimiter('|'),
+                    CopyOption::Header(true),
+                ],
+            },
+        );
+    }
+
+    #[test]
+    fn test_skip_useless() {
+        assert_stmt_eq(
+            "
+        -- this is comment should skip this line
+        SELECT * FROM person;
+        ",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: "person".to_owned(),
+                    alias: None,
+                }],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        )
     }
 
     #[test]

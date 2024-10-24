@@ -42,3 +42,8 @@ rayon = { version = "1.10.0" }
 harness = false
 name = "sqllogictests"
 path = "tests/sqllogictests.rs"
+
+[[test]]
+harness = false
+name = "tpch"
+path = "tests/tpch.rs"

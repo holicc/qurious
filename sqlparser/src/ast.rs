@@ -40,6 +40,53 @@ pub enum Statement {
         table: String,
         r#where: Option<Expression>,
     },
+    Copy {
+        /// The source of 'COPY TO', or the target of 'COPY FROM'
+        source: CopySource,
+        /// If true, is a 'COPY TO' statement. If false is a 'COPY FROM'
+        to: bool,
+        /// The target of 'COPY TO', or the source of 'COPY FROM'
+        target: CopyTarget,
+        /// WITH options (from PostgreSQL version 9.0)
+        options: Vec<CopyOption>,
+    },
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum CopySource {
+    Table {
+        /// The name of the table to copy from.
+        table_name: ObjectName,
+        /// A list of column names to copy. Empty list means that all columns
+        /// are copied.
+        columns: Vec<Ident>,
+    },
+    Query(Box<Select>),
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum CopyTarget {
+    File { file: String },
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum CopyOption {
+    /// FORMAT format_name
+    Format(Ident),
+    /// DELIMITER 'delimiter_character'
+    Delimiter(char),
+    /// HEADER \[ boolean \]
+    Header(bool),
+}
+
+impl Display for CopyOption {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CopyOption::Format(format) => write!(f, "FORMAT {}", format),
+            CopyOption::Delimiter(delimiter) => write!(f, "DELIMITER '{}'", delimiter),
+            CopyOption::Header(header) => write!(f, "HEADER {}", header),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -420,6 +467,51 @@ impl Display for Statement {
                     write!(f, "IF EXISTS ")?;
                 }
                 write!(f, "{}", table)
+            }
+            Statement::Copy {
+                source,
+                to,
+                target,
+                options,
+            } => {
+                write!(f, "COPY ")?;
+                match source {
+                    CopySource::Table { table_name, columns } => {
+                        write!(f, "{}", table_name)?;
+                        if !columns.is_empty() {
+                            write!(
+                                f,
+                                " ({})",
+                                columns
+                                    .iter()
+                                    .map(|c| c.to_string())
+                                    .collect::<Vec<String>>()
+                                    .join(", ")
+                            )?;
+                        }
+                    }
+                    CopySource::Query(q) => write!(f, "({})", q)?,
+                }
+                if *to {
+                    write!(f, " TO ")?;
+                } else {
+                    write!(f, " FROM ")?;
+                }
+                match target {
+                    CopyTarget::File { file } => write!(f, "{}", file)?,
+                }
+                if !options.is_empty() {
+                    write!(
+                        f,
+                        " WITH ({})",
+                        options
+                            .iter()
+                            .map(|o| o.to_string())
+                            .collect::<Vec<String>>()
+                            .join(", ")
+                    )?;
+                }
+                Ok(())
             }
         }
     }
