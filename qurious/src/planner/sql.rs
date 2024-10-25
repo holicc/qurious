@@ -5,16 +5,19 @@ use std::{
 
 use arrow::datatypes::{Field, Schema, SchemaRef, TimeUnit};
 use sqlparser::ast::{
-    Assignment, BinaryOperator, Cte, Expression, From, FunctionArgument, Literal, Order, Select, SelectItem, Statement,
+    Assignment, BinaryOperator, CopyOption, CopySource, CopyTarget, Cte, Expression, From, FunctionArgument, Literal,
+    Order, Select, SelectItem, Statement,
 };
 
 use crate::{
+    arrow_err,
     common::{
         join_type::JoinType,
         table_relation::TableRelation,
+        table_schema,
         transformed::{TransformNode, Transformed, TransformedResult, TreeNodeRecursion},
     },
-    datasource::file::csv::CsvReadOptions,
+    datasource::file::{self, csv::CsvReadOptions},
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
     functions::UserDefinedFunction,
@@ -22,12 +25,13 @@ use crate::{
     logical::{
         expr::*,
         plan::{
-            self, CreateMemoryTable, DdlStatement, DmlStatement, DropTable, Filter, LogicalPlan, SubqueryAlias, Values,
+            self, CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, Filter, LogicalPlan,
+            SubqueryAlias, Values,
         },
         LogicalPlanBuilder,
     },
-    provider::table::TableProvider,
-    utils::normalize_ident,
+    provider::table::{self, TableProvider},
+    utils::{get_file_type, normalize_ident},
 };
 
 use self::alias::Alias;
@@ -163,6 +167,18 @@ impl<'a> SqlQueryPlanner<'a> {
                 r#where,
             } => planner.update_to_plan(table, assignments, r#where),
             Statement::ShowTables => unreachable!("ShowTables should be handled in session"),
+            Statement::Copy {
+                source,
+                to,
+                target,
+                options,
+            } => {
+                if to {
+                    planner.copy_to_plan(source, target, options)
+                } else {
+                    planner.copy_from_plan(source, target, options)
+                }
+            }
             _ => todo!(),
         }
     }
@@ -267,6 +283,82 @@ impl<'a> SqlQueryPlanner<'a> {
 
 // functions for Binder
 impl<'a> SqlQueryPlanner<'a> {
+    fn copy_to_plan(
+        &mut self,
+        source: CopySource,
+        target: CopyTarget,
+        options: Vec<CopyOption>,
+    ) -> Result<LogicalPlan> {
+        todo!()
+    }
+
+    fn copy_from_plan(
+        &mut self,
+        source: CopySource,
+        target: CopyTarget,
+        options: Vec<CopyOption>,
+    ) -> Result<LogicalPlan> {
+        let (relation, schema) = match source {
+            CopySource::Table { table_name, columns } => {
+                let table_name = table_name.to_string();
+                let table_source = self.get_table_source(&table_name)?;
+                let table_schema = table_source.schema();
+
+                if columns.is_empty() {
+                    (table_name.into(), table_source.schema())
+                } else {
+                    let fields = columns
+                        .into_iter()
+                        .map(|col| {
+                            table_schema
+                                .field_with_name(&col.to_string())
+                                .map_err(|e| arrow_err!(e))
+                                .cloned()
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    (table_name.into(), Arc::new(Schema::new(fields)))
+                }
+            }
+            CopySource::Query(_) => return internal_err!("COPY FROM query is not supported"),
+        };
+        let file_path = match target {
+            CopyTarget::File { file } => file,
+        };
+        let option_map = options
+            .into_iter()
+            .map(|option| match option {
+                CopyOption::Format(ident) => ("format", ident.to_string()),
+                CopyOption::Delimiter(ch) => ("delimiter", ch.to_string()),
+                CopyOption::Header(_) => ("has_header", "true".to_owned()),
+            })
+            .collect::<HashMap<_, _>>();
+        let file_extension = option_map
+            .get("format")
+            .cloned()
+            .or(get_file_type(&file_path).map(|s| s.to_string()))
+            .unwrap_or_default();
+        let target_relation = TableRelation::parse_file_path(&file_path);
+        let input = match file_extension.as_str() {
+            "csv" => {
+                let mut csv_options = CsvReadOptions::default();
+                csv_options.delimiter = option_map.get("delimiter").map(|s| s.as_bytes()[0]).unwrap_or(b',');
+                csv_options.has_header = option_map.get("has_header").map(|s| s == "true").unwrap_or(true);
+
+                file::csv::read_csv(file_path, csv_options)
+                    .and_then(|table| LogicalPlanBuilder::scan(target_relation, table, None))
+                    .map(|builder| builder.build())?
+            }
+            _ => return internal_err!("COPY FROM only supports csv files"),
+        };
+
+        Ok(LogicalPlan::Dml(DmlStatement {
+            relation,
+            op: DmlOperator::Insert,
+            schema,
+            input: Box::new(input),
+        }))
+    }
+
     fn update_to_plan(
         &mut self,
         table: String,
@@ -1177,7 +1269,7 @@ mod tests {
 
     #[test]
     fn test_copy() {
-        // quick_test("COPY test FROM 'test.csv';", "");
+        quick_test("COPY tbl FROM './tests/testdata/file/case1.csv';", "");
     }
 
     #[test]

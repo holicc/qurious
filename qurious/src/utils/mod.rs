@@ -1,7 +1,7 @@
 pub mod array;
 pub mod batch;
 
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use crate::error::Result;
 use arrow::datatypes::{DataType, Schema, SchemaBuilder};
@@ -56,4 +56,9 @@ pub fn merge_schema(a: &Arc<Schema>, b: &Arc<Schema>) -> Result<Schema> {
     let mut builder = SchemaBuilder::from(a.as_ref());
     b.fields().iter().try_for_each(|f| builder.try_merge(f))?;
     Ok(builder.finish())
+}
+
+pub fn get_file_type(file_path: &str) -> Option<&str> {
+    let path = Path::new(file_path);
+    path.extension().and_then(|ext| ext.to_str())
 }
