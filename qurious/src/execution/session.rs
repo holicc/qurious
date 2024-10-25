@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use std::vec;
 
 use arrow::array::RecordBatch;
+use sqlparser::ast::Statement;
 use sqlparser::parser::{Parser, TableInfo};
 
 use crate::common::table_relation::TableRelation;
@@ -25,13 +26,14 @@ use crate::{error::Result, planner::DefaultQueryPlanner};
 use crate::execution::providers::CatalogProviderList;
 
 use super::config::SessionConfig;
+use super::information_schema::{InformationSchemaProvider, INFORMATION_SCHEMA};
 use super::providers::{DefaultTableFactory, MemoryCatalogProvider, MemorySchemaProvider};
 
 pub struct ExecuteSession {
     config: SessionConfig,
     planner: Arc<dyn QueryPlanner>,
     table_factory: DefaultTableFactory,
-    catalog_list: CatalogProviderList,
+    catalog_list: Arc<CatalogProviderList>,
     optimizer: Optimizer,
     udfs: RwLock<HashMap<String, Arc<dyn UserDefinedFunction>>>,
 }
@@ -42,17 +44,21 @@ impl ExecuteSession {
     }
 
     pub fn new_with_config(config: SessionConfig) -> Result<Self> {
-        let catalog_list = CatalogProviderList::default();
-        let catalog: Arc<dyn CatalogProvider> = Arc::new(MemoryCatalogProvider::default());
+        let catalog_list = Arc::new(CatalogProviderList::default());
+        let catalog = Arc::new(MemoryCatalogProvider::default());
+        catalog.register_schema(&config.default_schema, Arc::new(MemorySchemaProvider::default()))?;
+        catalog.register_schema(
+            INFORMATION_SCHEMA,
+            Arc::new(InformationSchemaProvider::new(catalog_list.clone())),
+        )?;
+        catalog_list.register_catalog(&config.default_catalog, catalog)?;
+
         let udfs = RwLock::new(
             all_builtin_functions()
                 .into_iter()
                 .map(|udf| (udf.name().to_uppercase().to_string(), udf))
                 .collect(),
         );
-
-        catalog.register_schema(&config.default_schema, Arc::new(MemorySchemaProvider::default()))?;
-        catalog_list.register_catalog(&config.default_catalog, catalog)?;
 
         Ok(Self {
             config,
@@ -67,7 +73,13 @@ impl ExecuteSession {
     pub fn sql(&self, sql: &str) -> Result<Vec<RecordBatch>> {
         // parse sql collect tables
         let mut parser = Parser::new(sql);
-        let stmt = parser.parse().map_err(|e| Error::SQLParseError(e))?;
+        let stmt = match parser.parse().map_err(|e| Error::SQLParseError(e))? {
+            Statement::ShowTables => {
+                parser = Parser::new("SELECT * FROM information_schema.tables");
+                parser.parse().map_err(|e| Error::SQLParseError(e))?
+            }
+            stmt => stmt,
+        };
         // register tables for statement if there are any file source tables to be registered
         let relations = self.resolve_tables(parser.tables)?;
         let udfs = &self
@@ -81,7 +93,6 @@ impl ExecuteSession {
 
     pub fn execute_logical_plan(&self, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
         let plan = self.optimizer.optimize(plan)?;
-        println!("plan: {:#?}", plan);
         match &plan {
             LogicalPlan::Ddl(ddl) => self.execute_ddl(ddl),
             LogicalPlan::Dml(stmt) => self.execute_dml(stmt),
@@ -267,7 +278,7 @@ mod tests {
         // session.sql("INSERT INTO test VALUES (1, 1), (2, 2), (3, 3), (3, 5), (NULL, NULL);")?;
         // session.sql("select a, b, c, d from x join y on a = c")?;
         println!("++++++++++++++");
-        let batch = session.sql("select a, b, c, d from x, y;")?;
+        let batch = session.sql("show tables;")?;
 
         print_batches(&batch)?;
 

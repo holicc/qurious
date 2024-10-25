@@ -43,6 +43,15 @@ impl<'a> Parser<'a> {
             TokenType::Keyword(Keyword::Create) => self.parse_create_statement(),
             TokenType::Keyword(Keyword::Drop) => self.parse_drop_statement(),
             TokenType::Keyword(Keyword::Copy) => self.parse_copy_statement(),
+            TokenType::Keyword(Keyword::Show) => self.parse_show(),
+            _ => Err(Error::UnexpectedToken(token)),
+        }
+    }
+
+    fn parse_show(&mut self) -> Result<Statement> {
+        let token = self.next_token()?;
+        match token.token_type {
+            TokenType::Keyword(Keyword::Tables) => Ok(Statement::ShowTables),
             _ => Err(Error::UnexpectedToken(token)),
         }
     }
@@ -1265,6 +1274,11 @@ mod tests {
     fn assert_stmt_eq(sql: &str, stmt: Statement) {
         let result = parse_stmt(sql).unwrap();
         assert_eq!(result, stmt, "Runing SQL: {}", sql);
+    }
+
+    #[test]
+    fn test_show() {
+        assert_stmt_eq("SHOW TABLES;", Statement::ShowTables);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use qurious::error::{Error, Result};
+use qurious::error::Result;
 
 fn main() -> Result<()> {
     Ok(())

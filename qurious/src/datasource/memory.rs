@@ -15,7 +15,7 @@ use crate::error::Result;
 use crate::logical::expr::LogicalExpr;
 use crate::physical::expr::PhysicalExpr;
 use crate::physical::plan::PhysicalPlan;
-use crate::provider::table::TableProvider;
+use crate::provider::table::{TableProvider, TableType};
 
 #[derive(Clone, Debug)]
 pub struct MemoryTable {
@@ -114,5 +114,9 @@ impl TableProvider for MemoryTable {
 
             Ok(row_effected)
         }
+    }
+
+    fn table_type(&self) -> TableType {
+        TableType::Base
     }
 }

@@ -1,10 +1,34 @@
-use std::fmt::Debug;
+use std::fmt;
 use std::sync::Arc;
 
+use arrow::array::RecordBatch;
+use arrow::datatypes::SchemaRef;
+
+use crate::datatypes::scalar::ScalarValue;
 use crate::error::Result;
+use crate::logical::expr::LogicalExpr;
 use crate::physical::expr::PhysicalExpr;
-use crate::{datatypes::scalar::ScalarValue, logical::expr::LogicalExpr, physical::plan::PhysicalPlan};
-use arrow::{array::RecordBatch, datatypes::SchemaRef};
+use crate::physical::plan::PhysicalPlan;
+use std::fmt::Debug;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TableType {
+    Base,
+    View,
+    Temporary,
+    External,
+}
+
+impl fmt::Display for TableType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TableType::Base => write!(f, "BASE TABLE"),
+            TableType::View => write!(f, "VIEW"),
+            TableType::Temporary => write!(f, "LOCAL TEMPORARY"),
+            TableType::External => write!(f, "EXTERNAL"),
+        }
+    }
+}
 
 pub trait TableProvider: Debug + Send + Sync {
     fn schema(&self) -> SchemaRef;
@@ -17,7 +41,6 @@ pub trait TableProvider: Debug + Send + Sync {
         None
     }
 
-    /// Insert a new record batch into the data source
     fn insert(&self, _input: Arc<dyn PhysicalPlan>) -> Result<u64> {
         unimplemented!("insert_into not implemented")
     }
@@ -28,9 +51,7 @@ pub trait TableProvider: Debug + Send + Sync {
         unimplemented!("delete not implemented")
     }
 
-    /// Update records in the data source
-    /// The input plan is the filter expression to apply to the data source
-    fn update(&self, _input: Arc<dyn PhysicalPlan>) -> Result<Arc<dyn PhysicalPlan>> {
-        unimplemented!("update not implemented")
+    fn table_type(&self) -> TableType {
+        TableType::Base
     }
 }

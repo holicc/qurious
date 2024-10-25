@@ -7,16 +7,9 @@ use std::sync::Arc;
 
 use crate::error::Result;
 
+#[derive(Default, Debug)]
 pub struct CatalogProviderList {
     catalogs: DashMap<String, Arc<dyn CatalogProvider>>,
-}
-
-impl Default for CatalogProviderList {
-    fn default() -> Self {
-        CatalogProviderList {
-            catalogs: DashMap::default(),
-        }
-    }
 }
 
 impl CatalogProviderList {
@@ -31,9 +24,13 @@ impl CatalogProviderList {
     pub fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
         self.catalogs.get(name).map(|v| v.value().clone())
     }
+
+    pub fn catalog_names(&self) -> Vec<String> {
+        self.catalogs.iter().map(|entry| entry.key().clone()).collect()
+    }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct MemoryCatalogProvider {
     schemas: DashMap<String, Arc<dyn SchemaProvider>>,
 }
@@ -49,6 +46,10 @@ impl CatalogProvider for MemoryCatalogProvider {
 
     fn deregister_schema(&self, name: &str, _cascade: bool) -> Result<Option<Arc<dyn SchemaProvider>>> {
         Ok(self.schemas.remove(name).map(|(_, v)| v))
+    }
+
+    fn schema_names(&self) -> Vec<String> {
+        self.schemas.iter().map(|entry| entry.key().clone()).collect()
     }
 }
 
@@ -68,6 +69,10 @@ impl SchemaProvider for MemorySchemaProvider {
 
     fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
         Ok(self.tables.remove(name).map(|(_, v)| v))
+    }
+
+    fn table_names(&self) -> Vec<String> {
+        self.tables.iter().map(|entry| entry.key().clone()).collect()
     }
 }
 

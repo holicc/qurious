@@ -57,6 +57,9 @@ pub enum Keyword {
     Format,
     Header,
     Delimiter,
+    ///
+    Show,
+    Tables,
 
     /// data types
     Int,
@@ -188,6 +191,8 @@ impl TokenType {
             "format" => TokenType::Keyword(Keyword::Format),
             "header" => TokenType::Keyword(Keyword::Header),
             "delimiter" => TokenType::Keyword(Keyword::Delimiter),
+            "show" => TokenType::Keyword(Keyword::Show),
+            "tables" => TokenType::Keyword(Keyword::Tables),
             // extract a field from a timestamp
             "extract" => TokenType::Keyword(Keyword::Extract),
             "year" => TokenType::Keyword(Keyword::Year),

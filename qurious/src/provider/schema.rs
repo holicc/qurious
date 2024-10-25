@@ -14,4 +14,6 @@ pub trait SchemaProvider: Debug + Send + Sync {
     fn deregister_table(&self, _name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
         unimplemented!("schema provider does not support deregistering tables")
     }
+
+    fn table_names(&self) -> Vec<String>;
 }

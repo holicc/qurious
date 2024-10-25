@@ -50,6 +50,7 @@ pub enum Statement {
         /// WITH options (from PostgreSQL version 9.0)
         options: Vec<CopyOption>,
     },
+    ShowTables,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -513,6 +514,7 @@ impl Display for Statement {
                 }
                 Ok(())
             }
+            Statement::ShowTables => write!(f, "SHOW TABLES"),
         }
     }
 }

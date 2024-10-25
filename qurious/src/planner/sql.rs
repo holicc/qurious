@@ -162,6 +162,7 @@ impl<'a> SqlQueryPlanner<'a> {
                 assignments,
                 r#where,
             } => planner.update_to_plan(table, assignments, r#where),
+            Statement::ShowTables => unreachable!("ShowTables should be handled in session"),
             _ => todo!(),
         }
     }
@@ -1173,6 +1174,11 @@ mod tests {
     };
 
     use super::SqlQueryPlanner;
+
+    #[test]
+    fn test_copy() {
+        // quick_test("COPY test FROM 'test.csv';", "");
+    }
 
     #[test]
     fn test_udf() {
