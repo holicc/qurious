@@ -5,16 +5,14 @@ use std::{
 
 use arrow::datatypes::{Field, Schema, SchemaRef, TimeUnit};
 use sqlparser::ast::{
-    Assignment, BinaryOperator, CopyOption, CopySource, CopyTarget, Cte, Expression, From, FunctionArgument, Literal,
-    Order, Select, SelectItem, Statement,
+    Assignment, BinaryOperator, CopyOption, CopySource, CopyTarget, Cte, Expression, From, FunctionArgument, Ident,
+    Literal, Order, Select, SelectItem, Statement,
 };
 
 use crate::{
-    arrow_err,
     common::{
         join_type::JoinType,
         table_relation::TableRelation,
-        table_schema,
         transformed::{TransformNode, Transformed, TransformedResult, TreeNodeRecursion},
     },
     datasource::file::{self, csv::CsvReadOptions},
@@ -25,12 +23,11 @@ use crate::{
     logical::{
         expr::*,
         plan::{
-            self, CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, Filter, LogicalPlan,
-            SubqueryAlias, Values,
+            self, CreateMemoryTable, DdlStatement, DmlStatement, DropTable, Filter, LogicalPlan, SubqueryAlias, Values,
         },
         LogicalPlanBuilder,
     },
-    provider::table::{self, TableProvider},
+    provider::table::TableProvider,
     utils::{get_file_type, normalize_ident},
 };
 
@@ -166,7 +163,11 @@ impl<'a> SqlQueryPlanner<'a> {
                 assignments,
                 r#where,
             } => planner.update_to_plan(table, assignments, r#where),
-            Statement::ShowTables => unreachable!("ShowTables should be handled in session"),
+            Statement::ShowTables => {
+                // Handle the ShowTables statement explicitly
+                // This could involve returning an appropriate error or handling it in a way that aligns with the application's logic
+                internal_err!("ShowTables statement is not supported in this context")
+            }
             Statement::Copy {
                 source,
                 to,
@@ -285,9 +286,9 @@ impl<'a> SqlQueryPlanner<'a> {
 impl<'a> SqlQueryPlanner<'a> {
     fn copy_to_plan(
         &mut self,
-        source: CopySource,
-        target: CopyTarget,
-        options: Vec<CopyOption>,
+        _source: CopySource,
+        _target: CopyTarget,
+        _options: Vec<CopyOption>,
     ) -> Result<LogicalPlan> {
         todo!()
     }
@@ -298,29 +299,20 @@ impl<'a> SqlQueryPlanner<'a> {
         target: CopyTarget,
         options: Vec<CopyOption>,
     ) -> Result<LogicalPlan> {
-        let (relation, schema) = match source {
+        let (relation, table_source, columns) = match source {
             CopySource::Table { table_name, columns } => {
                 let table_name = table_name.to_string();
                 let table_source = self.get_table_source(&table_name)?;
-                let table_schema = table_source.schema();
 
                 if columns.is_empty() {
-                    (table_name.into(), table_source.schema())
+                    (table_name.into(), table_source, vec![])
                 } else {
-                    let fields = columns
-                        .into_iter()
-                        .map(|col| {
-                            table_schema
-                                .field_with_name(&col.to_string())
-                                .map_err(|e| arrow_err!(e))
-                                .cloned()
-                        })
-                        .collect::<Result<Vec<_>>>()?;
-                    (table_name.into(), Arc::new(Schema::new(fields)))
+                    (table_name.into(), table_source, columns)
                 }
             }
             CopySource::Query(_) => return internal_err!("COPY FROM query is not supported"),
         };
+
         let file_path = match target {
             CopyTarget::File { file } => file,
         };
@@ -338,25 +330,20 @@ impl<'a> SqlQueryPlanner<'a> {
             .or(get_file_type(&file_path).map(|s| s.to_string()))
             .unwrap_or_default();
         let target_relation = TableRelation::parse_file_path(&file_path);
-        let input = match file_extension.as_str() {
+        let input = match file_extension.to_lowercase().as_str() {
             "csv" => {
                 let mut csv_options = CsvReadOptions::default();
                 csv_options.delimiter = option_map.get("delimiter").map(|s| s.as_bytes()[0]).unwrap_or(b',');
                 csv_options.has_header = option_map.get("has_header").map(|s| s == "true").unwrap_or(true);
 
                 file::csv::read_csv(file_path, csv_options)
-                    .and_then(|table| LogicalPlanBuilder::scan(target_relation, table, None))
+                    .and_then(|table| LogicalPlanBuilder::scan(target_relation.clone(), table, None))
                     .map(|builder| builder.build())?
             }
             _ => return internal_err!("COPY FROM only supports csv files"),
         };
 
-        Ok(LogicalPlan::Dml(DmlStatement {
-            relation,
-            op: DmlOperator::Insert,
-            schema,
-            input: Box::new(input),
-        }))
+        self.insert_plan(relation, table_source, input, columns)
     }
 
     fn update_to_plan(
@@ -434,94 +421,28 @@ impl<'a> SqlQueryPlanner<'a> {
         query: Option<Select>,
     ) -> Result<LogicalPlan> {
         let table_source = self.get_table_source(&table)?;
-        let table_schema = table_source.schema();
-        // if value_indices[i] = Some(j), it means that the value of the i-th target table's column is
-        // derived from the j-th output of the source.
-        //
-        // if value_indices[i] = None, it means that the value of the i-th target table's column is
-        // not provided, and should be filled with a default value later.
-        let (fields, value_indices) = if columns.is_empty() {
-            (
-                table_schema.fields().iter().map(|f| f.as_ref()).collect::<Vec<_>>(),
-                (0..table_schema.fields().len()).map(Some).collect::<Vec<_>>(),
-            )
-        } else {
-            let mut value_indices = vec![None; table_schema.fields().len()];
-            let fields = columns
-                .into_iter()
-                .enumerate()
-                .map(|(i, expr)| {
-                    let Expression::Identifier(name) = expr else {
-                        return internal_err!(
-                            "INSERT statement requires column name to be an identifier, but got: {}",
-                            expr
-                        );
-                    };
-                    let col_name = normalize_ident(name);
-                    let index = table_schema.index_of(&col_name)?;
-
-                    if value_indices[index].is_some() {
-                        return internal_err!("Column [{}] is specified more than once", col_name);
-                    }
-                    value_indices[index] = Some(i);
-                    Ok(table_schema.field(index))
-                })
-                .collect::<Result<Vec<_>>>()?;
-
-            (fields, value_indices)
-        };
-
         // build source value plan
         let source = if let Some(query) = query {
             self.select_to_plan(query)?
         } else {
             self.values_to_plan(values)?
         };
-        if source.schema().fields().len() != fields.len() {
-            return internal_err!(
-                "INSERT statement requires the {} columns, but got {} columns",
-                fields.len(),
-                source.schema().fields().len(),
-            );
-        }
-        // check if all columns have values, if not, fill with default values
-        let source_schema = source.schema();
-        let exprs = value_indices
-            .into_iter()
-            .enumerate()
-            .map(|(i, value_index)| {
-                let target_field = table_schema.field(i);
-                match value_index {
-                    Some(v) => {
-                        let target_field = table_schema.field(v);
-                        Ok(column(source_schema.field(v).name())
-                            .cast_to(target_field.data_type())
-                            .alias(target_field.name()))
-                    }
-                    None => {
-                        let default_value = table_source.get_column_default(target_field.name());
-                        if !target_field.is_nullable() && default_value.is_none() {
-                            return internal_err!(
-                                "Column [{}] does not have a default value and does not allow NULLs",
-                                target_field.name()
-                            );
-                        }
-                        Ok(LogicalExpr::Literal(default_value.unwrap_or(ScalarValue::Null))
-                            .cast_to(target_field.data_type())
-                            .alias(target_field.name()))
-                    }
-                }
-            })
-            .collect::<Result<Vec<LogicalExpr>>>()?;
 
-        LogicalPlanBuilder::project(source, exprs).map(|input| {
-            LogicalPlan::Dml(DmlStatement {
-                relation: table.into(),
-                op: plan::DmlOperator::Insert,
-                schema: table_schema,
-                input: Box::new(input),
-            })
-        })
+        self.insert_plan(
+            table.into(),
+            table_source,
+            source,
+            columns
+                .into_iter()
+                .map(|expr| match expr {
+                    Expression::Identifier(name) => Ok(name),
+                    _ => internal_err!(
+                        "INSERT statement requires column name to be an identifier, but got: {}",
+                        expr
+                    ),
+                })
+                .collect::<Result<_>>()?,
+        )
     }
 
     fn drop_table_to_plan(&mut self, table: String, check_exists: bool) -> Result<LogicalPlan> {
@@ -809,6 +730,91 @@ impl<'a> SqlQueryPlanner<'a> {
 
     fn apply_table_alias(&mut self, input: LogicalPlan, alias: String) -> Result<LogicalPlan> {
         SubqueryAlias::try_new(input, &alias).map(LogicalPlan::SubqueryAlias)
+    }
+
+    fn insert_plan(
+        &mut self,
+        target_relation: TableRelation,
+        target_table_provider: Arc<dyn TableProvider>,
+        value_source: LogicalPlan,
+        columns: Vec<Ident>,
+    ) -> Result<LogicalPlan> {
+        let table_schema = target_table_provider.schema();
+        // if value_indices[i] = Some(j), it means that the value of the i-th target table's column is
+        // derived from the j-th output of the source.
+        //
+        // if value_indices[i] = None, it means that the value of the i-th target table's column is
+        // not provided, and should be filled with a default value later.
+        let (fields, value_indices) = if columns.is_empty() {
+            (
+                table_schema.fields().iter().map(|f| f.as_ref()).collect::<Vec<_>>(),
+                (0..table_schema.fields().len()).map(Some).collect::<Vec<_>>(),
+            )
+        } else {
+            let mut value_indices = vec![None; table_schema.fields().len()];
+            let fields = columns
+                .into_iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    let col_name = normalize_ident(name);
+                    let index = table_schema.index_of(&col_name)?;
+
+                    if value_indices[index].is_some() {
+                        return internal_err!("Column [{}] is specified more than once", col_name);
+                    }
+                    value_indices[index] = Some(i);
+                    Ok(table_schema.field(index))
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            (fields, value_indices)
+        };
+        // check if the source has the same number of columns as the target table
+        if value_source.schema().fields().len() != fields.len() {
+            return internal_err!(
+                "statement requires the {} columns, but got {} columns",
+                fields.len(),
+                value_source.schema().fields().len(),
+            );
+        }
+        // check if all columns have values, if not, fill with default values
+        let source_schema = value_source.schema();
+        let exprs = value_indices
+            .into_iter()
+            .enumerate()
+            .map(|(i, value_index)| {
+                let target_field = table_schema.field(i);
+                match value_index {
+                    Some(v) => {
+                        let target_field = table_schema.field(v);
+                        Ok(column(source_schema.field(v).name())
+                            .cast_to(target_field.data_type())
+                            .alias(target_field.name()))
+                    }
+                    None => {
+                        let default_value = target_table_provider.get_column_default(target_field.name());
+                        if !target_field.is_nullable() && default_value.is_none() {
+                            return internal_err!(
+                                "Column [{}] does not have a default value and does not allow NULLs",
+                                target_field.name()
+                            );
+                        }
+                        Ok(LogicalExpr::Literal(default_value.unwrap_or(ScalarValue::Null))
+                            .cast_to(target_field.data_type())
+                            .alias(target_field.name()))
+                    }
+                }
+            })
+            .collect::<Result<Vec<LogicalExpr>>>()?;
+
+        LogicalPlanBuilder::project(value_source, exprs).map(|input| {
+            LogicalPlan::Dml(DmlStatement {
+                relation: target_relation,
+                op: plan::DmlOperator::Insert,
+                schema: table_schema,
+                input: Box::new(input),
+            })
+        })
     }
 
     fn aggregate_plan(
@@ -1231,20 +1237,36 @@ fn sql_to_arrow_data_type(data_type: &sqlparser::datatype::DataType) -> Result<a
         sqlparser::datatype::DataType::Integer => Ok(arrow::datatypes::DataType::Int64),
         sqlparser::datatype::DataType::Boolean => Ok(arrow::datatypes::DataType::Boolean),
         sqlparser::datatype::DataType::Float => Ok(arrow::datatypes::DataType::Float64),
-        sqlparser::datatype::DataType::String =>Ok( arrow::datatypes::DataType::Utf8),
+        sqlparser::datatype::DataType::String => Ok(arrow::datatypes::DataType::Utf8),
         sqlparser::datatype::DataType::Date => Ok(arrow::datatypes::DataType::Date32),
-        sqlparser::datatype::DataType::Timestamp =>Ok(arrow::datatypes::DataType::Timestamp(TimeUnit::Millisecond, None)),
+        sqlparser::datatype::DataType::Timestamp => {
+            Ok(arrow::datatypes::DataType::Timestamp(TimeUnit::Millisecond, None))
+        }
         sqlparser::datatype::DataType::Int16 => Ok(arrow::datatypes::DataType::Int16),
         sqlparser::datatype::DataType::Int64 => Ok(arrow::datatypes::DataType::Int64),
-        sqlparser::datatype::DataType::Decimal(precision, scale) => match (precision,scale){
-            (Some(precision),Some(scale)) if *precision == 0 || *precision > 76 || (*scale as i8).unsigned_abs() > (*precision as u8) => internal_err!("Decimal(precision = {precision}, scale = {scale}) should satisfy `0 < precision <= 76`, and `scale <= precision`."),
-            (Some(precision),Some(scale)) if *precision > 38 && *precision <= 76  => Ok(arrow::datatypes::DataType::Decimal256(*precision, *scale)),
-            (Some(precision),Some(scale)) if *precision <= 38 => Ok(arrow::datatypes::DataType::Decimal128(*precision, *scale)),
-            (Some(precision),None) if *precision == 0 || *precision > 76 => internal_err!("Decimal(precision = {precision}) should satisfy `0 < precision <= 76`."),
-            (Some(precision),None) if *precision <= 38 => Ok(arrow::datatypes::DataType::Decimal128(*precision, 0)),
-            (Some(precision),None) if *precision > 38 && *precision <= 76 => Ok(arrow::datatypes::DataType::Decimal256(*precision, 0)),
-            (None,None) => Ok(arrow::datatypes::DataType::Decimal128(38, 10)),
-            _ => internal_err!("Cannot specify only scale for decimal data type")
+        sqlparser::datatype::DataType::Decimal(precision, scale) => match (precision, scale) {
+            // Check for invalid precision and scale
+            (Some(precision), Some(scale))
+                if *precision == 0 || *precision > 76 || (*scale as i64).abs() > *precision as i64 =>
+            {
+                internal_err!("Decimal(precision = {precision}, scale = {scale}) should satisfy `0 < precision <= 76`, and `scale <= precision`.")
+            }
+            // Decimal256 for precision > 38
+            (Some(precision), Some(scale)) if *precision > 38 => {
+                Ok(arrow::datatypes::DataType::Decimal256(*precision, *scale))
+            }
+            // Decimal128 for precision <= 38
+            (Some(precision), Some(scale)) => Ok(arrow::datatypes::DataType::Decimal128(*precision, *scale)),
+            // Handle precision without scale
+            (Some(precision), None) if *precision == 0 || *precision > 76 => {
+                internal_err!("Decimal(precision = {precision}) should satisfy `0 < precision <= 76`.")
+            }
+            (Some(precision), None) if *precision > 38 => Ok(arrow::datatypes::DataType::Decimal256(*precision, 0)),
+            (Some(precision), None) => Ok(arrow::datatypes::DataType::Decimal128(*precision, 0)),
+            // Default case for Decimal without precision and scale
+            (None, None) => Ok(arrow::datatypes::DataType::Decimal128(38, 10)),
+            // Invalid case where only scale is specified
+            _ => internal_err!("Cannot specify only scale for decimal data type"),
         },
     }
 }
@@ -1269,7 +1291,12 @@ mod tests {
 
     #[test]
     fn test_copy() {
-        quick_test("COPY tbl FROM './tests/testdata/file/case1.csv';", "");
+        quick_test("COPY schools FROM './tests/testdata/file/case1.csv';", "Dml: op=[Insert Into] table=[schools]\n  Projection: (CAST(id AS Int64) AS id, CAST(name AS Utf8) AS name, CAST(location AS Utf8) AS location)\n    TableScan: tmp_table(b563e59)\n");
+
+        quick_test(
+            "COPY schools FROM './tests/testdata/file/case1.csv' (FORMAT CSV, HEADER, DELIMITER ',')",
+            "Dml: op=[Insert Into] table=[schools]\n  Projection: (CAST(id AS Int64) AS id, CAST(name AS Utf8) AS name, CAST(location AS Utf8) AS location)\n    TableScan: tmp_table(b563e59)\n",
+        );
     }
 
     #[test]
@@ -1297,7 +1324,7 @@ mod tests {
     fn test_insert() {
         quick_test(
             "INSERT INTO tbl VALUES (1), (2), (3);",
-            "Internal Error: INSERT statement requires the 3 columns, but got 1 columns",
+            "Internal Error: statement requires the 3 columns, but got 1 columns",
         );
         // insert with not exists column
         quick_test("INSERT INTO tbl(noexists,id,name) VALUES (1,1,'')", "Arrow Error: Schema error: Unable to get field named \"noexists\". Valid fields: [\"id\", \"name\", \"age\"]");
@@ -1357,12 +1384,12 @@ mod tests {
         // create a table from a CSV file using AUTO-DETECT (i.e., automatically detecting column names and types)
         quick_test(
             "CREATE TABLE t1 AS SELECT * FROM read_csv('./tests/testdata/file/case1.csv');", 
-    "CreateMemoryTable: [t1]\n  Projection: (tmp_table(b563e59).id, tmp_table(b563e59).localtion, tmp_table(b563e59).name)\n    TableScan: tmp_table(b563e59)\n"
+    "CreateMemoryTable: [t1]\n  Projection: (tmp_table(b563e59).id, tmp_table(b563e59).location, tmp_table(b563e59).name)\n    TableScan: tmp_table(b563e59)\n"
         );
         // omit 'SELECT *'
         quick_test(
             "CREATE TABLE t1 AS FROM read_csv('./tests/testdata/file/case1.csv');", 
-            "CreateMemoryTable: [t1]\n  Projection: (tmp_table(b563e59).id, tmp_table(b563e59).localtion, tmp_table(b563e59).name)\n    TableScan: tmp_table(b563e59)\n"
+            "CreateMemoryTable: [t1]\n  Projection: (tmp_table(b563e59).id, tmp_table(b563e59).location, tmp_table(b563e59).name)\n    TableScan: tmp_table(b563e59)\n"
         );
     }
 
@@ -1378,7 +1405,7 @@ mod tests {
     fn test_read_csv() {
         quick_test(
             "SELECT * FROM read_csv('./tests/testdata/file/case1.csv')",
-            "Projection: (tmp_table(b563e59).id, tmp_table(b563e59).localtion, tmp_table(b563e59).name)\n  TableScan: tmp_table(b563e59)\n",
+            "Projection: (tmp_table(b563e59).id, tmp_table(b563e59).location, tmp_table(b563e59).name)\n  TableScan: tmp_table(b563e59)\n",
         );
     }
 
@@ -1578,6 +1605,15 @@ mod tests {
 
     fn quick_test(sql: &str, expected: &str) {
         let mut tables = HashMap::new();
+
+        tables.insert(
+            "schools".into(),
+            build_mem_datasource!(
+                ("id", DataType::Int64, false),
+                ("name", DataType::Utf8, false),
+                ("location", DataType::Utf8, false)
+            ),
+        );
 
         tables.insert(
             "person".into(),

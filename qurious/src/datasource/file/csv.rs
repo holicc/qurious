@@ -12,6 +12,7 @@ use crate::provider::table::TableProvider;
 
 use super::DataFilePath;
 
+#[derive(Debug)]
 pub struct CsvReadOptions {
     pub has_header: bool,
     pub delimiter: u8,

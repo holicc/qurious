@@ -316,7 +316,7 @@ mod tests {
             "SELECT * FROM read_csv('./tests/testdata/file/case1.csv')",
             vec![
                 "+----+---------------+--------------------+",
-                "| id | localtion     | name               |",
+                "| id | location      | name               |",
                 "+----+---------------+--------------------+",
                 "| 1  | China BeiJing | BeiJing University |",
                 "+----+---------------+--------------------+",
