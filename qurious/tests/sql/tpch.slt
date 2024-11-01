@@ -1,0 +1,4 @@
+include ../tpch/create_tables.slt
+include ../tpch/insert.slt
+include ../tpch/q*.slt
+include ../tpch/drop_tables.slt

@@ -21,7 +21,7 @@ fn main() -> Result<()> {
 
     log::info!("Running sqllogictests");
 
-    read_test_files()?
+    read_test_files(TEST_SQL_DIR)?
         .into_par_iter()
         .map(make_test_session)
         .try_for_each(|session| {
@@ -38,9 +38,9 @@ fn make_test_session(path: PathBuf) -> Result<TestSession> {
     ExecuteSession::new().map(|session| TestSession { session, path })
 }
 
-fn read_test_files() -> Result<Vec<PathBuf>> {
+fn read_test_files(path: &str) -> Result<Vec<PathBuf>> {
     let mut files = vec![];
-    for entry in read_dir(TEST_SQL_DIR)? {
+    for entry in read_dir(path)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_file() {

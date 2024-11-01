@@ -7,7 +7,7 @@ use arrow::datatypes::{DataType, Decimal128Type, Decimal256Type, Float64Type, In
 
 use super::{Accumulator, AggregateExpr};
 use crate::error::{Error, Result};
-use crate::{cast_and_get_scalar, internal_err};
+use crate::{cast_and_get_decimal, cast_and_get_scalar, internal_err};
 use crate::{datatypes::scalar::ScalarValue, physical::expr::PhysicalExpr};
 
 #[derive(Debug)]
@@ -35,11 +35,11 @@ impl AggregateExpr for SumAggregateExpr {
 
     fn create_accumulator(&self) -> Box<dyn Accumulator> {
         match self.return_type {
-            DataType::UInt64 => Box::new(SumAccumulator::<UInt64Type>::new()),
-            DataType::Int64 => Box::new(SumAccumulator::<Int64Type>::new()),
-            DataType::Float64 => Box::new(SumAccumulator::<Float64Type>::new()),
-            DataType::Decimal128(_, _) => Box::new(SumAccumulator::<Decimal128Type>::new()),
-            DataType::Decimal256(_, _) => Box::new(SumAccumulator::<Decimal256Type>::new()),
+            DataType::UInt64 => Box::new(SumAccumulator::<UInt64Type>::new(self.return_type.clone())),
+            DataType::Int64 => Box::new(SumAccumulator::<Int64Type>::new(self.return_type.clone())),
+            DataType::Float64 => Box::new(SumAccumulator::<Float64Type>::new(self.return_type.clone())),
+            DataType::Decimal128(_, _) => Box::new(SumAccumulator::<Decimal128Type>::new(self.return_type.clone())),
+            DataType::Decimal256(_, _) => Box::new(SumAccumulator::<Decimal256Type>::new(self.return_type.clone())),
             _ => {
                 unimplemented!("Sum not supported for {}: {}", self.expr, self.return_type)
             }
@@ -49,11 +49,12 @@ impl AggregateExpr for SumAggregateExpr {
 
 struct SumAccumulator<T: ArrowNumericType> {
     sum: Option<T::Native>,
+    data_type: DataType,
 }
 
 impl<T: ArrowNumericType> SumAccumulator<T> {
-    pub fn new() -> Self {
-        Self { sum: None }
+    pub fn new(data_type: DataType) -> Self {
+        Self { sum: None, data_type }
     }
 }
 
@@ -80,7 +81,7 @@ impl<T: ArrowNumericType> Accumulator for SumAccumulator<T> {
             Some(v) => {
                 let array = PrimitiveArray::<T>::new(vec![v].into(), None);
 
-                match T::DATA_TYPE {
+                match self.data_type {
                     DataType::Null => Ok(ScalarValue::Null),
                     DataType::Boolean => cast_and_get_scalar!(array, BooleanArray, 0, Boolean),
                     DataType::Int8 => cast_and_get_scalar!(array, Int8Array, 0, Int8),
@@ -88,7 +89,9 @@ impl<T: ArrowNumericType> Accumulator for SumAccumulator<T> {
                     DataType::Int32 => cast_and_get_scalar!(array, Int32Array, 0, Int32),
                     DataType::Int64 => cast_and_get_scalar!(array, Int64Array, 0, Int64),
                     DataType::Float64 => cast_and_get_scalar!(array, Float64Array, 0, Float64),
-                    _ => internal_err!("Unsupported data type: {}", T::DATA_TYPE),
+                    DataType::Decimal128(p, s) => cast_and_get_decimal!(array, Decimal128Array, 0, Decimal128, p, s),
+                    DataType::Decimal256(p, s) => cast_and_get_decimal!(array, Decimal256Array, 0, Decimal256, p, s),
+                    _ => internal_err!("[sum] Unsupported data type: {}", T::DATA_TYPE),
                 }
             }
             None => ScalarValue::try_from(T::DATA_TYPE),

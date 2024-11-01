@@ -6,11 +6,14 @@ use std::{
     sync::Arc,
 };
 
-use arrow::datatypes::*;
 use arrow::{
-    array::{ArrayRef, AsArray, UInt64Array},
+    array::{Array, Int32Array, Int64Array, StringArray, UInt8Array},
+    datatypes::*,
+};
+use arrow::{
+    array::{ArrayRef, UInt64Array},
     compute,
-    datatypes::{ArrowPrimitiveType, SchemaRef},
+    datatypes::SchemaRef,
     record_batch::RecordBatch,
 };
 
@@ -90,7 +93,7 @@ impl PhysicalPlan for HashAggregate {
                             .map_err(|e| Error::ArrowError(e, Some(format!("HashAggregate::execute: take error"))))
                     })?;
                     acc.accumluate(&input_array)?;
-                    agg_array.push(acc.evaluate().map(|v| v.to_array(1))?);
+                    agg_array.push(acc.evaluate().and_then(|v| v.to_array(1))?);
                 }
                 let t = agg_array.iter().map(|f| f.as_ref()).collect::<Vec<_>>();
 
@@ -118,13 +121,30 @@ impl Display for HashAggregate {
     }
 }
 
+macro_rules! hash_array {
+    ($ARRAY: ident,$VALUES: expr,$HASHER_MAP: expr) => {{
+        let group_values = $VALUES
+            .as_any()
+            .downcast_ref::<$ARRAY>()
+            .ok_or(Error::InternalError("Failed to downcast to StringArray".to_string()))?;
+
+        for (i, v) in group_values.iter().enumerate() {
+            if let Some(val) = v {
+                let mut hasher = $HASHER_MAP.entry(i).or_insert(DefaultHasher::new());
+                val.hash(&mut hasher);
+            }
+        }
+    }};
+}
+
 fn group_indices(values: &Vec<ArrayRef>) -> Result<(Vec<ArrayRef>, Vec<UInt64Array>)> {
     let mut hasher_map = HashMap::new();
     for group in values.iter() {
         match group.data_type() {
-            DataType::UInt8 => hash_primitive_array::<UInt8Type>(group, &mut hasher_map),
-            DataType::Int32 => hash_primitive_array::<Int32Type>(group, &mut hasher_map),
-            DataType::Int64 => hash_primitive_array::<Int64Type>(group, &mut hasher_map),
+            DataType::UInt8 => hash_array!(UInt8Array, group, hasher_map),
+            DataType::Int32 => hash_array!(Int32Array, group, hasher_map),
+            DataType::Int64 => hash_array!(Int64Array, group, hasher_map),
+            DataType::Utf8 => hash_array!(StringArray, group, hasher_map),
             _ => {
                 return Err(Error::InternalError(format!(
                     "[group_indices] unsupported data type {:?}",
@@ -158,18 +178,6 @@ fn group_indices(values: &Vec<ArrayRef>) -> Result<(Vec<ArrayRef>, Vec<UInt64Arr
     }
 
     Ok((group_values, agg_indices))
-}
-
-fn hash_primitive_array<T: ArrowPrimitiveType>(group_values: &ArrayRef, hasher_map: &mut HashMap<usize, DefaultHasher>)
-where
-    T::Native: Hash,
-{
-    for (i, v) in group_values.as_primitive::<T>().iter().enumerate() {
-        if let Some(val) = v {
-            let mut hasher = hasher_map.entry(i).or_insert(DefaultHasher::new());
-            val.hash(&mut hasher);
-        }
-    }
 }
 
 #[cfg(test)]

@@ -133,9 +133,9 @@ impl LogicalExpr {
         columns
     }
 
-    pub fn cast_to(&self, data_type: &DataType) -> LogicalExpr {
+    pub fn cast_to(self, data_type: &DataType) -> LogicalExpr {
         LogicalExpr::Cast(CastExpr {
-            expr: Box::new(self.clone()),
+            expr: Box::new(self),
             data_type: data_type.clone(),
         })
     }

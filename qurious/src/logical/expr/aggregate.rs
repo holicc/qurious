@@ -18,6 +18,16 @@ pub enum AggregateOperator {
     Count,
 }
 
+impl AggregateOperator {
+    pub fn infer_type(&self, expr_data_type: &DataType) -> Result<DataType> {
+        match self {
+            AggregateOperator::Count => Ok(DataType::Int64),
+            AggregateOperator::Avg => Ok(DataType::Float64),
+            _ => Ok(expr_data_type.clone()),
+        }
+    }
+}
+
 impl Display for AggregateOperator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -73,7 +83,7 @@ impl AggregateExpr {
 
             Ok(Arc::new(Field::new(
                 format!("{}({})", self.op, col_name),
-                self.infer_type(field.data_type())?,
+                self.op.infer_type(field.data_type())?,
                 true,
             )))
         })
@@ -86,13 +96,6 @@ impl AggregateExpr {
                 relation: None,
             })
         })
-    }
-
-    pub(crate) fn infer_type(&self, expr_data_type: &DataType) -> Result<DataType> {
-        match self.op {
-            AggregateOperator::Count => Ok(DataType::Int64),
-            _ => Ok(expr_data_type.clone()),
-        }
     }
 }
 

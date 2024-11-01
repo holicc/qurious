@@ -264,21 +264,63 @@ mod tests {
     #[test]
     fn test_create_table() -> Result<()> {
         let session = ExecuteSession::new()?;
-        session.sql("create table x(a int, b int);")?;
-        session.sql("create table y(c int, d int);")?;
-        // session.sql("create table b(v1 int, v2 float);")?;
+        session.sql(
+            "CREATE TABLE IF NOT EXISTS lineitem (
+        l_orderkey BIGINT,
+        l_partkey BIGINT,
+        l_suppkey BIGINT,
+        l_linenumber INTEGER,
+        l_quantity DECIMAL(15, 2),
+        l_extendedprice DECIMAL(15, 2),
+        l_discount DECIMAL(15, 2),
+        l_tax DECIMAL(15, 2),
+        l_returnflag VARCHAR,
+        l_linestatus VARCHAR,
+        l_shipdate DATE,
+        l_commitdate DATE,
+        l_receiptdate DATE,
+        l_shipinstruct VARCHAR,
+        l_shipmode VARCHAR,
+        l_comment VARCHAR,
+        l_rev VARCHAR,
+);",
+        )?;
+        session.sql("COPY LINEITEM FROM './tests/test.tbl' ( DELIMITER '|' );")?;
         // session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
 
         // session.sql("create table x(a int, b int);")?;
         // session.sql("create table y(c int, d int);")?;
 
-        session.sql("insert into x values (1, 2), (1, 3);")?;
-        session.sql("insert into y values (1, 5), (1, 6), (2, 7);")?;
+        // session.sql("insert into x values (1, 2), (1, 3);")?;
+        // session.sql("insert into y values (1, 5), (1, 6), (2, 7);")?;
         // session.sql("insert into b select v1, v2 from a;")?;
         // session.sql("INSERT INTO test VALUES (1, 1), (2, 2), (3, 3), (3, 5), (NULL, NULL);")?;
         // session.sql("select a, b, c, d from x join y on a = c")?;
         println!("++++++++++++++");
-        let batch = session.sql("show tables;")?;
+        let batch = session.sql(
+            "
+select
+    l_returnflag,
+    l_linestatus,
+    sum(l_quantity) as sum_qty,
+    sum(l_extendedprice) as sum_base_price,
+    sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
+    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
+    avg(l_quantity) as avg_qty,
+    avg(l_extendedprice) as avg_price,
+    avg(l_discount) as avg_disc,
+    count(*) as count_order
+from
+    lineitem
+where
+        l_shipdate <= date '1998-09-02'
+group by
+    l_returnflag,
+    l_linestatus
+order by
+    l_returnflag,
+	l_linestatus;",
+        )?;
 
         print_batches(&batch)?;
 

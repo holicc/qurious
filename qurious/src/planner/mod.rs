@@ -154,7 +154,7 @@ impl DefaultQueryPlanner {
                             }
                             AggregateOperator::Count => Ok(Arc::new(physical::expr::CountAggregateExpr::new(expr))
                                 as Arc<dyn physical::expr::AggregateExpr>),
-                            AggregateOperator::Avg => todo!(),
+                            AggregateOperator::Avg => Ok(Arc::new(physical::expr::AvgAggregateExpr::new(expr))),
                         }
                     })
             })

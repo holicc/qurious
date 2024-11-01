@@ -228,7 +228,7 @@ fn to_default_value(data_type: &DataType, default_value: &str) -> Result<ScalarV
         }
         DataType::Float32 => Ok(ScalarValue::Float32(Some(default_value.parse()?))),
         DataType::Float64 => Ok(ScalarValue::Float64(Some(default_value.parse()?))),
-        _ => Err(Error::InternalError("Unsupported data type".to_string())),
+        _ => Err(Error::InternalError("[to_default_value] Unsupported data type".to_string())),
     }
 }
 

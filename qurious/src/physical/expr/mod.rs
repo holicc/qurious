@@ -8,7 +8,7 @@ mod is_null;
 mod literal;
 mod negative;
 
-pub use aggregate::{count::*, max::*, min::*, sum::*, Accumulator, AggregateExpr};
+pub use aggregate::{count::*, max::*, min::*, sum::*,avg::*, Accumulator, AggregateExpr};
 pub use binary::BinaryExpr;
 pub use cast::CastExpr;
 pub use column::Column;

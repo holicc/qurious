@@ -18,7 +18,7 @@ impl Literal {
 
 impl PhysicalExpr for Literal {
     fn evaluate(&self, input: &RecordBatch) -> Result<ArrayRef> {
-        Ok(self.value.to_array(input.num_rows()))
+        self.value.to_array(input.num_rows())
     }
 }
 

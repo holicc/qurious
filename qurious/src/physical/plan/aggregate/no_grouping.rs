@@ -53,7 +53,7 @@ impl PhysicalPlan for NoGroupingAggregate {
 
         let columns = accums
             .into_iter()
-            .map(|mut accum| accum.evaluate().map(|v| v.to_array(1)))
+            .map(|mut accum| accum.evaluate().and_then(|v| v.to_array(1)))
             .collect::<Result<Vec<_>>>()?;
 
         RecordBatch::try_new(self.schema.clone(), columns)

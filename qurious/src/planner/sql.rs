@@ -331,7 +331,7 @@ impl<'a> SqlQueryPlanner<'a> {
             .unwrap_or_default();
         let target_relation = TableRelation::parse_file_path(&file_path);
         let input = match file_extension.to_lowercase().as_str() {
-            "csv" => {
+            "csv" | "tbl" => {
                 let mut csv_options = CsvReadOptions::default();
                 csv_options.delimiter = option_map.get("delimiter").map(|s| s.as_bytes()[0]).unwrap_or(b',');
                 csv_options.has_header = option_map.get("has_header").map(|s| s == "true").unwrap_or(true);

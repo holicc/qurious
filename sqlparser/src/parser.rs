@@ -71,6 +71,12 @@ impl<'a> Parser<'a> {
                     self.next_except(TokenType::RParen)?;
                 }
 
+                self.tables.push(TableInfo {
+                    name: table.to_string(),
+                    alias: None,
+                    args: vec![],
+                });
+
                 CopySource::Table {
                     table_name: table,
                     columns,
@@ -126,10 +132,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_create_statement(&mut self) -> Result<Statement> {
-        match self.next_token()?.token_type {
+        let token = self.next_token()?;
+        match token.token_type {
             TokenType::Keyword(Keyword::Schema) => self.parse_create_schema(),
             TokenType::Keyword(Keyword::Table) => self.parse_create_table(),
-            _ => unimplemented!(),
+            _ => Err(Error::UnexpectedToken(token)),
         }
     }
 

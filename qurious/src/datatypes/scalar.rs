@@ -1,24 +1,65 @@
 use crate::error::{Error, Result};
 use arrow::{
     array::{
-        new_null_array, Array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
-        Int8Array, LargeStringArray, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+        new_null_array, Array, ArrayRef, BooleanArray, Decimal128Array, Decimal256Array, Float32Array, Float64Array,
+        Int16Array, Int32Array, Int64Array, Int8Array, LargeStringArray, StringArray, UInt16Array, UInt32Array,
+        UInt64Array, UInt8Array,
     },
-    datatypes::{DataType, Field},
+    datatypes::{i256, DataType, Field},
 };
+use std::any::type_name;
 use std::{fmt::Display, sync::Arc};
 
 macro_rules! typed_cast {
-    ($array:expr, $index:expr, $ARRAYTYPE:ident, $SCALAR:ident) => {{
-        use std::any::type_name;
+    ($array:expr, $index:expr, $ARRAYTYPE:ident, $SCALE:ident) => {{
         let array = $array
             .as_any()
             .downcast_ref::<$ARRAYTYPE>()
             .ok_or_else(|| Error::InternalError(format!("could not cast value to {}", type_name::<$ARRAYTYPE>())))?;
-        Ok::<ScalarValue, Error>(ScalarValue::$SCALAR(match array.is_null($index) {
+        Ok::<ScalarValue, Error>(ScalarValue::$SCALE(match array.is_null($index) {
             true => None,
             false => Some(array.value($index).into()),
         }))
+    }};
+}
+
+macro_rules! typed_cast_decimal {
+    ($ARRAY: ident,$SCALAR_TYPE: ident, $VALUE: expr,$INDEX: expr, $PRECISION: expr, $SCALE: expr) => {{
+        let decimal = $VALUE
+            .as_any()
+            .downcast_ref::<$ARRAY>()
+            .ok_or_else(|| Error::InternalError(format!("could not cast value to {}", type_name::<$ARRAY>())))?;
+        if decimal.is_null($INDEX) {
+            Ok(ScalarValue::$SCALAR_TYPE(None, $PRECISION, $SCALE))
+        } else {
+            Ok(ScalarValue::$SCALAR_TYPE(
+                Some(decimal.value($INDEX)),
+                $PRECISION,
+                $SCALE,
+            ))
+        }
+    }};
+}
+
+macro_rules! build_decimal_array {
+    ($VALUE: expr, $ARRAY: ident,$SIZE: expr, $PRECISION: expr, $SCALE: expr) => {
+        match $VALUE {
+            Some(val) => $ARRAY::from(vec![val; $SIZE]).with_precision_and_scale($PRECISION, $SCALE)?,
+            None => {
+                let mut builder = $ARRAY::builder($SIZE).with_precision_and_scale($PRECISION, $SCALE)?;
+                builder.append_nulls($SIZE);
+                builder.finish()
+            }
+        }
+    };
+}
+
+macro_rules! format_option {
+    ($F:expr, $EXPR:expr) => {{
+        match $EXPR {
+            Some(e) => write!($F, "{e}"),
+            None => write!($F, "NULL"),
+        }
     }};
 }
 
@@ -36,6 +77,10 @@ pub enum ScalarValue {
     UInt8(Option<u8>),
     Float64(Option<f64>),
     Float32(Option<f32>),
+    /// 128bit decimal, using the i128 to represent the decimal, precision scale
+    Decimal128(Option<i128>, u8, i8),
+    /// 256bit decimal, using the i256 to represent the decimal, precision scale
+    Decimal256(Option<i256>, u8, i8),
     Utf8(Option<String>),
 }
 
@@ -55,6 +100,8 @@ impl ScalarValue {
             ScalarValue::Float64(_) => Field::new("f64", DataType::Float64, true),
             ScalarValue::Float32(_) => Field::new("f32", DataType::Float32, true),
             ScalarValue::Utf8(_) => Field::new("utf8", DataType::Utf8, true),
+            ScalarValue::Decimal128(_, p, s) => Field::new("decimal128", DataType::Decimal128(*p, *s), true),
+            ScalarValue::Decimal256(_, p, s) => Field::new("decimal256", DataType::Decimal256(*p, *s), true),
         }
     }
 
@@ -73,11 +120,13 @@ impl ScalarValue {
             ScalarValue::Float64(_) => DataType::Float64,
             ScalarValue::Float32(_) => DataType::Float32,
             ScalarValue::Utf8(_) => DataType::Utf8,
+            ScalarValue::Decimal128(_, p, s) => DataType::Decimal128(*p, *s),
+            ScalarValue::Decimal256(_, p, s) => DataType::Decimal256(*p, *s),
         }
     }
 
-    pub fn to_array(&self, num_row: usize) -> ArrayRef {
-        match self {
+    pub fn to_array(&self, num_row: usize) -> Result<ArrayRef> {
+        Ok(match self {
             ScalarValue::Null => new_null_array(&DataType::Null, num_row),
             ScalarValue::Boolean(b) => Arc::new(BooleanArray::from(vec![*b; num_row])) as ArrayRef,
             ScalarValue::Int64(i) => Arc::new(Int64Array::from(vec![*i; num_row])) as ArrayRef,
@@ -91,44 +140,13 @@ impl ScalarValue {
             ScalarValue::Float64(f) => Arc::new(Float64Array::from(vec![*f; num_row])) as ArrayRef,
             ScalarValue::Float32(f) => Arc::new(Float32Array::from(vec![*f; num_row])) as ArrayRef,
             ScalarValue::Utf8(s) => Arc::new(StringArray::from(vec![s.clone(); num_row])) as ArrayRef,
-        }
-    }
-
-    pub fn is_null(&self) -> bool {
-        match self {
-            ScalarValue::Null => true,
-            _ => false,
-        }
-    }
-
-    pub fn to_value_string(&self) -> String {
-        match self {
-            ScalarValue::Null => "null".to_string(),
-            ScalarValue::Boolean(Some(v)) => v.to_string(),
-            ScalarValue::Boolean(None) => "null".to_string(),
-            ScalarValue::Int64(Some(v)) => v.to_string(),
-            ScalarValue::Int64(None) => "null".to_string(),
-            ScalarValue::Int32(Some(v)) => v.to_string(),
-            ScalarValue::Int32(None) => "null".to_string(),
-            ScalarValue::Int16(Some(v)) => v.to_string(),
-            ScalarValue::Int16(None) => "null".to_string(),
-            ScalarValue::Int8(Some(v)) => v.to_string(),
-            ScalarValue::Int8(None) => "null".to_string(),
-            ScalarValue::UInt64(Some(v)) => v.to_string(),
-            ScalarValue::UInt64(None) => "null".to_string(),
-            ScalarValue::UInt32(Some(v)) => v.to_string(),
-            ScalarValue::UInt32(None) => "null".to_string(),
-            ScalarValue::UInt16(Some(v)) => v.to_string(),
-            ScalarValue::UInt16(None) => "null".to_string(),
-            ScalarValue::UInt8(Some(v)) => v.to_string(),
-            ScalarValue::UInt8(None) => "null".to_string(),
-            ScalarValue::Float64(Some(v)) => v.to_string(),
-            ScalarValue::Float64(None) => "null".to_string(),
-            ScalarValue::Float32(Some(v)) => v.to_string(),
-            ScalarValue::Float32(None) => "null".to_string(),
-            ScalarValue::Utf8(Some(v)) => v.to_string(),
-            ScalarValue::Utf8(None) => "null".to_string(),
-        }
+            ScalarValue::Decimal128(v, p, s) => {
+                Arc::new(build_decimal_array!(*v, Decimal128Array, num_row, *p, *s)) as ArrayRef
+            }
+            ScalarValue::Decimal256(v, p, s) => {
+                Arc::new(build_decimal_array!(*v, Decimal256Array, num_row, *p, *s)) as ArrayRef
+            }
+        })
     }
 
     pub fn try_from_array(array: &dyn Array, index: usize) -> Result<Self> {
@@ -152,6 +170,8 @@ impl ScalarValue {
             DataType::Float64 => typed_cast!(array, index, Float64Array, Float64),
             DataType::Utf8 => typed_cast!(array, index, StringArray, Utf8),
             DataType::LargeUtf8 => typed_cast!(array, index, LargeStringArray, Utf8),
+            DataType::Decimal128(p, s) => typed_cast_decimal!(Decimal128Array, Decimal128, array, index, *p, *s),
+            DataType::Decimal256(p, s) => typed_cast_decimal!(Decimal256Array, Decimal256, array, index, *p, *s),
             _ => unimplemented!("data type {} not supported", array.data_type()),
         }
     }
@@ -205,38 +225,32 @@ impl Eq for ScalarValue {}
 
 impl std::hash::Hash for ScalarValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.to_value_string().hash(state);
+        self.to_string().hash(state);
     }
 }
 
 impl Display for ScalarValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ScalarValue::Null => write!(f, "null"),
-            ScalarValue::Boolean(Some(v)) => write!(f, "{}", v),
-            ScalarValue::Boolean(None) => write!(f, "null"),
-            ScalarValue::Int64(Some(v)) => write!(f, "Int64({})", v),
-            ScalarValue::Int64(None) => write!(f, "null"),
-            ScalarValue::Int32(Some(v)) => write!(f, "Int32({})", v),
-            ScalarValue::Int32(None) => write!(f, "null"),
-            ScalarValue::Int16(Some(v)) => write!(f, "Int16({})", v),
-            ScalarValue::Int16(None) => write!(f, "null"),
-            ScalarValue::Int8(Some(v)) => write!(f, "Int8({})", v),
-            ScalarValue::Int8(None) => write!(f, "null"),
-            ScalarValue::UInt64(Some(v)) => write!(f, "UInt64({})", v),
-            ScalarValue::UInt64(None) => write!(f, "null"),
-            ScalarValue::UInt32(Some(v)) => write!(f, "UInt32({})", v),
-            ScalarValue::UInt32(None) => write!(f, "null"),
-            ScalarValue::UInt16(Some(v)) => write!(f, "UInt16({})", v),
-            ScalarValue::UInt16(None) => write!(f, "null"),
-            ScalarValue::UInt8(Some(v)) => write!(f, "UInt8({})", v),
-            ScalarValue::UInt8(None) => write!(f, "null"),
-            ScalarValue::Float64(Some(v)) => write!(f, "Float64({})", v),
-            ScalarValue::Float64(None) => write!(f, "null"),
-            ScalarValue::Float32(Some(v)) => write!(f, "Float32({})", v),
-            ScalarValue::Float32(None) => write!(f, "null"),
-            ScalarValue::Utf8(Some(v)) => write!(f, "Utf8('{}')", v),
-            ScalarValue::Utf8(None) => write!(f, "null"),
+            ScalarValue::Null => write!(f, "NULL"),
+            ScalarValue::Boolean(v) => format_option!(f, v),
+            ScalarValue::Int64(v) => format_option!(f, v),
+            ScalarValue::Int32(v) => format_option!(f, v),
+            ScalarValue::Int16(v) => format_option!(f, v),
+            ScalarValue::Int8(v) => format_option!(f, v),
+            ScalarValue::UInt64(v) => format_option!(f, v),
+            ScalarValue::UInt32(v) => format_option!(f, v),
+            ScalarValue::UInt16(v) => format_option!(f, v),
+            ScalarValue::UInt8(v) => format_option!(f, v),
+            ScalarValue::Float64(v) => format_option!(f, v),
+            ScalarValue::Float32(v) => format_option!(f, v),
+            ScalarValue::Decimal128(v, p, s) => {
+                write!(f, "{v:?},{p:?},{s:?}")
+            }
+            ScalarValue::Decimal256(v, p, s) => {
+                write!(f, "{v:?},{p:?},{s:?}")
+            }
+            ScalarValue::Utf8(v) => format_option!(f, v),
         }
     }
 }

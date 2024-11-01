@@ -16,8 +16,9 @@ use crate::logical::expr::LogicalExpr;
 use crate::physical::expr::PhysicalExpr;
 use crate::physical::plan::PhysicalPlan;
 use crate::provider::table::{TableProvider, TableType};
+use std::fmt::{self, Debug, Formatter};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MemoryTable {
     schema: SchemaRef,
     data: Arc<RwLock<Vec<RecordBatch>>>,
@@ -48,6 +49,16 @@ impl Default for MemoryTable {
             data: Arc::new(RwLock::new(vec![])),
             column_defaults: HashMap::new(),
         }
+    }
+}
+
+impl Debug for MemoryTable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryTable")
+            .field("schema", &self.schema)
+            .field("column_defaults", &self.column_defaults)
+            .field("data", &"[ ... ]")
+            .finish()
     }
 }
 

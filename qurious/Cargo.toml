@@ -34,7 +34,7 @@ connectorx = [
 arrow = { workspace = true, features = ["prettyprint", "test_utils"] }
 async-trait = "0.1.81"
 env_logger = "0.11.5"
-sqllogictest = "0.21.0"
+sqllogictest = "0.22.0"
 rayon = { version = "1.10.0" }
 
 
