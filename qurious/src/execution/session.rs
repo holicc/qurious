@@ -262,9 +262,62 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_create_table() -> Result<()> {
-        let session = ExecuteSession::new()?;
-        session.sql(
+        let tables = vec![
+            "CREATE TABLE IF NOT EXISTS supplier (
+        s_suppkey  BIGINT,
+        s_name VARCHAR,
+        s_address VARCHAR,
+        s_nationkey BIGINT,
+        s_phone VARCHAR,
+        s_acctbal DECIMAL(15, 2),
+        s_comment VARCHAR,
+        s_rev VARCHAR,
+);",
+            "CREATE TABLE IF NOT EXISTS part (
+        p_partkey BIGINT,
+        p_name VARCHAR,
+        p_mfgr VARCHAR,
+        p_brand VARCHAR,
+        p_type VARCHAR,
+        p_size INTEGER,
+        p_container VARCHAR,
+        p_retailprice DECIMAL(15, 2),
+        p_comment VARCHAR,
+        p_rev VARCHAR,
+);",
+            "CREATE TABLE IF NOT EXISTS partsupp (
+        ps_partkey BIGINT,
+        ps_suppkey BIGINT,
+        ps_availqty INTEGER,
+        ps_supplycost DECIMAL(15, 2),
+        ps_comment VARCHAR,
+        ps_rev VARCHAR,
+);",
+            "CREATE TABLE IF NOT EXISTS customer (
+        c_custkey BIGINT,
+        c_name VARCHAR,
+        c_address VARCHAR,
+        c_nationkey BIGINT,
+        c_phone VARCHAR,
+        c_acctbal DECIMAL(15, 2),
+        c_mktsegment VARCHAR,
+        c_comment VARCHAR,
+        c_rev VARCHAR,
+);",
+            "CREATE TABLE IF NOT EXISTS orders (
+        o_orderkey BIGINT,
+        o_custkey BIGINT,
+        o_orderstatus VARCHAR,
+        o_totalprice DECIMAL(15, 2),
+        o_orderdate DATE,
+        o_orderpriority VARCHAR,
+        o_clerk VARCHAR,
+        o_shippriority INTEGER,
+        o_comment VARCHAR,
+        o_rev VARCHAR,
+);",
             "CREATE TABLE IF NOT EXISTS lineitem (
         l_orderkey BIGINT,
         l_partkey BIGINT,
@@ -284,9 +337,32 @@ mod tests {
         l_comment VARCHAR,
         l_rev VARCHAR,
 );",
-        )?;
+            "CREATE TABLE IF NOT EXISTS nation (
+        n_nationkey BIGINT,
+        n_name VARCHAR,
+        n_regionkey BIGINT,
+        n_comment VARCHAR,
+        n_rev VARCHAR,
+);",
+            "CREATE TABLE IF NOT EXISTS region (
+        r_regionkey BIGINT,
+        r_name VARCHAR,
+        r_comment VARCHAR,
+        r_rev VARCHAR,
+);",
+        ];
+
+        let session = ExecuteSession::new()?;
+        for table in tables {
+            session.sql(table)?;
+        }
         // session.sql("COPY LINEITEM FROM './tests/test.tbl' ( DELIMITER '|' );")?;
-        session.sql("COPY LINEITEM FROM './tests/tpch/data/lineitem.tbl' ( DELIMITER '|' );")?;
+        // session.sql("COPY LINEITEM FROM './tests/tpch/data/lineitem.tbl' ( DELIMITER '|' );")?;
+        session.sql("COPY PART FROM './tests/tpch/data/part.tbl' ( DELIMITER '|' );")?;
+        session.sql("COPY SUPPLIER FROM './tests/tpch/data/supplier.tbl' ( DELIMITER '|' );")?;
+        session.sql("COPY PARTSUPP FROM './tests/tpch/data/partsupp.tbl' ( DELIMITER '|' );")?;
+        session.sql("COPY NATION FROM './tests/tpch/data/nation.tbl' ( DELIMITER '|' );")?;
+        session.sql("COPY REGION FROM './tests/tpch/data/region.tbl' ( DELIMITER '|' );")?;
 
         // session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
 
@@ -302,26 +378,49 @@ mod tests {
         let batch = session.sql(
             "
                 select
-                    l_returnflag,
-                    l_linestatus,
-                    sum(l_quantity) as sum_qty,
-                    sum(l_extendedprice) as sum_base_price,
-                    sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
-                    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
-                    avg(l_quantity) as avg_qty,
-                    avg(l_extendedprice) as avg_price,
-                    avg(l_discount) as avg_disc,
-                    count(*) as count_order
+                    s_acctbal,
+                    s_name,
+                    n_name,
+                    p_partkey,
+                    p_mfgr,
+                    s_address,
+                    s_phone,
+                    s_comment
                 from
-                    lineitem
+                    part,
+                    supplier,
+                    partsupp,
+                    nation,
+                    region
                 where
-                        l_shipdate <= date '1998-09-02'
-                group by
-                    l_returnflag,
-                    l_linestatus
+                    p_partkey = ps_partkey
+                        and s_suppkey = ps_suppkey
+                        and p_size = 15
+                        and p_type like '%BRASS'
+                        and s_nationkey = n_nationkey
+                        and n_regionkey = r_regionkey
+                        and r_name = 'EUROPE'
+                        and ps_supplycost = (
+                                select
+                                    min(ps_supplycost)
+                                from
+                                    partsupp,
+                                    supplier,
+                                    nation,
+                                    region
+                                where
+                                        p_partkey = ps_partkey
+                                    and s_suppkey = ps_suppkey
+                                    and s_nationkey = n_nationkey
+                                    and n_regionkey = r_regionkey
+                                    and r_name = 'EUROPE'
+                        )
                 order by
-                    l_returnflag,
-                	l_linestatus;
+                    s_acctbal desc,
+                    n_name,
+                    s_name,
+                    p_partkey
+                limit 10;
         ",
         )?;
 

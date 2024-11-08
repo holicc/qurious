@@ -1,13 +1,17 @@
-use crate::error::{Error, Result};
+use crate::{
+    arrow_err,
+    error::{Error, Result},
+    internal_err,
+};
 use arrow::{
     array::{
-        new_null_array, Array, ArrayRef, BooleanArray, Date32Array, Date64Array, Float16Array, Float32Array,
-        Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, StringArray, Time32MillisecondArray,
-        Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
-        TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt16Array, UInt32Array,
-        UInt64Array, UInt8Array,
+        new_null_array, Array, ArrayRef, AsArray, BooleanArray, Date32Array, Date64Array, Decimal128Array,
+        Decimal256Array, Float16Array, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array,
+        StringArray, Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray,
+        TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray,
+        UInt16Array, UInt32Array, UInt64Array, UInt8Array,
     },
-    datatypes::TimeUnit,
+    datatypes::{DataType, Decimal128Type, Decimal256Type, DecimalType, TimeUnit},
 };
 use std::sync::Arc;
 
@@ -106,46 +110,76 @@ macro_rules! cast_and_get_decimal {
 
 pub fn repeat_array(ary: &ArrayRef, index: usize, size: usize) -> Result<ArrayRef> {
     match ary.data_type() {
-        arrow::datatypes::DataType::Null => Ok(new_null_array(ary.data_type(), size)),
-        arrow::datatypes::DataType::Boolean => build_primary_array!(BooleanArray, ary, index, size),
-        arrow::datatypes::DataType::Utf8 => build_primary_array!(StringArray, ary, index, size),
-        arrow::datatypes::DataType::Int8 => build_primary_array!(Int8Array, ary, index, size),
-        arrow::datatypes::DataType::Int16 => build_primary_array!(Int16Array, ary, index, size),
-        arrow::datatypes::DataType::Int32 => build_primary_array!(Int32Array, ary, index, size),
-        arrow::datatypes::DataType::Int64 => build_primary_array!(Int64Array, ary, index, size),
-        arrow::datatypes::DataType::UInt8 => build_primary_array!(UInt8Array, ary, index, size),
-        arrow::datatypes::DataType::UInt16 => build_primary_array!(UInt16Array, ary, index, size),
-        arrow::datatypes::DataType::UInt32 => build_primary_array!(UInt32Array, ary, index, size),
-        arrow::datatypes::DataType::UInt64 => build_primary_array!(UInt64Array, ary, index, size),
-        arrow::datatypes::DataType::Float16 => build_primary_array!(Float16Array, ary, index, size),
-        arrow::datatypes::DataType::Float32 => build_primary_array!(Float32Array, ary, index, size),
-        arrow::datatypes::DataType::Float64 => build_primary_array!(Float64Array, ary, index, size),
-        arrow::datatypes::DataType::Date32 => build_primary_array!(Date32Array, ary, index, size),
-        arrow::datatypes::DataType::Date64 => build_primary_array!(Date64Array, ary, index, size),
-        arrow::datatypes::DataType::Time32(TimeUnit::Second) => {
+        DataType::Null => Ok(new_null_array(ary.data_type(), size)),
+        DataType::Boolean => build_primary_array!(BooleanArray, ary, index, size),
+        DataType::Utf8 => build_primary_array!(StringArray, ary, index, size),
+        DataType::Int8 => build_primary_array!(Int8Array, ary, index, size),
+        DataType::Int16 => build_primary_array!(Int16Array, ary, index, size),
+        DataType::Int32 => build_primary_array!(Int32Array, ary, index, size),
+        DataType::Int64 => build_primary_array!(Int64Array, ary, index, size),
+        DataType::UInt8 => build_primary_array!(UInt8Array, ary, index, size),
+        DataType::UInt16 => build_primary_array!(UInt16Array, ary, index, size),
+        DataType::UInt32 => build_primary_array!(UInt32Array, ary, index, size),
+        DataType::UInt64 => build_primary_array!(UInt64Array, ary, index, size),
+        DataType::Float16 => build_primary_array!(Float16Array, ary, index, size),
+        DataType::Float32 => build_primary_array!(Float32Array, ary, index, size),
+        DataType::Float64 => build_primary_array!(Float64Array, ary, index, size),
+        DataType::Date32 => build_primary_array!(Date32Array, ary, index, size),
+        DataType::Date64 => build_primary_array!(Date64Array, ary, index, size),
+        DataType::Time32(TimeUnit::Second) => {
             build_primary_array!(Time32SecondArray, ary, index, size)
         }
-        arrow::datatypes::DataType::Time32(TimeUnit::Millisecond) => {
+        DataType::Time32(TimeUnit::Millisecond) => {
             build_primary_array!(Time32MillisecondArray, ary, index, size)
         }
-        arrow::datatypes::DataType::Time64(TimeUnit::Microsecond) => {
+        DataType::Time64(TimeUnit::Microsecond) => {
             build_primary_array!(Time64MicrosecondArray, ary, index, size)
         }
-        arrow::datatypes::DataType::Time64(TimeUnit::Nanosecond) => {
+        DataType::Time64(TimeUnit::Nanosecond) => {
             build_primary_array!(Time64NanosecondArray, ary, index, size)
         }
-        arrow::datatypes::DataType::Timestamp(TimeUnit::Second, tz) => {
+        DataType::Timestamp(TimeUnit::Second, tz) => {
             build_timestamp_array!(TimestampSecondArray, ary, index, size, tz.clone())
         }
-        arrow::datatypes::DataType::Timestamp(TimeUnit::Millisecond, tz) => {
+        DataType::Timestamp(TimeUnit::Millisecond, tz) => {
             build_timestamp_array!(TimestampMillisecondArray, ary, index, size, tz.clone())
         }
-        arrow::datatypes::DataType::Timestamp(TimeUnit::Microsecond, tz) => {
+        DataType::Timestamp(TimeUnit::Microsecond, tz) => {
             build_timestamp_array!(TimestampMicrosecondArray, ary, index, size, tz.clone())
         }
-        arrow::datatypes::DataType::Timestamp(TimeUnit::Nanosecond, tz) => {
+        DataType::Timestamp(TimeUnit::Nanosecond, tz) => {
             build_timestamp_array!(TimestampNanosecondArray, ary, index, size, tz.clone())
         }
-        _ => todo!(),
+        DataType::Decimal128(precision, scale) => {
+            let array = ary.as_primitive::<Decimal128Type>();
+
+            if array.is_null(index) {
+                return Ok(new_null_array(
+                    &Decimal128Type::TYPE_CONSTRUCTOR(*precision, *scale),
+                    size,
+                ));
+            }
+
+            Decimal128Array::from_iter_values(vec![array.value(index); size])
+                .with_precision_and_scale(*precision, *scale)
+                .map(|v| Arc::new(v) as Arc<dyn Array>)
+                .map_err(|e| arrow_err!(e))
+        }
+        DataType::Decimal256(precision, scale) => {
+            let array = ary.as_primitive::<Decimal256Type>();
+
+            if array.is_null(index) {
+                return Ok(new_null_array(
+                    &Decimal256Type::TYPE_CONSTRUCTOR(*precision, *scale),
+                    size,
+                ));
+            }
+
+            Decimal256Array::from_iter_values(vec![array.value(index); size])
+                .with_precision_and_scale(*precision, *scale)
+                .map(|v| Arc::new(v) as Arc<dyn Array>)
+                .map_err(|e| arrow_err!(e))
+        }
+        _ => internal_err!("Unsupported data type {}", ary.data_type()),
     }
 }
