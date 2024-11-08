@@ -10,6 +10,7 @@ use qurious::error::{Error, Result};
 use qurious::execution::session::ExecuteSession;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use sqllogictest::{AsyncDB, DBOutput, DefaultColumnType};
+use std::env;
 use std::fs::read_dir;
 use std::iter::once;
 use std::path::PathBuf;
@@ -21,16 +22,23 @@ fn main() -> Result<()> {
 
     log::info!("Running sqllogictests");
 
-    read_test_files(TEST_SQL_DIR)?
+    let include_tpch = env::var("INCLUDE_TPCH")
+        .unwrap_or_default()
+        .parse::<bool>()
+        .unwrap_or_default();
+
+    read_test_files(TEST_SQL_DIR, include_tpch)?
         .into_par_iter()
         .map(make_test_session)
         .try_for_each(|session| {
             let session = session?;
             let mut runner = sqllogictest::Runner::new(|| async { Ok(&session) });
 
-            runner
-                .run_file(session.path.clone())
-                .map_err(|e| Error::InternalError(e.to_string()))
+            runner.run_file(session.path.clone()).map_err(|e| {
+                log::error!("{e}");
+
+                Error::InternalError(format!("case [{}] failed.", session.path.display()))
+            })
         })
 }
 
@@ -38,12 +46,14 @@ fn make_test_session(path: PathBuf) -> Result<TestSession> {
     ExecuteSession::new().map(|session| TestSession { session, path })
 }
 
-fn read_test_files(path: &str) -> Result<Vec<PathBuf>> {
+fn read_test_files(path: &str, include_tpch: bool) -> Result<Vec<PathBuf>> {
     let mut files = vec![];
+
     for entry in read_dir(path)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_file() {
+        let file_name = path.file_name().unwrap().to_string_lossy();
+        if path.is_file() && (include_tpch || !file_name.contains("tpch")) {
             files.push(path);
         }
     }

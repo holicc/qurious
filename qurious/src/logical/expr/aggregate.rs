@@ -1,6 +1,10 @@
-use arrow::datatypes::{DataType, Field, FieldRef};
+use arrow::datatypes::{
+    DataType, Field, FieldRef, DECIMAL128_MAX_PRECISION, DECIMAL128_MAX_SCALE, DECIMAL256_MAX_PRECISION,
+    DECIMAL256_MAX_SCALE,
+};
 
 use crate::error::{Error, Result};
+use crate::internal_err;
 use crate::logical::expr::LogicalExpr;
 use crate::logical::plan::LogicalPlan;
 use std::convert::TryFrom;
@@ -22,9 +26,26 @@ impl AggregateOperator {
     pub fn infer_type(&self, expr_data_type: &DataType) -> Result<DataType> {
         match self {
             AggregateOperator::Count => Ok(DataType::Int64),
-            AggregateOperator::Avg => Ok(DataType::Float64),
+            AggregateOperator::Avg => avg_return_type(expr_data_type),
             _ => Ok(expr_data_type.clone()),
         }
+    }
+}
+
+fn avg_return_type(expr_data_type: &DataType) -> Result<DataType> {
+    match expr_data_type {
+        DataType::Decimal128(precision, scale) => {
+            let new_precision = DECIMAL128_MAX_PRECISION.min(*precision + 4);
+            let new_scale = DECIMAL128_MAX_SCALE.min(*scale + 4);
+            Ok(DataType::Decimal128(new_precision, new_scale))
+        }
+        DataType::Decimal256(precision, scale) => {
+            let new_precision = DECIMAL256_MAX_PRECISION.min(*precision + 4);
+            let new_scale = DECIMAL256_MAX_SCALE.min(*scale + 4);
+            Ok(DataType::Decimal256(new_precision, new_scale))
+        }
+        arg_type if arg_type.is_integer() || arg_type.is_floating() => Ok(DataType::Float64),
+        other => internal_err!("avg does not support {other:?}"),
     }
 }
 

@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 pub trait AggregateExpr: Debug {
     fn expression(&self) -> &Arc<dyn PhysicalExpr>;
-    fn create_accumulator(&self) -> Box<dyn Accumulator>;
+    fn create_accumulator(&self) -> Result<Box<dyn Accumulator>>;
 }
 
 pub trait Accumulator {

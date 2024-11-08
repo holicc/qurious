@@ -4,6 +4,7 @@ use arrow::datatypes::DataType;
 
 use super::PrimitiveAccumulator;
 use super::{Accumulator, AggregateExpr};
+use crate::error::Result;
 use crate::make_accumulator;
 use crate::physical::expr::PhysicalExpr;
 
@@ -43,9 +44,9 @@ impl AggregateExpr for MaxAggregateExpr {
         &self.expr
     }
 
-    fn create_accumulator(&self) -> Box<dyn Accumulator> {
+    fn create_accumulator(&self) -> Result<Box<dyn Accumulator>> {
         let data_type = self.return_type.clone();
-        make_accumulator!(data_type, make_max_accumulator)
+        Ok(make_accumulator!(data_type, make_max_accumulator))
     }
 }
 

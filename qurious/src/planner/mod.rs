@@ -138,7 +138,8 @@ impl DefaultQueryPlanner {
                 // use base plan for aggregate expr
                 self.create_physical_expr(&aggregate.input.schema(), &agg_expr.expr)
                     .and_then(|expr| {
-                        let return_type = e.field(&aggregate.input).map(|f| f.data_type().clone())?;
+                        // get AggreateExpr return datatype
+                        let return_type = e.data_type(&aggregate.input.schema())?;
                         match agg_expr.op {
                             AggregateOperator::Sum => {
                                 Ok(Arc::new(physical::expr::SumAggregateExpr::new(expr, return_type))
@@ -154,7 +155,11 @@ impl DefaultQueryPlanner {
                             }
                             AggregateOperator::Count => Ok(Arc::new(physical::expr::CountAggregateExpr::new(expr))
                                 as Arc<dyn physical::expr::AggregateExpr>),
-                            AggregateOperator::Avg => Ok(Arc::new(physical::expr::AvgAggregateExpr::new(expr))),
+                            AggregateOperator::Avg => Ok(Arc::new(physical::expr::AvgAggregateExpr::new(
+                                expr,
+                                agg_expr.expr.data_type(&aggregate.input.schema())?,
+                                return_type,
+                            ))),
                         }
                     })
             })

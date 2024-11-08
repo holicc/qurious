@@ -173,9 +173,8 @@ impl LogicalExpr {
             LogicalExpr::BinaryExpr(binary_expr) => binary_expr.get_result_type(schema),
             LogicalExpr::Cast(cast_expr) => Ok(cast_expr.data_type.clone()),
             LogicalExpr::Function(function) => Ok(function.func.return_type()),
-            LogicalExpr::AggregateExpr(AggregateExpr { expr, .. })
-            | LogicalExpr::SortExpr(SortExpr { expr, .. })
-            | LogicalExpr::Negative(expr) => expr.data_type(schema),
+            LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => op.infer_type(&expr.data_type(schema)?),
+            LogicalExpr::SortExpr(SortExpr { expr, .. }) | LogicalExpr::Negative(expr) => expr.data_type(schema),
             LogicalExpr::IsNull(_) | LogicalExpr::IsNotNull(_) => Ok(DataType::Boolean),
             LogicalExpr::Wildcard => internal_err!("Wildcard has no data type"),
         }

@@ -29,7 +29,7 @@ impl PhysicalExpr for Column {
                 self.index, input_schema.fields.len(), input_schema.fields().iter().map(|f| f.name().clone()).collect::<Vec<String>>())));
         }
 
-        Ok(input.column(self.index).clone().into())
+        Ok(input.column(self.index).clone())
     }
 }
 

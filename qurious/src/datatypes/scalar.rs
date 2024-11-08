@@ -1,9 +1,7 @@
 use crate::error::{Error, Result};
 use arrow::{
     array::{
-        new_null_array, Array, ArrayRef, BooleanArray, Decimal128Array, Decimal256Array, Float32Array, Float64Array,
-        Int16Array, Int32Array, Int64Array, Int8Array, LargeStringArray, StringArray, UInt16Array, UInt32Array,
-        UInt64Array, UInt8Array,
+        new_null_array, Array, ArrayRef, ArrowPrimitiveType, BooleanArray, Decimal128Array, Decimal256Array, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, LargeStringArray, PrimitiveArray, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array
     },
     datatypes::{i256, DataType, Field},
 };
@@ -55,10 +53,28 @@ macro_rules! build_decimal_array {
 }
 
 macro_rules! format_option {
-    ($F:expr, $EXPR:expr) => {{
+    ($F:expr, $EXPR:expr, $TYPE:expr) => {{
         match $EXPR {
-            Some(e) => write!($F, "{e}"),
-            None => write!($F, "NULL"),
+            Some(e) => write!($F, "{}({})", $TYPE, e),
+            None => write!($F, "{}(NULL)", $TYPE),
+        }
+    }};
+}
+
+macro_rules! format_decimal {
+    ($F:expr, $EXPR:expr, $TYPE:expr, $P:expr, $S:expr) => {{
+        match $EXPR {
+            Some(val) => write!($F, "{}({},{},{})", $TYPE, val, $P, $S),
+            None => write!($F, "{}(NULL,{},{})", $TYPE, $P, $S),
+        }
+    }};
+}
+
+macro_rules! format_string {
+    ($F:expr, $EXPR:expr, $TYPE:expr) => {{
+        match $EXPR {
+            Some(val) => write!($F, "{}('{}')", $TYPE, val),
+            None => write!($F, "{}(NULL)", $TYPE),
         }
     }};
 }
@@ -85,6 +101,16 @@ pub enum ScalarValue {
 }
 
 impl ScalarValue {
+    pub fn new_primitive<T: ArrowPrimitiveType>(a: Option<T::Native>, d: &DataType) -> Result<Self> {
+        match a {
+            None => d.try_into(),
+            Some(v) => {
+                let array = PrimitiveArray::<T>::new(vec![v].into(), None).with_data_type(d.clone());
+                Self::try_from_array(&array, 0)
+            }
+        }
+    }
+
     pub fn to_field(&self) -> Field {
         match self {
             ScalarValue::Null => Field::new("null", DataType::Null, true),
@@ -232,25 +258,21 @@ impl std::hash::Hash for ScalarValue {
 impl Display for ScalarValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ScalarValue::Null => write!(f, "NULL"),
-            ScalarValue::Boolean(v) => format_option!(f, v),
-            ScalarValue::Int64(v) => format_option!(f, v),
-            ScalarValue::Int32(v) => format_option!(f, v),
-            ScalarValue::Int16(v) => format_option!(f, v),
-            ScalarValue::Int8(v) => format_option!(f, v),
-            ScalarValue::UInt64(v) => format_option!(f, v),
-            ScalarValue::UInt32(v) => format_option!(f, v),
-            ScalarValue::UInt16(v) => format_option!(f, v),
-            ScalarValue::UInt8(v) => format_option!(f, v),
-            ScalarValue::Float64(v) => format_option!(f, v),
-            ScalarValue::Float32(v) => format_option!(f, v),
-            ScalarValue::Decimal128(v, p, s) => {
-                write!(f, "{v:?},{p:?},{s:?}")
-            }
-            ScalarValue::Decimal256(v, p, s) => {
-                write!(f, "{v:?},{p:?},{s:?}")
-            }
-            ScalarValue::Utf8(v) => format_option!(f, v),
+            ScalarValue::Null => write!(f, "Null"),
+            ScalarValue::Boolean(v) => format_option!(f, v, "Boolean"),
+            ScalarValue::Int64(v) => format_option!(f, v, "Int64"),
+            ScalarValue::Int32(v) => format_option!(f, v, "Int32"),
+            ScalarValue::Int16(v) => format_option!(f, v, "Int16"),
+            ScalarValue::Int8(v) => format_option!(f, v, "Int8"),
+            ScalarValue::UInt64(v) => format_option!(f, v, "UInt64"),
+            ScalarValue::UInt32(v) => format_option!(f, v, "UInt32"),
+            ScalarValue::UInt16(v) => format_option!(f, v, "UInt16"),
+            ScalarValue::UInt8(v) => format_option!(f, v, "UInt8"),
+            ScalarValue::Float64(v) => format_option!(f, v, "Float64"),
+            ScalarValue::Float32(v) => format_option!(f, v, "Float32"),
+            ScalarValue::Decimal128(v, p, s) => format_decimal!(f, v, "Decimal128", p, s),
+            ScalarValue::Decimal256(v, p, s) => format_decimal!(f, v, "Decimal256", p, s),
+            ScalarValue::Utf8(v) => format_string!(f, v, "Utf8"),
         }
     }
 }

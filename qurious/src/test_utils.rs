@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, Int32Array, RecordBatch},
+    array::{Array, Int32Array, Int32Builder, RecordBatch},
     datatypes::{DataType, Field, Schema, SchemaRef},
     util,
 };
@@ -117,16 +117,20 @@ pub fn assert_batch_eq(actual: &[RecordBatch], except: Vec<&str>) {
     );
 }
 
-pub fn build_record_i32(schema: SchemaRef, ary: Vec<Vec<i32>>) -> Vec<RecordBatch> {
-    ary.into_iter()
-        .map(|v| {
-            let columns = v
-                .into_iter()
-                .map(|v| Arc::new(Int32Array::from(vec![v])) as Arc<dyn Array>)
-                .collect::<Vec<_>>();
-            RecordBatch::try_new(schema.clone(), columns).unwrap()
-        })
-        .collect()
+pub fn build_record_i32(schema: SchemaRef, columns: Vec<Vec<i32>>) -> RecordBatch {
+    let mut builders = (0..columns.len()).map(|_| Int32Builder::new()).collect::<Vec<_>>();
+
+    for (i, array) in columns.into_iter().enumerate() {
+        let size = array.len();
+        builders[i].append_values(&array, &vec![true; size]);
+    }
+
+    let columns = builders
+        .into_iter()
+        .map(|mut b| Arc::new(b.finish()) as Arc<dyn Array>)
+        .collect::<Vec<_>>();
+
+    RecordBatch::try_new(schema, columns).unwrap()
 }
 
 pub fn build_table_scan_i32(fields: Vec<(&str, Vec<i32>)>) -> Arc<dyn PhysicalPlan> {

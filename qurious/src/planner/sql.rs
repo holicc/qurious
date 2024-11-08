@@ -334,7 +334,7 @@ impl<'a> SqlQueryPlanner<'a> {
             "csv" | "tbl" => {
                 let mut csv_options = CsvReadOptions::default();
                 csv_options.delimiter = option_map.get("delimiter").map(|s| s.as_bytes()[0]).unwrap_or(b',');
-                csv_options.has_header = option_map.get("has_header").map(|s| s == "true").unwrap_or(true);
+                csv_options.has_header = option_map.get("has_header").map(|s| s == "true").unwrap_or(false);
 
                 file::csv::read_csv(file_path, csv_options)
                     .and_then(|table| LogicalPlanBuilder::scan(target_relation.clone(), table, None))
@@ -1291,7 +1291,7 @@ mod tests {
 
     #[test]
     fn test_copy() {
-        quick_test("COPY schools FROM './tests/testdata/file/case1.csv';", "Dml: op=[Insert Into] table=[schools]\n  Projection: (CAST(id AS Int64) AS id, CAST(name AS Utf8) AS name, CAST(location AS Utf8) AS location)\n    TableScan: tmp_table(b563e59)\n");
+        quick_test("COPY schools FROM './tests/testdata/file/case1.csv';", "Dml: op=[Insert Into] table=[schools]\n  Projection: (CAST(column_1 AS Int64) AS id, CAST(column_2 AS Utf8) AS name, CAST(column_3 AS Utf8) AS location)\n    TableScan: tmp_table(b563e59)\n");
 
         quick_test(
             "COPY schools FROM './tests/testdata/file/case1.csv' (FORMAT CSV, HEADER, DELIMITER ',')",

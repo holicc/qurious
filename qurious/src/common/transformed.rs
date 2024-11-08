@@ -20,6 +20,16 @@ impl<T> Transformed<T> {
         }
     }
 
+    pub fn map_data<U, F>(self, f: F) -> Result<Transformed<U>>
+    where
+        F: FnOnce(T) -> Result<U>,
+    {
+        f(self.data).map(|u| Transformed {
+            data: u,
+            transformed: self.transformed,
+        })
+    }
+
     pub fn update<U, F>(self, f: F) -> Transformed<U>
     where
         F: FnOnce(T) -> U,

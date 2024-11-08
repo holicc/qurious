@@ -1,6 +1,6 @@
-use std::sync::Arc;
-
+use crate::error::Result;
 use arrow::datatypes::DataType;
+use std::sync::Arc;
 
 use super::Accumulator;
 use super::AggregateExpr;
@@ -50,8 +50,8 @@ impl AggregateExpr for MinAggregateExpr {
         &self.expr
     }
 
-    fn create_accumulator(&self) -> Box<dyn Accumulator> {
+    fn create_accumulator(&self) -> Result<Box<dyn Accumulator>> {
         let data_type = self.return_type.clone();
-        make_accumulator!(data_type, make_min_accumulator)
+        Ok(make_accumulator!(data_type, make_min_accumulator))
     }
 }

@@ -33,15 +33,19 @@ impl AggregateExpr for SumAggregateExpr {
         &self.expr
     }
 
-    fn create_accumulator(&self) -> Box<dyn Accumulator> {
+    fn create_accumulator(&self) -> Result<Box<dyn Accumulator>> {
         match self.return_type {
-            DataType::UInt64 => Box::new(SumAccumulator::<UInt64Type>::new(self.return_type.clone())),
-            DataType::Int64 => Box::new(SumAccumulator::<Int64Type>::new(self.return_type.clone())),
-            DataType::Float64 => Box::new(SumAccumulator::<Float64Type>::new(self.return_type.clone())),
-            DataType::Decimal128(_, _) => Box::new(SumAccumulator::<Decimal128Type>::new(self.return_type.clone())),
-            DataType::Decimal256(_, _) => Box::new(SumAccumulator::<Decimal256Type>::new(self.return_type.clone())),
+            DataType::UInt64 => Ok(Box::new(SumAccumulator::<UInt64Type>::new(self.return_type.clone()))),
+            DataType::Int64 => Ok(Box::new(SumAccumulator::<Int64Type>::new(self.return_type.clone()))),
+            DataType::Float64 => Ok(Box::new(SumAccumulator::<Float64Type>::new(self.return_type.clone()))),
+            DataType::Decimal128(_, _) => Ok(Box::new(SumAccumulator::<Decimal128Type>::new(
+                self.return_type.clone(),
+            ))),
+            DataType::Decimal256(_, _) => Ok(Box::new(SumAccumulator::<Decimal256Type>::new(
+                self.return_type.clone(),
+            ))),
             _ => {
-                unimplemented!("Sum not supported for {}: {}", self.expr, self.return_type)
+                internal_err!("Sum not supported for {}: {}", self.expr, self.return_type)
             }
         }
     }

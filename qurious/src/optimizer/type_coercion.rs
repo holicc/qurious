@@ -5,9 +5,11 @@ use arrow::datatypes::{DataType, Schema};
 use super::OptimizerRule;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::error::Result;
+use crate::logical::expr::alias::Alias;
 use crate::logical::expr::{AggregateExpr, BinaryExpr, LogicalExpr};
 use crate::logical::plan::LogicalPlan;
-use crate::utils::{self, merge_schema};
+use crate::utils::merge_schema;
+use crate::utils::type_coercion::get_input_types;
 
 #[derive(Default)]
 pub struct TypeCoercion;
@@ -46,22 +48,15 @@ fn type_coercion(schema: &Arc<Schema>, expr: LogicalExpr) -> Result<Transformed<
                 .map(LogicalExpr::BinaryExpr)
                 .map(Transformed::yes)
         }
-        LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => {
-            let expr = type_coercion(schema, *expr).data()?;
-            let expr_data_type = expr.data_type(schema)?;
-            let new_expr_data_type = op.infer_type(&expr_data_type)?;
-
-            if expr_data_type != new_expr_data_type {
-                return Ok(Transformed::yes(LogicalExpr::AggregateExpr(AggregateExpr {
-                    op,
-                    expr: Box::new(expr.cast_to(&new_expr_data_type)),
-                })));
-            }
-
-            Ok(Transformed::yes(LogicalExpr::AggregateExpr(AggregateExpr {
+        LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => type_coercion(schema, *expr)?.map_data(|expr| {
+            Ok(LogicalExpr::AggregateExpr(AggregateExpr {
                 op,
                 expr: Box::new(expr),
-            })))
+            }))
+        }),
+        LogicalExpr::Alias(Alias { expr, name }) => {
+            let expr = type_coercion(schema, *expr).data().map(Box::new)?;
+            Ok(Transformed::yes(LogicalExpr::Alias(Alias { expr, name })))
         }
         _ => Ok(Transformed::no(expr)),
     }
@@ -71,19 +66,13 @@ fn coerce_binary_op(schema: &Arc<Schema>, expr: BinaryExpr) -> Result<BinaryExpr
     let left_type = expr.left.data_type(schema)?;
     let right_type = expr.right.data_type(schema)?;
 
-    if left_type != right_type {
-        let final_type = utils::get_input_types(&left_type, &right_type);
-        let left = cast_if_needed(expr.left, &left_type, &final_type);
-        let right = cast_if_needed(expr.right, &right_type, &final_type);
+    let (lhs, rhs) = get_input_types(&left_type, &expr.op, &right_type)?;
 
-        return Ok(BinaryExpr {
-            left,
-            op: expr.op,
-            right,
-        });
-    }
-
-    Ok(expr)
+    Ok(BinaryExpr {
+        left: cast_if_needed(expr.left, &left_type, &lhs),
+        op: expr.op,
+        right: cast_if_needed(expr.right, &right_type, &rhs),
+    })
 }
 
 fn cast_if_needed(expr: Box<LogicalExpr>, current_type: &DataType, target_type: &DataType) -> Box<LogicalExpr> {
@@ -104,6 +93,7 @@ mod tests {
             expr::{AggregateExpr, AggregateOperator, Column},
             plan::{EmptyRelation, Projection},
         },
+        utils,
     };
     use arrow::datatypes::{DataType, Field};
 
@@ -298,7 +288,7 @@ mod tests {
 
         assert_analyzed_plan_eq(
             plan,
-            "Projection: (CAST(SUM(int_col) AS Float64) + AVG(CAST(float32_col AS Float64)) * CAST(COUNT(CAST(double_col AS Int64)) AS Float64))\n  Empty Relation\n",
+            "Projection: (CAST(SUM(int_col) AS Float64) + AVG(float32_col) * CAST(COUNT(double_col) AS Float64))\n  Empty Relation\n",
         );
 
         Ok(())
@@ -344,7 +334,7 @@ mod tests {
 
         assert_analyzed_plan_eq(
             plan,
-            "Projection: (AVG(CAST(int32_col AS Float64)) + CAST(SUM(float32_col) AS Float64))\n  Empty Relation\n",
+            "Projection: (AVG(int32_col) + CAST(SUM(float32_col) AS Float64))\n  Empty Relation\n",
         );
 
         Ok(())
@@ -392,7 +382,7 @@ mod tests {
 
         assert_analyzed_plan_eq(
             plan,
-            "Projection: (float_col + CAST(42 AS Float64) + CAST(int_col AS Float64) * 3.14)\n  Empty Relation\n",
+            "Projection: (float_col + CAST(Int32(42) AS Float64) + CAST(int_col AS Float64) * Float64(3.14))\n  Empty Relation\n",
         );
 
         Ok(())
@@ -428,7 +418,7 @@ mod tests {
 
         assert_analyzed_plan_eq(
             plan,
-            "Projection: (SUM(CAST(int_col AS Float64) + 1.5))\n  Empty Relation\n",
+            "Projection: (SUM(CAST(int_col AS Float64) + Float64(1.5)))\n  Empty Relation\n",
         );
 
         Ok(())

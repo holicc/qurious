@@ -27,8 +27,8 @@ impl AggregateExpr for CountAggregateExpr {
         &self.expr
     }
 
-    fn create_accumulator(&self) -> Box<dyn Accumulator> {
-        Box::new(CountAccumulator::default())
+    fn create_accumulator(&self) -> Result<Box<dyn Accumulator>> {
+        Ok(Box::new(CountAccumulator::default()))
     }
 }
 

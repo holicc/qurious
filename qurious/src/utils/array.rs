@@ -12,6 +12,23 @@ use arrow::{
 use std::sync::Arc;
 
 #[macro_export]
+macro_rules! hash_array {
+    ($ARRAY: ident,$VALUES: expr,$HASHER_MAP: expr) => {{
+        let group_values = $VALUES
+            .as_any()
+            .downcast_ref::<$ARRAY>()
+            .ok_or(Error::InternalError("Failed to downcast to StringArray".to_string()))?;
+
+        for (i, v) in group_values.iter().enumerate() {
+            if let Some(val) = v {
+                let mut hasher = $HASHER_MAP.entry(i).or_insert(DefaultHasher::new());
+                val.hash(&mut hasher);
+            }
+        }
+    }};
+}
+
+#[macro_export]
 macro_rules! build_primary_array {
     ($ARRY_TYPE:ident, $ary:expr, $index:expr, $size:expr) => {{
         use std::any::type_name;

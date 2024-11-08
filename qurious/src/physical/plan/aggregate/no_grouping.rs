@@ -33,7 +33,7 @@ impl PhysicalPlan for NoGroupingAggregate {
             .aggr_expr
             .iter()
             .map(|expr| expr.create_accumulator())
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
         let values = self
             .aggr_expr
             .iter()

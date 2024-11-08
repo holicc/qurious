@@ -3,7 +3,7 @@ use arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use crate::datatypes::operator::Operator;
 use crate::error::Result;
 use crate::logical::plan::LogicalPlan;
-use crate::utils;
+use crate::utils::type_coercion::get_result_type;
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -34,24 +34,9 @@ impl BinaryExpr {
     }
 
     pub fn get_result_type(&self, schema: &Arc<Schema>) -> Result<DataType> {
-        match self.op {
-            Operator::Eq
-            | Operator::NotEq
-            | Operator::Gt
-            | Operator::GtEq
-            | Operator::Lt
-            | Operator::LtEq
-            | Operator::And
-            | Operator::Or => {
-                return Ok(DataType::Boolean);
-            }
-            _ => {
-                let left_type = self.left.data_type(schema)?;
-                let right_type = self.right.data_type(schema)?;
-
-                Ok(utils::get_input_types(&left_type, &right_type))
-            }
-        }
+        let lhs = self.left.data_type(schema)?;
+        let rhs = self.right.data_type(schema)?;
+        get_result_type(&lhs, &self.op, &rhs)
     }
 }
 
