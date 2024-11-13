@@ -20,6 +20,7 @@ connectorx = { optional = true, workspace = true, features = [
 ] }
 postgres = { version = "0.19.8", optional = true }
 rayon = { version = "1.10.0", optional = true }
+egg = "0.9.5"
 
 
 [features]

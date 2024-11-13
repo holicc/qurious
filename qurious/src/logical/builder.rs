@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::{
     expr::{LogicalExpr, SortExpr},
-    plan::{Aggregate, CrossJoin, EmptyRelation, Filter, Join, Limit, LogicalPlan, Projection, Sort, TableScan},
+    plan::{Aggregate, EmptyRelation, Filter, Join, Limit, LogicalPlan, Projection, Sort, TableScan},
 };
 use crate::{common::join_type::JoinType, provider::table::TableProvider};
 use crate::{common::table_relation::TableRelation, error::Result};
@@ -74,7 +74,13 @@ impl LogicalPlanBuilder {
         );
 
         Ok(LogicalPlanBuilder {
-            plan: LogicalPlan::CrossJoin(CrossJoin::new(Arc::new(self.plan), Arc::new(right), Arc::new(schema))),
+            plan: LogicalPlan::Join(Join {
+                left: Arc::new(self.plan),
+                right: Arc::new(right),
+                join_type: JoinType::Inner,
+                filter: None,
+                schema: Arc::new(schema),
+            }),
         })
     }
 
@@ -96,7 +102,7 @@ impl LogicalPlanBuilder {
                 left: Arc::new(self.plan),
                 right: Arc::new(right),
                 join_type,
-                filter: on,
+                filter: Some(on),
                 schema: Arc::new(schema),
             }),
         })

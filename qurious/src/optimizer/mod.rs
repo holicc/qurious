@@ -2,6 +2,7 @@ mod count_wildcard_rule;
 mod optimize_projections;
 mod push_down_projections;
 mod type_coercion;
+mod egg;
 
 use count_wildcard_rule::CountWildcardRule;
 use type_coercion::TypeCoercion;

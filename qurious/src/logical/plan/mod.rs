@@ -46,8 +46,6 @@ macro_rules! impl_logical_plan {
 
 #[derive(Debug, Clone)]
 pub enum LogicalPlan {
-    /// Apply Cross Join to two logical plans.
-    CrossJoin(CrossJoin),
     Join(Join),
     Projection(Projection),
     Filter(Filter),
@@ -84,7 +82,6 @@ impl LogicalPlan {
             LogicalPlan::Aggregate(a) => a.schema(),
             LogicalPlan::TableScan(t) => t.schema(),
             LogicalPlan::EmptyRelation(e) => e.schema.clone(),
-            LogicalPlan::CrossJoin(s) => s.schema(),
             LogicalPlan::SubqueryAlias(s) => s.schema(),
             LogicalPlan::Join(j) => j.schema(),
             LogicalPlan::Sort(s) => s.schema(),
@@ -102,7 +99,6 @@ impl LogicalPlan {
             LogicalPlan::Filter(f) => f.children(),
             LogicalPlan::Aggregate(a) => a.children(),
             LogicalPlan::TableScan(t) => t.children(),
-            LogicalPlan::CrossJoin(s) => s.children(),
             LogicalPlan::SubqueryAlias(s) => s.children(),
             LogicalPlan::Join(j) => j.children(),
             LogicalPlan::Sort(s) => s.children(),
@@ -205,7 +201,6 @@ impl std::fmt::Display for LogicalPlan {
             LogicalPlan::Aggregate(a) => write!(f, "{}", a),
             LogicalPlan::TableScan(t) => write!(f, "{}", t),
             LogicalPlan::EmptyRelation(_) => write!(f, "Empty Relation"),
-            LogicalPlan::CrossJoin(s) => write!(f, "{}", s),
             LogicalPlan::SubqueryAlias(s) => write!(f, "{}", s),
             LogicalPlan::Join(j) => write!(f, "{}", j),
             LogicalPlan::Sort(s) => write!(f, "{}", s),

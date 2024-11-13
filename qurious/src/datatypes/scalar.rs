@@ -1,11 +1,15 @@
+use super::float_ord::{F32Ord, F64Ord};
 use crate::error::{Error, Result};
 use arrow::{
     array::{
-        new_null_array, Array, ArrayRef, ArrowPrimitiveType, BooleanArray, Decimal128Array, Decimal256Array, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, LargeStringArray, PrimitiveArray, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array
+        new_null_array, Array, ArrayRef, ArrowPrimitiveType, BooleanArray, Decimal128Array, Decimal256Array,
+        Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, LargeStringArray, PrimitiveArray,
+        StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
     },
     datatypes::{i256, DataType, Field},
 };
-use std::any::type_name;
+use std::cmp::Ordering;
+use std::{any::type_name, str::FromStr};
 use std::{fmt::Display, sync::Arc};
 
 macro_rules! typed_cast {
@@ -273,6 +277,34 @@ impl Display for ScalarValue {
             ScalarValue::Decimal128(v, p, s) => format_decimal!(f, v, "Decimal128", p, s),
             ScalarValue::Decimal256(v, p, s) => format_decimal!(f, v, "Decimal256", p, s),
             ScalarValue::Utf8(v) => format_string!(f, v, "Utf8"),
+        }
+    }
+}
+
+impl FromStr for ScalarValue {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(ScalarValue::Utf8(Some(s.to_string())))
+    }
+}
+
+impl Ord for ScalarValue {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (ScalarValue::Float32(a), ScalarValue::Float32(b)) => match (a, b) {
+                (Some(a), Some(b)) => F32Ord(*a).cmp(&F32Ord(*b)),
+                (None, None) => Ordering::Equal,
+                (None, _) => Ordering::Less,
+                (_, None) => Ordering::Greater,
+            },
+            (ScalarValue::Float64(a), ScalarValue::Float64(b)) => match (a, b) {
+                (Some(a), Some(b)) => F64Ord(*a).cmp(&F64Ord(*b)),
+                (None, None) => Ordering::Equal,
+                (None, _) => Ordering::Less,
+                (_, None) => Ordering::Greater,
+            },
+            _ => self.cmp(other),
         }
     }
 }

@@ -1,6 +1,8 @@
+use crate::error::{Error, Result};
 use std::{
     fmt::Display,
     hash::{DefaultHasher, Hash, Hasher},
+    str::FromStr,
     sync::Arc,
 };
 
@@ -109,6 +111,14 @@ impl From<String> for TableRelation {
 impl From<&str> for TableRelation {
     fn from(value: &str) -> Self {
         TableRelation::parse_str(value.to_ascii_lowercase().as_str())
+    }
+}
+
+impl FromStr for TableRelation {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(TableRelation::parse_str(s))
     }
 }
 
