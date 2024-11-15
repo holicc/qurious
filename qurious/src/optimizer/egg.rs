@@ -2,16 +2,18 @@ use crate::{
     common::{join_type::JoinType, table_relation::TableRelation},
     datatypes::{operator::Operator, scalar::ScalarValue},
     error::{Error, Result},
+    internal_err,
     logical::{
-        expr::{AggregateOperator, LogicalExpr},
-        plan::{LogicalPlan, Projection},
+        expr::{AggregateExpr, AggregateOperator, BinaryExpr, LogicalExpr},
+        plan::{Filter, LogicalPlan},
+        LogicalPlanBuilder,
     },
 };
 use arrow::datatypes::DataType;
 use egg::*;
 use std::{
     collections::HashMap,
-    fmt::{self, format, Display},
+    fmt::{self, Display},
     str::FromStr,
     sync::Arc,
 };
@@ -80,9 +82,19 @@ impl From<u64> for DataValue {
     }
 }
 
-#[derive(Default)]
 pub struct EgraphOptimizer {
     rules: Vec<Rewrite>,
+}
+
+impl Default for EgraphOptimizer {
+    fn default() -> Self {
+        Self {
+            rules: vec![rewrite!("pushdown-filter-inner-join";
+                "(filter ?cond (join inner ?on ?left ?right))" =>
+                "(join inner (and ?on ?cond) ?left ?right)"
+            )],
+        }
+    }
 }
 
 impl OptimizerRule for EgraphOptimizer {
@@ -94,16 +106,15 @@ impl OptimizerRule for EgraphOptimizer {
         if matches!(plan, LogicalPlan::Ddl(_) | LogicalPlan::Dml(_)) {
             return Ok(plan);
         }
-
         let mut egraph = EGraph::default();
         let mut context = EgraphContext::default();
 
         let root = context.build_egraph(&mut egraph, plan)?;
         let runner = Runner::default().with_egraph(egraph).run(&self.rules);
         let extractor = Extractor::new(&runner.egraph, AstSize);
-        let (_, best) = extractor.find_best(root);
+        let best = extractor.find_best_node(root);
 
-        context.rebuild_plan(root, &best)
+        context.rebuild_plan(&best)
     }
 }
 
@@ -153,9 +164,9 @@ define_language! {
 
         // logical plan
         "values" = Values(Box<[Id]>), // values: ([expr..]..)
-        "scan" = TableScan([Id; 3]), // scan: (table, [column...], filter)
+        "scan" = TableScan(Id), // scan: (table, [column...], filter)
         "project" = Project([Id; 2]), // project: (input, [expr...])
-        "filter" = Filter([Id; 2]), // filter: (input, expr)
+        "filter" = Filter([Id; 2]), // filter: (cond, input)
         "sort" = Sort([Id; 2]), // sort: (input, [expr...])
             "desc" = Desc(Id),
         "limit" = Limit([Id; 3]), // limit: (input, limit)
@@ -169,16 +180,45 @@ define_language! {
             "semi" = Semi,
             "anti" = Anti,
 
-        "agg" = Agg([Id; 2]), // agg: (input [expr...])
+        "agg" = Agg([Id; 3]), // agg: (input [agg_expr...] [group_expr...])
 
         Symbol(Symbol),
+    }
+}
+
+struct CostFn<'a> {
+    egraph: &'a EGraph,
+}
+
+impl CostFunction<Node> for CostFn<'_> {
+    type Cost = f32;
+
+    fn cost<C>(&mut self, enode: &Node, mut costs: C) -> Self::Cost
+    where
+        C: FnMut(Id) -> Self::Cost,
+    {
+        let id = &self.egraph.lookup(enode.clone()).unwrap();
+        let mut costs = |i: &Id| costs(*i);
+        // let rows = |i: &Id| self.egraph[*i].data.rows;
+        // let cols = |i: &Id| self.egraph[*i].data.schema.len() as f32;
+        let nlogn = |x: f32| x * (x + 1.0).log2();
+        // The cost of build output chunks of a plan.
+        // let build = || rows(id) * cols(id);
+        // The cost of an operation in hash table.
+        let hash = |size: f32| (size + 1.0).log2() * 0.01;
+
+        match enode {
+            Node::Filter([exprs, c]) => costs(exprs) + costs(c),
+            // each operator has a cost of 0.1
+            _ => enode.fold(0.1, |sum, id| sum + costs(&id)),
+        }
     }
 }
 
 #[derive(Default)]
 struct EgraphContext {
     plans: HashMap<Id, LogicalPlan>,
-    exprs: HashMap<Id, LogicalExpr>,
+    exprs: HashMap<Id, Vec<LogicalExpr>>,
     table_ids: HashMap<TableRelation, usize>,
     column_ids: HashMap<TableRelation, HashMap<String, usize>>,
     table_aliases: HashMap<String, TableRelation>,
@@ -249,17 +289,21 @@ impl EgraphContext {
             LogicalPlan::EmptyRelation(_) => egraph.add(Node::EmptyTableScan),
             LogicalPlan::Filter(filter) => {
                 let input = self.build_egraph(egraph, *filter.input)?;
-                let expr = self.build_expr(egraph, filter.expr)?;
-                egraph.add(Node::Filter([input, expr]))
+                let cond = self.build_expr(egraph, filter.expr)?;
+                egraph.add(Node::Filter([cond, input]))
             }
             LogicalPlan::Projection(projection) => {
                 let input = self.build_egraph(egraph, *projection.input)?;
                 let exprs = projection
                     .exprs
+                    .clone()
                     .into_iter()
                     .map(|expr| self.build_expr(egraph, expr))
                     .collect::<Result<Vec<_>>>()
                     .map(|exprs| egraph.add(Node::List(exprs.into())))?;
+
+                self.exprs.insert(exprs, projection.exprs);
+
                 egraph.add(Node::Project([input, exprs]))
             }
             LogicalPlan::TableScan(table_scan) => {
@@ -284,13 +328,19 @@ impl EgraphContext {
             }
             LogicalPlan::Aggregate(aggregate) => {
                 let input = self.build_egraph(egraph, *aggregate.input)?;
-                let exprs = aggregate
+                let agg_exprs = aggregate
                     .aggr_expr
                     .into_iter()
                     .map(|expr| self.build_expr(egraph, expr))
                     .collect::<Result<Vec<_>>>()
                     .map(|ids| egraph.add(Node::List(ids.into())))?;
-                egraph.add(Node::Agg([input, exprs]))
+                let group_exprs = aggregate
+                    .group_expr
+                    .into_iter()
+                    .map(|expr| self.build_expr(egraph, expr))
+                    .collect::<Result<Vec<_>>>()
+                    .map(|ids| egraph.add(Node::List(ids.into())))?;
+                egraph.add(Node::Agg([input, agg_exprs, group_exprs]))
             }
             LogicalPlan::Values(values) => {
                 let mut bound_values = Vec::with_capacity(values.values.len());
@@ -426,152 +476,29 @@ impl EgraphContext {
             }
         };
 
-        self.exprs.insert(id, expr);
+        self.exprs.insert(id, vec![expr]);
         Ok(id)
     }
 
-    fn rebuild_expr(&self, expr: &RecExpr<Node>, id: Id) -> Result<LogicalExpr> {
-        match &expr[id] {
-            Node::Constant(value) => Ok(LogicalExpr::Literal(value.0.clone())),
-            Node::Column(col) => {
-                // Parse "$table_id.column_id" format
-                let parts: Vec<_> = col.split('.').collect();
-                if parts.len() != 2 {
-                    return Err(Error::InternalError(format!(
-                        "Invalid column reference format: {}",
-                        col
-                    )));
-                }
-                let table_id = parts[0]
-                    .trim_start_matches('$')
-                    .parse::<usize>()
-                    .map_err(|_| Error::InternalError(format!("Invalid table id: {}", parts[0])))?;
-                let column_id = parts[1]
-                    .parse::<usize>()
-                    .map_err(|_| Error::InternalError(format!("Invalid column id: {}", parts[1])))?;
+    fn rebuild_plan(&mut self, node: &Node) -> Result<LogicalPlan> {
+        match node {
+            Node::Project([input, columns]) => {
+                let input_plan = self
+                    .plans
+                    .remove(input)
+                    .ok_or(Error::InternalError(format!("Input plan not found in rebuild_plan")))?;
+                let exprs = self
+                    .exprs
+                    .remove(columns)
+                    .ok_or(Error::InternalError(format!("Columns not found in rebuild_plan")))?;
 
-                // Find the table and column by their IDs
-                let table = self
-                    .table_ids
-                    .iter()
-                    .find(|(_, &id)| id == table_id)
-                    .map(|(table, _)| table.clone())
-                    .ok_or_else(|| Error::InternalError(format!("Table id {} not found", table_id)))?;
-
-                let column = self
-                    .column_ids
-                    .get(&table)
-                    .and_then(|cols| cols.iter().find(|(_, &id)| id == column_id))
-                    .map(|(name, _)| name.clone())
-                    .ok_or_else(|| {
-                        Error::InternalError(format!("Column id {} not found in table {}", column_id, table))
-                    })?;
-
-                Ok(LogicalExpr::Column(crate::logical::expr::Column {
-                    name: column,
-                    relation: Some(table),
-                }))
-            }
-            Node::Add([l, r]) => {
-                let left = self.rebuild_expr(expr, *l)?;
-                let right = self.rebuild_expr(expr, *r)?;
-                Ok(LogicalExpr::BinaryExpr(crate::logical::expr::BinaryExpr::new(
-                    left,
-                    Operator::Add,
-                    right,
-                )))
-            }
-            Node::Max(e) => {
-                let inner = self.rebuild_expr(expr, *e)?;
-                Ok(LogicalExpr::AggregateExpr(crate::logical::expr::AggregateExpr {
-                    op: AggregateOperator::Max,
-                    expr: Box::new(inner),
-                }))
-            }
-            _ => Err(Error::InternalError(format!(
-                "Unsupported node type in rebuild_expr: {:?}",
-                expr[id]
-            ))),
-        }
-    }
-
-    fn rebuild_plan(&self, root: Id, expr: &RecExpr<Node>) -> Result<LogicalPlan> {
-        match &expr[root] {
-            Node::Project([input, exprs]) => {
-                let input_plan = self.rebuild_plan(*input, expr)?;
-                let exprs = match self.rebuild_expr(expr, *exprs)? {
-                    LogicalExpr::List(exprs) => exprs,
-                    _ => return Err(Error::InternalError("Project expressions must be a list".to_string())),
-                };
-
-                let schema = input_plan.schema();
-                Ok(LogicalPlan::Projection(crate::logical::plan::Projection {
-                    input: Box::new(input_plan),
-                    exprs,
-                    schema,
-                }))
-            }
-            Node::Filter([input, pred]) => {
-                let input_plan = self.rebuild_plan(*input, expr)?;
-                let pred_expr = self.rebuild_expr(expr, *pred)?;
-                Ok(LogicalPlan::Filter(crate::logical::plan::Filter {
-                    input: Box::new(input_plan),
-                    expr: pred_expr,
-                }))
-            }
-            Node::Join([join_type, cond, left, right]) => {
-                let left_plan = self.rebuild_plan(*left, expr)?;
-                let right_plan = self.rebuild_plan(*right, expr)?;
-                let join_type = match &expr[*join_type] {
-                    Node::Inner => JoinType::Inner,
-                    Node::LeftOuter => JoinType::Left,
-                    Node::RightOuter => JoinType::Right,
-                    Node::FullOuter => JoinType::Full,
-                    _ => return Err(Error::InternalError("Invalid join type".to_string())),
-                };
-                let cond_expr = self.rebuild_expr(expr, *cond)?;
-
-                let schema = Arc::new(Schema::new(
-                    left_plan
-                        .schema()
-                        .fields()
-                        .iter()
-                        .chain(right_plan.schema().fields().iter())
-                        .cloned()
-                        .collect(),
-                ));
-
-                Ok(LogicalPlan::Join(crate::logical::plan::Join {
-                    left: Arc::new(left_plan),
-                    right: Arc::new(right_plan),
-                    join_type,
-                    filter: Some(cond_expr),
-                    schema,
-                }))
-            }
-            Node::Table(table) => {
-                let table_str = table.to_string();
-                let table_id = table_str
-                    .trim_start_matches('$')
-                    .parse::<usize>()
-                    .map_err(|_| Error::InternalError(format!("Invalid table id: {}", table_str)))?;
-
-                let table = self
-                    .table_ids
-                    .iter()
-                    .find(|(_, &id)| id == table_id)
-                    .map(|(table, _)| table.clone())
-                    .ok_or_else(|| Error::InternalError(format!("Table id {} not found", table_id)))?;
-
-                if let Some(plan) = self.plans.values().find(|p| p.relation() == Ok(&table)) {
-                    Ok(plan.clone())
-                } else {
-                    Err(Error::InternalError(format!("Table plan not found for {}", table)))
-                }
+                LogicalPlanBuilder::from(input_plan)
+                    .add_project(exprs)
+                    .map(|build| build.build())
             }
             _ => Err(Error::InternalError(format!(
                 "Unsupported node type in rebuild_plan: {:?}",
-                expr[root]
+                node
             ))),
         }
     }
@@ -579,13 +506,21 @@ impl EgraphContext {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Arc};
 
-    use egg::{AstSize, EGraph, Extractor, RecExpr};
+    use arrow::datatypes::Schema;
+    use egg::{AstDepth, AstSize, EGraph, Extractor, Language, RecExpr, Runner};
     use sqlparser::parser::Parser;
 
     use crate::{
-        build_mem_datasource, common::table_relation::TableRelation, logical::plan::LogicalPlan,
+        build_mem_datasource,
+        common::table_relation::TableRelation,
+        error::Result,
+        logical::plan::{EmptyRelation, LogicalPlan},
+        optimizer::{
+            egg::{CostFn, EgraphOptimizer},
+            OptimizerRule,
+        },
         planner::sql::SqlQueryPlanner,
     };
 
@@ -646,6 +581,25 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    fn assert_after_optimizer(sql: &str, expected: &str) {
+        let optimizer = EgraphOptimizer::default();
+        let plan = sql_to_plan(sql);
+
+        let mut ctx = EgraphContext::default();
+        let mut graph = EGraph::default();
+
+        let root = ctx.build_egraph(&mut graph, plan).unwrap();
+        let runner = Runner::default().with_egraph(graph).run(&optimizer.rules);
+
+        runner.print_report();
+
+        let cost_fn = CostFn { egraph: &runner.egraph };
+        let extractor = Extractor::new(&runner.egraph, cost_fn);
+        let (_, best) = extractor.find_best(root);
+
+        assert_eq!(&best.to_string(), expected);
+    }
+
     #[test]
     fn test_column_ids() {
         let mut ctx = EgraphContext::default();
@@ -690,6 +644,26 @@ mod tests {
         assert_expr_eq(
             "SELECT u.name as user_name, r.name as repo_name FROM users u, repos r",
             "(project (join inner true $0 $1) (list $0.0 $1.0))",
+        );
+    }
+
+    #[test]
+    fn test_rebuild_projection() -> Result<()> {
+        let plan = sql_to_plan("SELECT id, name FROM users");
+        let optimizer = EgraphOptimizer::default();
+        let root = optimizer.optimize(plan.clone())?;
+
+        assert!(matches!(root, LogicalPlan::Projection(_)));
+        assert_eq!(format!("{:?}", plan), format!("{:?}", root));
+        Ok(())
+    }
+
+    #[test]
+    fn test_filter_inner_join() {
+        // (project (filter (= $0.0 $1.0) (join inner true $0 $1)) (list $0.1 $1.1 $0.0 $1.2 $0.2 $1.0))
+        assert_after_optimizer(
+            "SELECT * FROM users u, repos r WHERE u.id = r.owner_id",
+            "(proje (join inner true $0 $1) (list $0.0 $1.0))",
         );
     }
 }
