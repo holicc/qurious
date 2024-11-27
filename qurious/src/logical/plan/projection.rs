@@ -5,7 +5,7 @@ use crate::{logical::expr::LogicalExpr, logical::plan::LogicalPlan};
 use std::fmt::Display;
 use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Projection {
     pub schema: SchemaRef,
     pub input: Box<LogicalPlan>,

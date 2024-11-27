@@ -7,7 +7,7 @@ use crate::logical::expr::LogicalExpr;
 use std::fmt::Display;
 use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Aggregate {
     pub schema: SchemaRef,
     pub input: Box<LogicalPlan>,

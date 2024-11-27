@@ -874,6 +874,11 @@ impl<'a> Parser<'a> {
                     self.peek()?
                 )))?;
             lhs = match infix {
+                InfixOperator::Like => Expression::Like {
+                    negated,
+                    left: Box::new(lhs),
+                    right: self.parse_expression(infix.precedence()).map(Box::new)?,
+                },
                 InfixOperator::In => self.parse_in_expr(lhs, negated)?,
                 InfixOperator::DoubleColon => self.parse_data_type().map(|dt| Expression::Cast {
                     expr: Box::new(lhs),
@@ -902,6 +907,9 @@ impl<'a> Parser<'a> {
         let token = self.next_token()?;
         let literal = token.literal.clone();
         match token.token_type {
+            TokenType::Keyword(Keyword::Select) => {
+                self.parse_select().map(|query| Expression::SubQuery(Box::new(query)))
+            }
             TokenType::Keyword(Keyword::Extract) => {
                 self.next_except(TokenType::LParen)?;
 
@@ -964,6 +972,7 @@ impl<'a> Parser<'a> {
                     Ok(ast::Expression::Function(literal, args))
                 } else {
                     let mut idents: Vec<Ident> = vec![literal.into()];
+
                     while self.next_if_token(TokenType::Period).is_some() {
                         idents.push(self.next_ident().map(|s| s.into())?);
                     }
@@ -1209,6 +1218,7 @@ enum InfixOperator {
     In,
     DoubleColon,
     Is,
+    Like,
 }
 
 impl Operator for InfixOperator {
@@ -1229,6 +1239,7 @@ impl Operator for InfixOperator {
             TokenType::Keyword(Keyword::Or) => Some(InfixOperator::Or),
             TokenType::Keyword(Keyword::In) => Some(InfixOperator::In),
             TokenType::Keyword(Keyword::Is) => Some(InfixOperator::Is),
+            TokenType::Keyword(Keyword::Like) => Some(InfixOperator::Like),
             _ => None,
         }
     }
@@ -1237,7 +1248,7 @@ impl Operator for InfixOperator {
         match self {
             InfixOperator::Or => 1,
             InfixOperator::And => 2,
-            InfixOperator::Eq | InfixOperator::NotEq => 3,
+            InfixOperator::Eq | InfixOperator::NotEq | InfixOperator::Like => 3,
             InfixOperator::Gt | InfixOperator::Gte | InfixOperator::Lt | InfixOperator::Lte => 4,
             InfixOperator::Add | InfixOperator::Sub => 5,
             InfixOperator::Mul | InfixOperator::Div => 6,
@@ -1281,6 +1292,89 @@ mod tests {
     fn assert_stmt_eq(sql: &str, stmt: Statement) {
         let result = parse_stmt(sql).unwrap();
         assert_eq!(result, stmt, "Runing SQL: {}", sql);
+    }
+
+    #[test]
+    fn test_like() {
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE name LIKE '%Joe%'",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: "users".to_owned(),
+                    alias: None,
+                }],
+                r#where: Some(Expression::Like {
+                    negated: false,
+                    left: Box::new(Expression::Identifier(Ident {
+                        value: "name".to_owned(),
+                        quote_style: None,
+                    })),
+                    right: Box::new(Expression::Literal(ast::Literal::String("%Joe%".to_owned()))),
+                }),
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+    }
+
+    #[test]
+    fn test_filter_sub_query() {
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE users.id = (SELECT MIN(user_id) FROM commits)",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: "users".to_owned(),
+                    alias: None,
+                }],
+                r#where: Some(Expression::BinaryOperator(ast::BinaryOperator::Eq(
+                    Box::new(Expression::CompoundIdentifier(vec![
+                        Ident {
+                            value: "users".to_owned(),
+                            quote_style: None,
+                        },
+                        Ident {
+                            value: "id".to_owned(),
+                            quote_style: None,
+                        },
+                    ])),
+                    Box::new(Expression::SubQuery(Box::new(Select {
+                        with: None,
+                        distinct: None,
+                        columns: vec![SelectItem::UnNamedExpr(Expression::Function(
+                            "MIN".to_owned(),
+                            vec![Expression::Identifier(Ident {
+                                value: "user_id".to_owned(),
+                                quote_style: None,
+                            })],
+                        ))],
+                        from: vec![ast::From::Table {
+                            name: "commits".to_owned(),
+                            alias: None,
+                        }],
+                        r#where: None,
+                        group_by: None,
+                        having: None,
+                        order_by: None,
+                        limit: None,
+                        offset: None,
+                    }))),
+                ))),
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+                group_by: None,
+            })),
+        );
     }
 
     #[test]

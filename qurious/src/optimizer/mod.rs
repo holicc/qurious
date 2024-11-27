@@ -1,12 +1,12 @@
 mod count_wildcard_rule;
-mod optimize_projections;
-mod push_down_projections;
+mod pushdown_filter_inner_join;
+mod scalar_subquery_to_join;
 mod type_coercion;
 
-use count_wildcard_rule::CountWildcardRule;
-use type_coercion::TypeCoercion;
-
 use crate::{error::Result, logical::plan::LogicalPlan};
+use count_wildcard_rule::CountWildcardRule;
+use pushdown_filter_inner_join::PushdownFilterInnerJoin;
+use type_coercion::TypeCoercion;
 
 pub trait OptimizerRule {
     fn name(&self) -> &str;
@@ -21,7 +21,11 @@ pub struct Optimizer {
 impl Optimizer {
     pub fn new() -> Self {
         Self {
-            rules: vec![Box::new(CountWildcardRule), Box::new(TypeCoercion::default())],
+            rules: vec![
+                Box::new(CountWildcardRule),
+                Box::new(TypeCoercion),
+                Box::new(PushdownFilterInnerJoin),
+            ],
         }
     }
 

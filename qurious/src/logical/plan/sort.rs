@@ -5,7 +5,7 @@ use arrow::datatypes::SchemaRef;
 use crate::logical::expr::SortExpr;
 use crate::logical::plan::LogicalPlan;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Sort {
     pub exprs: Vec<SortExpr>,
     pub input: Box<LogicalPlan>,

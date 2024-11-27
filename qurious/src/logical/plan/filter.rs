@@ -5,7 +5,7 @@ use crate::logical::expr::LogicalExpr;
 use crate::logical::plan::LogicalPlan;
 use arrow::datatypes::SchemaRef;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Filter {
     pub input: Box<LogicalPlan>,
     pub expr: LogicalExpr,

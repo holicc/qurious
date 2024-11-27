@@ -5,7 +5,7 @@ use crate::{
 use arrow::datatypes::SchemaRef;
 use std::{fmt::Display, sync::Arc};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CrossJoin {
     pub left: Arc<LogicalPlan>,
     pub right: Arc<LogicalPlan>,
@@ -32,7 +32,7 @@ impl Display for CrossJoin {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Join {
     pub left: Arc<LogicalPlan>,
     pub right: Arc<LogicalPlan>,

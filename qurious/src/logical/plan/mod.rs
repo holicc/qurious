@@ -44,7 +44,7 @@ macro_rules! impl_logical_plan {
     };
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LogicalPlan {
     /// Apply Cross Join to two logical plans.
     CrossJoin(CrossJoin),
@@ -144,6 +144,10 @@ impl LogicalPlan {
                     aggr_expr,
                 })))
             }
+            LogicalPlan::Filter(Filter { input, expr }) => Ok(Transformed::yes(LogicalPlan::Filter(Filter {
+                input,
+                expr: f(expr).data()?,
+            }))),
             _ => Ok(Transformed::no(self)),
         }
     }
@@ -175,6 +179,19 @@ impl TransformNode for LogicalPlan {
             LogicalPlan::Sort(Sort { exprs, input }) => f(*input)?.update(|input| {
                 LogicalPlan::Sort(Sort {
                     exprs,
+                    input: Box::new(input),
+                })
+            }),
+            LogicalPlan::Limit(Limit { input, fetch, skip }) => f(*input)?.update(|input| {
+                LogicalPlan::Limit(Limit {
+                    input: Box::new(input),
+                    fetch,
+                    skip,
+                })
+            }),
+            LogicalPlan::Filter(Filter { expr, input }) => f(*input)?.update(|input| {
+                LogicalPlan::Filter(Filter {
+                    expr,
                     input: Box::new(input),
                 })
             }),
@@ -217,13 +234,13 @@ impl std::fmt::Display for LogicalPlan {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EmptyRelation {
     pub produce_one_row: bool,
     pub schema: SchemaRef,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Values {
     pub values: Vec<Vec<LogicalExpr>>,
     pub schema: SchemaRef,

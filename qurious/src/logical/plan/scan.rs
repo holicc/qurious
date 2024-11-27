@@ -1,4 +1,4 @@
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, sync::Arc, hash::{Hash, Hasher}};
 
 use arrow::datatypes::{Schema, SchemaRef};
 
@@ -87,5 +87,27 @@ impl Display for TableScan {
         } else {
             write!(f, "TableScan: {}", self.relation.to_quanlify_name())
         }
+    }
+}
+
+impl PartialEq for TableScan {
+    fn eq(&self, other: &Self) -> bool {
+        self.relation == other.relation
+            && Arc::ptr_eq(&self.source, &other.source)
+            && self.projections == other.projections
+            && Arc::ptr_eq(&self.projected_schema, &other.projected_schema)
+            && self.filter == other.filter
+    }
+}
+
+impl Eq for TableScan {}
+
+impl Hash for TableScan {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.relation.hash(state);
+        Arc::as_ptr(&self.source).hash(state);
+        self.projections.hash(state);
+        Arc::as_ptr(&self.projected_schema).hash(state);
+        self.filter.hash(state);
     }
 }

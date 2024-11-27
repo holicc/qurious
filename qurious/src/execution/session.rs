@@ -10,7 +10,6 @@ use crate::common::table_relation::TableRelation;
 use crate::datasource::memory::MemoryTable;
 use crate::error::Error;
 use crate::functions::{all_builtin_functions, UserDefinedFunction};
-use crate::internal_err;
 use crate::logical::plan::{
     CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, Filter, LogicalPlan,
 };
@@ -22,6 +21,7 @@ use crate::provider::schema::SchemaProvider;
 use crate::provider::table::TableProvider;
 use crate::utils::batch::make_count_batch;
 use crate::{error::Result, planner::DefaultQueryPlanner};
+use crate::{internal_err, utils};
 
 use crate::execution::providers::CatalogProviderList;
 
@@ -92,11 +92,15 @@ impl ExecuteSession {
     }
 
     pub fn execute_logical_plan(&self, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
-        let plan = self.optimizer.optimize(plan)?;
         match &plan {
             LogicalPlan::Ddl(ddl) => self.execute_ddl(ddl),
             LogicalPlan::Dml(stmt) => self.execute_dml(stmt),
-            plan => self.planner.create_physical_plan(plan)?.execute(),
+            plan => {
+                println!("before optimize: \n{}", utils::format(&plan, 0));
+                let plan = self.optimizer.optimize(plan)?;
+                println!("after optimize: \n{}", utils::format(&plan, 0));
+                self.planner.create_physical_plan(&plan)?.execute()
+            }
         }
     }
 

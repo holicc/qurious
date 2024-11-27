@@ -23,8 +23,8 @@ use crate::common::table_relation::TableRelation;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult, TreeNodeRecursion};
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::{Error, Result};
-use crate::internal_err;
 use crate::logical::plan::LogicalPlan;
+use crate::{internal_err, utils};
 use arrow::datatypes::{DataType, Field, FieldRef, Schema};
 
 use self::alias::Alias;
@@ -42,7 +42,9 @@ pub enum LogicalExpr {
     Function(Function),
     IsNull(Box<LogicalExpr>),
     IsNotNull(Box<LogicalExpr>),
+    Like(Like),
     Negative(Box<LogicalExpr>),
+    SubQuery(Box<LogicalPlan>),
 }
 
 macro_rules! impl_logical_expr_methods {
@@ -91,7 +93,15 @@ impl Display for LogicalExpr {
             LogicalExpr::Cast(cast_expr) => write!(f, "CAST({} AS {})", cast_expr.expr, cast_expr.data_type),
             LogicalExpr::Function(function) => write!(f, "{function}",),
             LogicalExpr::IsNull(logical_expr) => write!(f, "{} IS NULL", logical_expr),
-            LogicalExpr::IsNotNull(logical_expr) => write!(f, "{} IS NOT NULL", logical_expr),
+            LogicalExpr::IsNotNull(logical_expr) => write!(f, "{} IS NOT NULLni", logical_expr),
+            LogicalExpr::SubQuery(logical_plan) => write!(f, "(\n{})\n", utils::format(logical_plan, 5)),
+            LogicalExpr::Like(like) => {
+                if like.negated {
+                    write!(f, "{} NOT LIKE {}", like.expr, like.pattern)
+                } else {
+                    write!(f, "{} LIKE {}", like.expr, like.pattern)
+                }
+            }
         }
     }
 }
@@ -159,7 +169,17 @@ impl LogicalExpr {
     }
 
     pub fn column_refs(&self) -> HashSet<&Column> {
-        todo!()
+        let mut columns = HashSet::new();
+
+        self.apply(|expr| {
+            if let LogicalExpr::Column(column) = expr {
+                columns.insert(column);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })
+        .expect("[column_refs] failed to apply");
+
+        columns
     }
 
     pub fn data_type(&self, schema: &Arc<Schema>) -> Result<DataType> {
@@ -175,8 +195,9 @@ impl LogicalExpr {
             LogicalExpr::Function(function) => Ok(function.func.return_type()),
             LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => op.infer_type(&expr.data_type(schema)?),
             LogicalExpr::SortExpr(SortExpr { expr, .. }) | LogicalExpr::Negative(expr) => expr.data_type(schema),
-            LogicalExpr::IsNull(_) | LogicalExpr::IsNotNull(_) => Ok(DataType::Boolean),
-            LogicalExpr::Wildcard => internal_err!("Wildcard has no data type"),
+            LogicalExpr::Like(_) | LogicalExpr::IsNull(_) | LogicalExpr::IsNotNull(_) => Ok(DataType::Boolean),
+            LogicalExpr::SubQuery(plan) => Ok(plan.schema().fields[0].data_type().clone()),
+            _ => internal_err!("[{}] has no data type", self),
         }
     }
 }
@@ -231,8 +252,16 @@ impl TransformNode for LogicalExpr {
             LogicalExpr::IsNull(expr) => f(*expr)?.update(|expr| LogicalExpr::IsNull(Box::new(expr))),
             LogicalExpr::IsNotNull(expr) => f(*expr)?.update(|expr| LogicalExpr::IsNotNull(Box::new(expr))),
             LogicalExpr::Negative(expr) => f(*expr)?.update(|expr| LogicalExpr::Negative(Box::new(expr))),
+            LogicalExpr::SubQuery(plan) => plan.map_exprs(f)?.update(|plan| LogicalExpr::SubQuery(Box::new(plan))),
 
             LogicalExpr::Wildcard | LogicalExpr::Column(_) | LogicalExpr::Literal(_) => Transformed::no(self),
+            LogicalExpr::Like(like) => f(*like.expr)?.update(|expr| {
+                LogicalExpr::Like(Like {
+                    negated: like.negated,
+                    expr: Box::new(expr),
+                    pattern: like.pattern,
+                })
+            }),
         })
     }
 
@@ -250,7 +279,10 @@ impl TransformNode for LogicalExpr {
             | LogicalExpr::IsNull(expr)
             | LogicalExpr::IsNotNull(expr)
             | LogicalExpr::Alias(Alias { expr, .. }) => vec![expr.as_ref()],
-            LogicalExpr::Wildcard | LogicalExpr::Column(_) | LogicalExpr::Literal(_) => vec![],
+            LogicalExpr::SubQuery(_) | LogicalExpr::Wildcard | LogicalExpr::Column(_) | LogicalExpr::Literal(_) => {
+                vec![]
+            }
+            LogicalExpr::Like(like) => vec![like.expr.as_ref(), like.pattern.as_ref()],
         };
 
         for expr in children {
@@ -269,4 +301,11 @@ pub(crate) fn get_expr_value(expr: LogicalExpr) -> Result<i64> {
         LogicalExpr::Literal(ScalarValue::Int64(Some(v))) => Ok(v),
         _ => Err(Error::InternalError(format!("Unexpected expression in"))),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Like {
+    pub negated: bool,
+    pub expr: Box<LogicalExpr>,
+    pub pattern: Box<LogicalExpr>,
 }

@@ -7,7 +7,7 @@ use arrow::datatypes::{Schema, SchemaRef};
 
 use crate::{impl_logical_plan, logical::plan::LogicalPlan};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DdlStatement {
     CreateMemoryTable(CreateMemoryTable),
     DropTable(DropTable),
@@ -40,7 +40,7 @@ impl Display for DdlStatement {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CreateMemoryTable {
     pub schema: SchemaRef,
     pub name: String,
@@ -49,7 +49,7 @@ pub struct CreateMemoryTable {
 
 impl_logical_plan!(CreateMemoryTable);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DropTable {
     pub name: String,
     pub if_exists: bool,

@@ -13,7 +13,7 @@ use crate::{
     error::{Error, Result},
     internal_err,
     logical::{
-        expr::{alias::Alias, AggregateOperator, BinaryExpr, CastExpr, Column, Function, LogicalExpr},
+        expr::{alias::Alias, AggregateOperator, BinaryExpr, CastExpr, Column, Function, Like, LogicalExpr},
         plan::{
             Aggregate, CrossJoin, EmptyRelation, Filter, Join, LogicalPlan, Projection, Sort, SubqueryAlias, TableScan,
             Values,
@@ -88,7 +88,11 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalExpr::Negative(neg) => self
                 .create_physical_expr(input_schema, neg)
                 .map(|expr| Arc::new(Negative::new(expr)) as Arc<dyn PhysicalExpr>),
-            _ => unimplemented!("unsupported logical expression: {:?}", expr),
+            LogicalExpr::Like(like) => self.physical_expr_like(input_schema, like),
+            LogicalExpr::SubQuery(plan) => self
+                .create_physical_plan(plan)
+                .map(|plan| Arc::new(physical::expr::SubQuery { plan }) as Arc<dyn PhysicalExpr>),
+            _ => unimplemented!("unsupported logical expression: {}", expr),
         }
     }
 }
@@ -253,6 +257,12 @@ impl DefaultQueryPlanner {
 }
 
 impl DefaultQueryPlanner {
+    fn physical_expr_like(&self, schema: &SchemaRef, like: &Like) -> Result<Arc<dyn PhysicalExpr>> {
+        let expr = self.create_physical_expr(schema, &like.expr)?;
+        let pattern = self.create_physical_expr(schema, &like.pattern)?;
+        Ok(Arc::new(physical::expr::Like::new(like.negated, expr, pattern)))
+    }
+
     // Physical expression functions
     fn physical_expr_column(&self, schema: &SchemaRef, column: &Column) -> Result<Arc<dyn PhysicalExpr>> {
         schema

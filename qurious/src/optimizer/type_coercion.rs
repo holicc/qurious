@@ -11,7 +11,6 @@ use crate::logical::plan::LogicalPlan;
 use crate::utils::merge_schema;
 use crate::utils::type_coercion::get_input_types;
 
-#[derive(Default)]
 pub struct TypeCoercion;
 
 impl OptimizerRule for TypeCoercion {
@@ -98,7 +97,7 @@ mod tests {
     use arrow::datatypes::{DataType, Field};
 
     fn assert_analyzed_plan_eq(plan: LogicalPlan, expected: &str) {
-        let optimizer = TypeCoercion::default();
+        let optimizer = TypeCoercion;
         let optimized_plan = optimizer.optimize(plan).unwrap();
         assert_eq!(utils::format(&optimized_plan, 0), expected);
     }

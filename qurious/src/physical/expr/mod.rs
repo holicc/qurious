@@ -5,18 +5,22 @@ mod column;
 mod function;
 mod is_not_null;
 mod is_null;
+mod like;
 mod literal;
 mod negative;
+mod subquery;
 
-pub use aggregate::{count::*, max::*, min::*, sum::*,avg::*, Accumulator, AggregateExpr};
+pub use aggregate::{avg::*, count::*, max::*, min::*, sum::*, Accumulator, AggregateExpr};
 pub use binary::BinaryExpr;
 pub use cast::CastExpr;
 pub use column::Column;
 pub use function::*;
 pub use is_not_null::*;
 pub use is_null::*;
+pub use like::*;
 pub use literal::Literal;
 pub use negative::*;
+pub use subquery::SubQuery;
 
 use std::fmt::{Debug, Display};
 

@@ -4,7 +4,7 @@ use arrow::datatypes::SchemaRef;
 
 use crate::{common::table_relation::TableRelation, impl_logical_plan, logical::plan::LogicalPlan};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DmlOperator {
     Insert,
     Update,
@@ -21,7 +21,7 @@ impl Display for DmlOperator {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DmlStatement {
     pub relation: TableRelation,
     pub op: DmlOperator,

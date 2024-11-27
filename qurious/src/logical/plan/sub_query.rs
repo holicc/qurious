@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SubqueryAlias {
     pub input: Arc<LogicalPlan>,
     pub alias: TableRelation,

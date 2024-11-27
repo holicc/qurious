@@ -4,7 +4,7 @@ use arrow::datatypes::SchemaRef;
 
 use crate::logical::plan::LogicalPlan;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Limit {
     pub input: Box<LogicalPlan>,
     pub fetch: Option<usize>,

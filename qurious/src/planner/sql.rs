@@ -478,7 +478,7 @@ impl<'a> SqlQueryPlanner<'a> {
         })))
     }
 
-    fn values_to_plan(&self, values: Vec<Vec<Expression>>) -> Result<LogicalPlan> {
+    fn values_to_plan(&mut self, values: Vec<Vec<Expression>>) -> Result<LogicalPlan> {
         let rows = values
             .into_iter()
             .map(|row| {
@@ -711,7 +711,7 @@ impl<'a> SqlQueryPlanner<'a> {
         LogicalPlanBuilder::scan(table_name, provider, None).map(|builder| builder.build())
     }
 
-    fn filter_expr(&self, mut plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {
+    fn filter_expr(&mut self, mut plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {
         if let Some(filter) = expr {
             let filter_expr = self.sql_to_expr(filter)?;
             // we should parse filter first and then apply it to the table scan
@@ -868,7 +868,7 @@ impl<'a> SqlQueryPlanner<'a> {
         Ok((plan, select_exprs_post_aggr, having_expr_post_aggr))
     }
 
-    fn order_by_exprs(&self, order_by: Vec<(Expression, Order)>) -> Result<Vec<SortExpr>> {
+    fn order_by_exprs(&mut self, order_by: Vec<(Expression, Order)>) -> Result<Vec<SortExpr>> {
         order_by
             .into_iter()
             .map(|(sort_expr, order)| {
@@ -903,7 +903,7 @@ impl<'a> SqlQueryPlanner<'a> {
             .collect::<Result<Vec<LogicalExpr>>>()
     }
 
-    fn sql_to_expr(&self, expr: Expression) -> Result<LogicalExpr> {
+    fn sql_to_expr(&mut self, expr: Expression) -> Result<LogicalExpr> {
         match expr {
             Expression::CompoundIdentifier(mut idents) => {
                 if idents.len() != 2 {
@@ -957,13 +957,13 @@ impl<'a> SqlQueryPlanner<'a> {
                 expr: Box::new(LogicalExpr::Literal(ScalarValue::Utf8(Some(value)))),
                 data_type: sql_to_arrow_data_type(&data_type)?,
             })),
-            Expression::Extract { field, expr } => self.handle_function(
-                "EXTRACT",
-                vec![
-                    LogicalExpr::Literal(ScalarValue::Utf8(Some(field.to_string()))),
-                    self.sql_to_expr(*expr)?,
-                ],
-            ),
+            Expression::Extract { field, expr } => {
+                let args = self.sql_to_expr(*expr)?;
+                self.handle_function(
+                    "EXTRACT",
+                    vec![LogicalExpr::Literal(ScalarValue::Utf8(Some(field.to_string()))), args],
+                )
+            }
             Expression::IsNull(expr) => self.sql_to_expr(*expr).map(|expr| LogicalExpr::IsNull(Box::new(expr))),
             Expression::IsNotNull(expr) => self
                 .sql_to_expr(*expr)
@@ -972,6 +972,14 @@ impl<'a> SqlQueryPlanner<'a> {
                 sqlparser::ast::UnaryOperator::Minus => LogicalExpr::Negative(Box::new(expr)),
                 _ => todo!("UnaryOperator: {:?}", expr),
             }),
+            Expression::SubQuery(sub_query) => self
+                .select_to_plan(*sub_query)
+                .map(|plan| LogicalExpr::SubQuery(Box::new(plan))),
+            Expression::Like { negated, left, right } => Ok(LogicalExpr::Like(Like {
+                negated,
+                expr: Box::new(self.sql_to_expr(*left)?),
+                pattern: Box::new(self.sql_to_expr(*right)?),
+            })),
             _ => todo!("sql_to_expr: {:?}", expr),
         }
     }
@@ -996,14 +1004,14 @@ impl<'a> SqlQueryPlanner<'a> {
         internal_err!("Unknown function: {}", name)
     }
 
-    fn sql_function_args_to_expr(&self, expr: Expression) -> Result<LogicalExpr> {
+    fn sql_function_args_to_expr(&mut self, expr: Expression) -> Result<LogicalExpr> {
         match expr {
             Expression::Identifier(ident) if ident.value == "*" => Ok(LogicalExpr::Wildcard),
             _ => self.sql_to_expr(expr),
         }
     }
 
-    fn parse_binary_op(&self, op: BinaryOperator) -> Result<LogicalExpr> {
+    fn parse_binary_op(&mut self, op: BinaryOperator) -> Result<LogicalExpr> {
         Ok(match op {
             BinaryOperator::Eq(l, r) => eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
             BinaryOperator::NotEq(l, r) => not_eq(self.sql_to_expr(*l)?, self.sql_to_expr(*r)?),
@@ -1288,6 +1296,11 @@ mod tests {
     };
 
     use super::SqlQueryPlanner;
+
+    #[test]
+    fn test_sub_query() {
+        quick_test("SELECT * FROM tbl WHERE tbl.id = (SELECT other_tbl.id FROM other_tbl LIMIT 1)", "Projection: (tbl.age, tbl.id, tbl.name)\n  Filter: tbl.id = (\n          Limit: fetch=1, skip=0\n            Projection: (other_tbl.id)\n              TableScan: other_tbl\n)\n\n    TableScan: tbl\n");
+    }
 
     #[test]
     fn test_copy() {

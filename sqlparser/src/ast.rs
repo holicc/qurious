@@ -626,6 +626,8 @@ pub enum Expression {
     Function(String, Vec<Expression>),
     Struct(Vec<StructField>),
     Array(Vec<Expression>),
+    /// `(SELECT ...)`
+    SubQuery(Box<Select>),
     /// `[ NOT ] IN (val1, val2, ...)`
     InList {
         field: Box<Expression>,
@@ -661,6 +663,12 @@ pub enum Expression {
     UnaryOperator {
         op: UnaryOperator,
         expr: Box<Expression>,
+    },
+    /// `[NOT] LIKE <pattern>`
+    Like {
+        negated: bool,
+        left: Box<Expression>,
+        right: Box<Expression>,
     },
 }
 
@@ -784,6 +792,16 @@ impl Display for Expression {
             Expression::IsNotNull(expression) => write!(f, "{} IS NOT NULL", expression),
             Expression::UnaryOperator { op, expr } => {
                 write!(f, "{}{}", op, expr)
+            }
+            Expression::SubQuery(select) => write!(f, "({})", select),
+            Expression::Like { negated, left, right } => {
+                write!(
+                    f,
+                    "{} {} LIKE {}",
+                    left,
+                    if *negated { "NOT" } else { "" },
+                    right
+                )
             }
         }
     }
