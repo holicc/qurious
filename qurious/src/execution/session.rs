@@ -367,6 +367,9 @@ mod tests {
         session.sql("COPY PARTSUPP FROM './tests/tpch/data/partsupp.tbl' ( DELIMITER '|' );")?;
         session.sql("COPY NATION FROM './tests/tpch/data/nation.tbl' ( DELIMITER '|' );")?;
         session.sql("COPY REGION FROM './tests/tpch/data/region.tbl' ( DELIMITER '|' );")?;
+        session.sql("COPY customer FROM './tests/tpch/data/customer.tbl' ( DELIMITER '|' );")?;
+        session.sql("COPY orders FROM './tests/tpch/data/orders.tbl' ( DELIMITER '|' );")?;
+        session.sql("COPY lineitem FROM './tests/tpch/data/lineitem.tbl' ( DELIMITER '|' );")?;
 
         // session.sql("create table t(v1 int not null, v2 int not null, v3 double not null)")?;
 
@@ -380,52 +383,29 @@ mod tests {
         // session.sql("select a, b, c, d from x join y on a = c")?;
         println!("++++++++++++++");
         let batch = session.sql(
-            "
-                select
-                    s_acctbal,
-                    s_name,
-                    n_name,
-                    p_partkey,
-                    p_mfgr,
-                    s_address,
-                    s_phone,
-                    s_comment
-                from
-                    part,
-                    supplier,
-                    partsupp,
-                    nation,
-                    region
-                where
-                    p_partkey = ps_partkey
-                        and s_suppkey = ps_suppkey
-                        and p_size = 15
-                        and p_type like '%BRASS'
-                        and s_nationkey = n_nationkey
-                        and n_regionkey = r_regionkey
-                        and r_name = 'EUROPE'
-                        and ps_supplycost = (
-                                select
-                                    min(ps_supplycost)
-                                from
-                                    partsupp,
-                                    supplier,
-                                    nation,
-                                    region
-                                where
-                                        p_partkey = ps_partkey
-                                    and s_suppkey = ps_suppkey
-                                    and s_nationkey = n_nationkey
-                                    and n_regionkey = r_regionkey
-                                    and r_name = 'EUROPE'
-                        )
-                order by
-                    s_acctbal desc,
-                    n_name,
-                    s_name,
-                    p_partkey
-                limit 10;
-        ",
+            "select
+    l_orderkey,
+    sum(l_extendedprice * (1 - l_discount)) as revenue,
+    o_orderdate,
+    o_shippriority
+from
+    customer,
+    orders,
+    lineitem
+where
+        c_mktsegment = 'BUILDING'
+  and c_custkey = o_custkey
+  and l_orderkey = o_orderkey
+  and o_orderdate < date '1995-03-15'
+  and l_shipdate > date '1995-03-15'
+group by
+    l_orderkey,
+    o_orderdate,
+    o_shippriority
+order by
+    revenue desc,
+    o_orderdate
+ limit 10;",
         )?;
 
         // let batch = session.sql("select avg(l_quantity) as count_order from lineitem")?;
