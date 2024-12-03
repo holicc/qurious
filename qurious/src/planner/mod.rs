@@ -190,7 +190,7 @@ impl DefaultQueryPlanner {
         Ok(Arc::new(physical::plan::Scan::new(
             table_scan.schema(),
             table_scan.source.clone(),
-            table_scan.projections.clone(),
+            None,
         )) as Arc<dyn PhysicalPlan>)
     }
 

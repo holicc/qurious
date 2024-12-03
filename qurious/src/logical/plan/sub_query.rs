@@ -1,6 +1,7 @@
 use arrow::datatypes::SchemaRef;
 
-use crate::common::table_relation::TableRelation;
+use crate::common::table_schema::TableSchema;
+use crate::common::{table_relation::TableRelation, table_schema::TableSchemaRef};
 use crate::error::Result;
 
 use super::LogicalPlan;
@@ -13,21 +14,20 @@ use std::{
 pub struct SubqueryAlias {
     pub input: Arc<LogicalPlan>,
     pub alias: TableRelation,
-    pub schema: SchemaRef,
+    pub schema: TableSchemaRef,
 }
 
 impl SubqueryAlias {
     pub fn try_new(input: LogicalPlan, alias: &str) -> Result<Self> {
-        let schema = input.schema();
         Ok(Self {
+            schema: TableSchema::try_from_qualified_schema(alias, input.schema())?.into(),
             input: Arc::new(input),
             alias: alias.into(),
-            schema,
         })
     }
 
     pub fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+        self.schema.arrow_schema()
     }
 
     pub fn children(&self) -> Option<Vec<&LogicalPlan>> {

@@ -1,5 +1,5 @@
 use crate::{
-    common::join_type::JoinType,
+    common::{join_type::JoinType, table_schema::TableSchemaRef},
     logical::{expr::LogicalExpr, plan::LogicalPlan},
 };
 use arrow::datatypes::SchemaRef;
@@ -9,16 +9,12 @@ use std::{fmt::Display, sync::Arc};
 pub struct CrossJoin {
     pub left: Arc<LogicalPlan>,
     pub right: Arc<LogicalPlan>,
-    pub schema: SchemaRef,
+    pub schema: TableSchemaRef,
 }
 
 impl CrossJoin {
-    pub fn new(left: Arc<LogicalPlan>, right: Arc<LogicalPlan>, schema: SchemaRef) -> Self {
-        Self { left, right, schema }
-    }
-
     pub fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+        self.schema.arrow_schema()
     }
 
     pub fn children(&self) -> Option<Vec<&LogicalPlan>> {

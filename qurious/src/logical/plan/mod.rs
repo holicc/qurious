@@ -26,6 +26,7 @@ use arrow::datatypes::SchemaRef;
 
 use super::expr::LogicalExpr;
 use crate::common::table_relation::TableRelation;
+use crate::common::table_schema::TableSchemaRef;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::error::Result;
 
@@ -71,12 +72,13 @@ pub enum LogicalPlan {
 impl LogicalPlan {
     pub fn relation(&self) -> Option<TableRelation> {
         match self {
-            LogicalPlan::TableScan(s) => Some(s.relation.clone()),
+            LogicalPlan::TableScan(s) => Some(s.table_name.clone()),
             LogicalPlan::SubqueryAlias(SubqueryAlias { alias, .. }) => Some(alias.clone()),
             _ => None,
         }
     }
 
+    // FIXME: remove this method when table schema is implemented
     pub fn schema(&self) -> SchemaRef {
         match self {
             LogicalPlan::Projection(p) => p.schema(),
@@ -92,6 +94,16 @@ impl LogicalPlan {
             LogicalPlan::Ddl(d) => d.schema(),
             LogicalPlan::Dml(d) => d.schema(),
             LogicalPlan::Values(v) => v.schema.clone(),
+        }
+    }
+
+    pub fn table_schema(&self) -> TableSchemaRef {
+        match self {
+            LogicalPlan::TableScan(s) => s.schema.clone(),
+            LogicalPlan::CrossJoin(s) => s.schema.clone(),
+            LogicalPlan::SubqueryAlias(s) => s.schema.clone(),
+            LogicalPlan::Filter(f) => f.input.table_schema(),
+            _ => todo!("[{}] not implement table_schema", self),
         }
     }
 

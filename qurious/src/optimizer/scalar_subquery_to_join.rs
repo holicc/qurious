@@ -49,3 +49,13 @@ fn contains_scalar_subquery(expr: &LogicalExpr) -> bool {
 
     contains
 }
+
+fn extract_scalar_subquery(expr: &LogicalExpr) -> Result<(Vec<(LogicalExpr, String)>, LogicalExpr)> {
+    todo!()
+}
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_contains_scalar_subquery() {}
+}

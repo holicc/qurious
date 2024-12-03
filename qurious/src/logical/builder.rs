@@ -5,8 +5,11 @@ use super::{
     expr::{LogicalExpr, SortExpr},
     plan::{Aggregate, CrossJoin, EmptyRelation, Filter, Join, Limit, LogicalPlan, Projection, Sort, TableScan},
 };
-use crate::{common::join_type::JoinType, provider::table::TableProvider};
 use crate::{common::table_relation::TableRelation, error::Result};
+use crate::{
+    common::{join_type::JoinType, table_schema::TableSchema},
+    provider::table::TableProvider,
+};
 
 pub struct LogicalPlanBuilder {
     plan: LogicalPlan,
@@ -56,25 +59,18 @@ impl LogicalPlanBuilder {
         table_source: Arc<dyn TableProvider>,
         filter: Option<LogicalExpr>,
     ) -> Result<Self> {
-        TableScan::try_new(relation.into(), table_source, None, filter)
+        TableScan::try_new(relation.into(), table_source, filter)
             .map(|s| LogicalPlanBuilder::from(LogicalPlan::TableScan(s)))
     }
 
     pub fn cross_join(self, right: LogicalPlan) -> Result<Self> {
-        let left_fields = self.plan.schema().fields.clone();
-        let right_fields = right.schema().fields.clone();
-
-        // left then right
-        let schema = Schema::new(
-            left_fields
-                .iter()
-                .chain(right_fields.iter())
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
-
+        let schema = TableSchema::merge(vec![self.plan.table_schema(), right.table_schema()])?;
         Ok(LogicalPlanBuilder {
-            plan: LogicalPlan::CrossJoin(CrossJoin::new(Arc::new(self.plan), Arc::new(right), Arc::new(schema))),
+            plan: LogicalPlan::CrossJoin(CrossJoin {
+                left: Arc::new(self.plan),
+                right: Arc::new(right),
+                schema: Arc::new(schema),
+            }),
         })
     }
 

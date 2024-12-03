@@ -1,9 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
-use arrow::datatypes::{Field, Schema, SchemaRef, TimeUnit};
+use arrow::datatypes::{Field, Schema, TimeUnit};
 use sqlparser::ast::{
     Assignment, BinaryOperator, CopyOption, CopySource, CopyTarget, Cte, Expression, From, FunctionArgument, Ident,
     Literal, Order, Select, SelectItem, Statement,
@@ -13,6 +10,7 @@ use crate::{
     common::{
         join_type::JoinType,
         table_relation::TableRelation,
+        table_schema::{TableSchema, TableSchemaRef},
         transformed::{TransformNode, Transformed, TransformedResult, TreeNodeRecursion},
     },
     datasource::file::{self, csv::CsvReadOptions},
@@ -36,7 +34,7 @@ use self::alias::Alias;
 #[derive(Default, Debug)]
 struct Context {
     ctes: HashMap<String, LogicalPlan>,
-    relations: HashMap<TableRelation, SchemaRef>,
+    relations: HashMap<TableRelation, TableSchemaRef>,
     /// table alias -> original table name
     table_aliase: HashMap<String, TableRelation>,
     columns_alias: HashMap<String, LogicalExpr>,
@@ -187,7 +185,7 @@ impl<'a> SqlQueryPlanner<'a> {
 
 // functions for Context
 impl<'a> SqlQueryPlanner<'a> {
-    fn add_relation(&mut self, relation: TableRelation, schema: SchemaRef, alias: Option<String>) -> Result<()> {
+    fn add_relation(&mut self, relation: TableRelation, schema: TableSchemaRef, alias: Option<String>) -> Result<()> {
         let context = self.current_context();
         context.relations.insert(relation.clone(), schema);
 
@@ -239,20 +237,25 @@ impl<'a> SqlQueryPlanner<'a> {
         result
     }
 
+    /// find the relation of the column
+    /// if the column is ambiguous, return an error
     fn get_relation(&self, column_name: &str) -> Result<Option<TableRelation>> {
-        // find from relations
-        let mut matched = self
-            .contexts
-            .iter()
-            .flat_map(|ctx| &ctx.relations)
-            .filter_map(|(relation, provider)| provider.column_with_name(column_name).map(|_| relation.clone()))
-            .collect::<Vec<_>>();
+        for ctx in self.contexts.iter().rev() {
+            let mut matched = vec![];
+            for (relation, table_schema) in &ctx.relations {
+                if table_schema.has_field(None, column_name) {
+                    matched.push(relation.clone());
+                }
+            }
 
-        match matched.len() {
-            0 => Ok(None),
-            1 => Ok(matched.pop()),
-            _ => internal_err!("Column \"{}\" is ambiguous", column_name,),
+            match matched.len() {
+                0 => continue,
+                1 => return Ok(matched.pop()),
+                _ => return internal_err!("Column \"{}\" is ambiguous", column_name,),
+            }
         }
+
+        Ok(None)
     }
 
     /// find the relation of the table
@@ -356,7 +359,11 @@ impl<'a> SqlQueryPlanner<'a> {
         let table_schema = table_source.schema();
         let relation: TableRelation = table.into();
 
-        self.add_relation(relation.clone(), table_schema.clone(), None)?;
+        self.add_relation(
+            relation.clone(),
+            TableSchema::try_from_qualified_schema(relation.clone(), table_schema.clone()).map(Arc::new)?,
+            None,
+        )?;
 
         let input = LogicalPlanBuilder::scan(relation.clone(), table_source, None)
             .map(|builder| builder.build())
@@ -400,7 +407,11 @@ impl<'a> SqlQueryPlanner<'a> {
         let table_schema = table_source.schema();
         let relation: TableRelation = table.into();
 
-        self.add_relation(relation.clone(), table_schema.clone(), None)?;
+        self.add_relation(
+            relation.clone(),
+            TableSchema::try_from_qualified_schema(relation.clone(), table_schema.clone()).map(Arc::new)?,
+            None,
+        )?;
 
         let plan = LogicalPlanBuilder::scan(relation.clone(), table_source, None)?.build();
         let plan = self.filter_expr(plan, r#where)?;
@@ -637,7 +648,7 @@ impl<'a> SqlQueryPlanner<'a> {
                             LogicalPlanBuilder::scan(relation.clone(), source, None)?.build()
                         };
 
-                        self.add_relation(relation, scan.schema(), alias.clone())?;
+                        self.add_relation(relation, scan.table_schema(), alias.clone())?;
 
                         (scan, alias)
                     }
@@ -701,7 +712,11 @@ impl<'a> SqlQueryPlanner<'a> {
                     .cloned()
                     .ok_or(Error::TableNotFound(path))?;
 
-                self.add_relation(relation.clone(), provider.schema(), None)?;
+                self.add_relation(
+                    relation.clone(),
+                    TableSchema::try_from_qualified_schema(relation.clone(), provider.schema())?.into(),
+                    None,
+                )?;
 
                 (relation, provider)
             }
@@ -711,16 +726,9 @@ impl<'a> SqlQueryPlanner<'a> {
         LogicalPlanBuilder::scan(table_name, provider, None).map(|builder| builder.build())
     }
 
-    fn filter_expr(&mut self, mut plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {
+    fn filter_expr(&mut self, plan: LogicalPlan, expr: Option<Expression>) -> Result<LogicalPlan> {
         if let Some(filter) = expr {
             let filter_expr = self.sql_to_expr(filter)?;
-            // we should parse filter first and then apply it to the table scan
-            match &mut plan {
-                LogicalPlan::TableScan(table) => {
-                    table.filter = Some(filter_expr.clone());
-                }
-                _ => {}
-            }
 
             Filter::try_new(plan, filter_expr).map(LogicalPlan::Filter)
         } else {
@@ -972,9 +980,11 @@ impl<'a> SqlQueryPlanner<'a> {
                 sqlparser::ast::UnaryOperator::Minus => LogicalExpr::Negative(Box::new(expr)),
                 _ => todo!("UnaryOperator: {:?}", expr),
             }),
-            Expression::SubQuery(sub_query) => self
-                .select_to_plan(*sub_query)
-                .map(|plan| LogicalExpr::SubQuery(Box::new(plan))),
+            Expression::SubQuery(sub_query) => self.new_context_scope(|planner| {
+                planner
+                    .select_to_plan(*sub_query)
+                    .map(|plan| LogicalExpr::SubQuery(Box::new(plan)))
+            }),
             Expression::Like { negated, left, right } => Ok(LogicalExpr::Like(Like {
                 negated,
                 expr: Box::new(self.sql_to_expr(*left)?),
@@ -1043,60 +1053,11 @@ impl<'a> SqlQueryPlanner<'a> {
             }
             SelectItem::Wildcard => {
                 if empty_relation {
-                    return Err(Error::InternalError(
-                        "SELECT * with no tables specified is not valid".to_owned(),
-                    ));
-                }
-                // expand schema
-                let mut using_columns: HashMap<TableRelation, HashSet<String>> = HashMap::default();
-                let mut eval_stack = vec![plan];
-                while let Some(next_plan) = eval_stack.pop() {
-                    match next_plan {
-                        LogicalPlan::TableScan(table) => {
-                            using_columns.insert(
-                                table.relation.clone(),
-                                table
-                                    .projected_schema
-                                    .fields()
-                                    .iter()
-                                    .map(|f| f.name().clone())
-                                    .collect::<HashSet<_>>(),
-                            );
-                        }
-                        LogicalPlan::SubqueryAlias(sub_query) => {
-                            let relation = sub_query.alias.clone().into();
-                            using_columns.insert(
-                                relation,
-                                sub_query
-                                    .schema()
-                                    .fields()
-                                    .iter()
-                                    .map(|f| f.name().clone())
-                                    .collect::<HashSet<_>>(),
-                            );
-                        }
-                        p => {
-                            if let Some(child) = p.children() {
-                                eval_stack.extend(child.iter());
-                            }
-                        }
-                    }
+                    return internal_err!("SELECT * with no tables specified is not valid");
                 }
 
-                let mut cols = using_columns
-                    .into_iter()
-                    .flat_map(|(relation, cols)| {
-                        cols.into_iter()
-                            .map(|name| Column {
-                                name,
-                                relation: Some(relation.to_owned()),
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .collect::<Vec<_>>();
-
+                let mut cols = plan.table_schema().columns();
                 cols.sort();
-
                 Ok(cols.into_iter().map(LogicalExpr::Column).collect())
             }
             SelectItem::QualifiedWildcard(idents) => {
@@ -1296,6 +1257,16 @@ mod tests {
     };
 
     use super::SqlQueryPlanner;
+
+    #[test]
+    fn test_outer_field_reference() {
+        quick_test(
+            "SELECT * FROM person WHERE id = (SELECT MIN(id) FROM other_tbl WHERE name = first_name)",
+            "Projection: (person.age, person.first_name, person.id, person.name)\n  Filter: person.id = (\n          Projection: (MIN(other_tbl.id))\n            Aggregate: group_expr=[], aggregat_expr=[MIN(other_tbl.id)]\n              Filter: other_tbl.name = person.first_name\n                TableScan: other_tbl\n)\n\n    TableScan: person\n",
+        );
+
+        quick_test("SELECT * FROM person WHERE id = (SELECT MIN(id) FROM tbl)", "Projection: (person.age, person.first_name, person.id, person.name)\n  Filter: person.id = (\n          Projection: (MIN(tbl.id))\n            Aggregate: group_expr=[], aggregat_expr=[MIN(tbl.id)]\n              TableScan: tbl\n)\n\n    TableScan: person\n");
+    }
 
     #[test]
     fn test_sub_query() {
@@ -1696,8 +1667,8 @@ mod tests {
             .collect();
         let plan = SqlQueryPlanner::create_logical_plan(stmt, tables, &udfs);
         match plan {
-            Ok(plan) => assert_eq!(utils::format(&plan, 0), expected),
-            Err(err) => assert_eq!(err.to_string(), expected),
+            Ok(plan) => assert_eq!(utils::format(&plan, 0), expected, "SQL: {sql}"),
+            Err(err) => assert_eq!(err.to_string(), expected, "SQL: {sql}"),
         }
     }
 }
