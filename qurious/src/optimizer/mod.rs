@@ -1,6 +1,6 @@
 mod count_wildcard_rule;
 mod pushdown_filter_inner_join;
-// mod scalar_subquery_to_join;
+mod scalar_subquery_to_join;
 mod type_coercion;
 
 use crate::{error::Result, logical::plan::LogicalPlan};

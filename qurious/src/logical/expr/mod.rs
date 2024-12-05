@@ -309,3 +309,9 @@ pub struct Like {
     pub expr: Box<LogicalExpr>,
     pub pattern: Box<LogicalExpr>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SubQuery {
+    pub subquery: Arc<LogicalPlan>,
+    pub outer_ref_columns: Vec<LogicalExpr>,
+}

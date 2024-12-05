@@ -1,7 +1,9 @@
+use arrow::ipc::Binary;
+
 use super::OptimizerRule;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult, TreeNodeRecursion};
 use crate::error::Result;
-use crate::logical::expr::LogicalExpr;
+use crate::logical::expr::{BinaryExpr, LogicalExpr};
 use crate::logical::plan::LogicalPlan;
 use crate::logical::LogicalPlanBuilder;
 
@@ -27,14 +29,18 @@ impl OptimizerRule for ScalarSubqueryToJoin {
         plan.transform(|plan| match plan {
             LogicalPlan::Filter(filter) => {
                 if !contains_scalar_subquery(&filter.expr) {
-                    return Ok(Transformed::no(plan));
+                    return Ok(Transformed::no(LogicalPlan::Filter(filter)));
                 }
 
-                let (aliases, rewritten_subquery) = extract_scalar_subquery(&filter.expr)?;
+                let cur_input = filter.input;
+                let subqueries = extract_scalar_subquery(filter.expr);
+                // iterate through all subqueries in predicate, turning each into a left join
+                for subquery in subqueries {
+                    let rewritten_child_subquery = self.optimize(subquery)?;
 
-                let alias_subquery = LogicalPlanBuilder::from(*filter.input)
-                    .join_on(aliases)
-                    .build()?;
+                    let (join_conditions, rewritten_expr) =
+                        self.extract_correlation_conditions(&rewritten_child_subquery)?;
+                }
 
                 todo!()
             }
@@ -42,6 +48,10 @@ impl OptimizerRule for ScalarSubqueryToJoin {
         })
         .data()
     }
+}
+
+fn extract_correlation_conditions(expr: &LogicalExpr) -> Result<(LogicalPlan, LogicalExpr)> {
+    todo!()
 }
 
 fn contains_scalar_subquery(expr: &LogicalExpr) -> bool {
@@ -57,8 +67,16 @@ fn contains_scalar_subquery(expr: &LogicalExpr) -> bool {
     contains
 }
 
-fn extract_scalar_subquery(expr: &LogicalExpr) -> Result<(Vec<(LogicalExpr, String)>, LogicalExpr)> {
-    todo!()
+fn extract_scalar_subquery(expr: LogicalExpr) -> Vec<LogicalPlan> {
+    match expr {
+        LogicalExpr::SubQuery(subquery) => vec![*subquery],
+        LogicalExpr::BinaryExpr(BinaryExpr { left, right, .. }) => {
+            let mut plans = extract_scalar_subquery(*left);
+            plans.extend(extract_scalar_subquery(*right));
+            plans
+        }
+        _ => vec![],
+    }
 }
 #[cfg(test)]
 mod tests {
