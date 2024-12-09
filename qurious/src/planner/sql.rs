@@ -239,8 +239,9 @@ impl<'a> SqlQueryPlanner<'a> {
 
     /// find the relation of the column
     /// if the column is ambiguous, return an error
-    fn get_relation(&self, column_name: &str) -> Result<Option<TableRelation>> {
-        for ctx in self.contexts.iter().rev() {
+    /// return (relation, is_outer_ref)
+    fn get_relation(&self, column_name: &str) -> Result<(Option<TableRelation>, bool)> {
+        for (i, ctx) in self.contexts.iter().rev().enumerate() {
             let mut matched = vec![];
             for (relation, table_schema) in &ctx.relations {
                 if table_schema.has_field(None, column_name) {
@@ -250,21 +251,23 @@ impl<'a> SqlQueryPlanner<'a> {
 
             match matched.len() {
                 0 => continue,
-                1 => return Ok(matched.pop()),
+                // if the column is not in the current context, it is an outer reference
+                1 => return Ok((matched.pop(), i > 0)),
                 _ => return internal_err!("Column \"{}\" is ambiguous", column_name,),
             }
         }
 
-        Ok(None)
+        Ok((None, false))
     }
 
     /// find the relation of the table
-    fn find_relation(&self, table: &TableRelation) -> Option<TableRelation> {
-        self.contexts.iter().rev().find_map(|ctx| {
-            ctx.relations
-                .contains_key(table)
-                .then(|| table.clone())
-                .or(ctx.table_aliase.get(&table.to_string()).cloned())
+    fn find_relation(&self, table: &TableRelation) -> Option<(TableRelation, bool)> {
+        self.contexts.iter().rev().enumerate().find_map(|(i, ctx)| {
+            ctx.relations.contains_key(table).then(|| (table.clone(), i > 0)).or(ctx
+                .table_aliase
+                .get(&table.to_string())
+                .cloned()
+                .map(|r| (r, i > 0)))
         })
     }
 
@@ -388,7 +391,11 @@ impl<'a> SqlQueryPlanner<'a> {
                 assign_map
                     .remove(f.name())
                     .map(|expr| expr.cast_to(f.data_type()).alias(f.name()))
-                    .unwrap_or(LogicalExpr::Column(Column::new(f.name(), Some(relation.clone()))))
+                    .unwrap_or(LogicalExpr::Column(Column::new(
+                        f.name(),
+                        Some(relation.clone()),
+                        false,
+                    )))
             })
             .collect::<Vec<_>>();
 
@@ -923,23 +930,20 @@ impl<'a> SqlQueryPlanner<'a> {
 
                 let name = normalize_ident(idents.remove(1));
                 let relation = idents.remove(0).value.into();
-                if self.find_relation(&relation).is_none() {
-                    return internal_err!(
-                        "Column [\"{}\"] not found in table [\"{}\"] or table not exists",
-                        name,
-                        relation
-                    );
+                if let Some((relation, is_outer_ref)) = self.find_relation(&relation) {
+                    return Ok(LogicalExpr::Column(Column::new(name, Some(relation), is_outer_ref)));
                 }
 
-                Ok(LogicalExpr::Column(Column {
+                internal_err!(
+                    "Column [\"{}\"] not found in table [\"{}\"] or table not exists",
                     name,
-                    relation: Some(relation),
-                }))
+                    relation
+                )
             }
             Expression::Identifier(ident) => {
                 let col_name = normalize_ident(ident);
                 self.get_relation(&col_name)
-                    .map(|relation| LogicalExpr::Column(Column::new(col_name, relation)))
+                    .map(|(relation, is_outer_ref)| LogicalExpr::Column(Column::new(col_name, relation, is_outer_ref)))
             }
             Expression::Literal(lit) => match lit {
                 Literal::Int(i) => Ok(LogicalExpr::Literal(ScalarValue::Int64(Some(i)))),
@@ -981,9 +985,13 @@ impl<'a> SqlQueryPlanner<'a> {
                 _ => todo!("UnaryOperator: {:?}", expr),
             }),
             Expression::SubQuery(sub_query) => self.new_context_scope(|planner| {
-                planner
-                    .select_to_plan(*sub_query)
-                    .map(|plan| LogicalExpr::SubQuery(Box::new(plan)))
+                let subquery = planner.select_to_plan(*sub_query)?;
+                let outer_ref_columns = subquery.outer_ref_columns()?;
+
+                Ok(LogicalExpr::SubQuery(SubQuery {
+                    subquery: Box::new(subquery),
+                    outer_ref_columns,
+                }))
             }),
             Expression::Like { negated, left, right } => Ok(LogicalExpr::Like(Like {
                 negated,
@@ -1069,7 +1077,7 @@ impl<'a> SqlQueryPlanner<'a> {
                 // expand schema
                 let quanlified_prefix = idents.join(".").into();
 
-                if self.find_relation(&quanlified_prefix).is_some() {
+                if let Some((relation, is_outer_ref)) = self.find_relation(&quanlified_prefix) {
                     return plan
                         .schema()
                         .fields()
@@ -1077,7 +1085,8 @@ impl<'a> SqlQueryPlanner<'a> {
                         .map(|field| {
                             Ok(LogicalExpr::Column(Column::new(
                                 field.name(),
-                                Some(quanlified_prefix.clone()),
+                                Some(relation.clone()),
+                                is_outer_ref,
                             )))
                         })
                         .collect();

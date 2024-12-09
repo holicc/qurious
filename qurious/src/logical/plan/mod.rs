@@ -24,10 +24,10 @@ pub use sub_query::SubqueryAlias;
 
 use arrow::datatypes::SchemaRef;
 
-use super::expr::LogicalExpr;
+use super::expr::{Column, LogicalExpr};
 use crate::common::table_relation::TableRelation;
 use crate::common::table_schema::TableSchemaRef;
-use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
+use crate::common::transformed::{TransformNode, Transformed, TransformedResult, TreeNodeContainer, TreeNodeRecursion};
 use crate::error::Result;
 
 #[macro_export]
@@ -70,6 +70,36 @@ pub enum LogicalPlan {
 }
 
 impl LogicalPlan {
+    pub fn outer_ref_columns(&self) -> Result<Vec<LogicalExpr>> {
+        let mut outer_ref_columns = vec![];
+
+        let mut stack = vec![self];
+
+        while let Some(plan) = stack.pop() {
+            match plan.apply_exprs(|expr| {
+                expr.apply_children(|expr| {
+                    match expr {
+                        LogicalExpr::Column(Column { is_outer_ref: true, .. }) => {
+                            outer_ref_columns.push(expr.clone());
+                        }
+                        _ => {}
+                    }
+
+                    Ok(TreeNodeRecursion::Continue)
+                })
+            })? {
+                TreeNodeRecursion::Continue => {
+                    if let Some(children) = plan.children() {
+                        stack.extend(children);
+                    }
+                }
+                TreeNodeRecursion::Stop => return Ok(outer_ref_columns),
+            }
+        }
+
+        Ok(outer_ref_columns)
+    }
+
     pub fn relation(&self) -> Option<TableRelation> {
         match self {
             LogicalPlan::TableScan(s) => Some(s.table_name.clone()),
@@ -103,6 +133,7 @@ impl LogicalPlan {
             LogicalPlan::CrossJoin(s) => s.schema.clone(),
             LogicalPlan::SubqueryAlias(s) => s.schema.clone(),
             LogicalPlan::Filter(f) => f.input.table_schema(),
+            LogicalPlan::Projection(p) => p.schema.clone(),
             _ => todo!("[{}] not implement table_schema", self),
         }
     }
@@ -121,6 +152,25 @@ impl LogicalPlan {
             LogicalPlan::Limit(l) => l.children(),
             LogicalPlan::Ddl(l) => l.children(),
             LogicalPlan::Dml(l) => l.children(),
+        }
+    }
+
+    pub fn apply_exprs<F>(&self, mut f: F) -> Result<TreeNodeRecursion>
+    where
+        F: FnMut(&LogicalExpr) -> Result<TreeNodeRecursion>,
+    {
+        match self {
+            LogicalPlan::Projection(Projection { exprs, .. }) => exprs.apply(f),
+            LogicalPlan::Aggregate(Aggregate {
+                group_expr, aggr_expr, ..
+            }) => {
+                group_expr.apply(&mut f)?;
+                aggr_expr.apply(&mut f)?;
+
+                Ok(TreeNodeRecursion::Continue)
+            }
+            LogicalPlan::Filter(Filter { expr, .. }) => f(expr),
+            _ => Ok(TreeNodeRecursion::Continue),
         }
     }
 
@@ -211,11 +261,27 @@ impl TransformNode for LogicalPlan {
         })
     }
 
-    fn apply_children<'n, F>(&'n self, _f: F) -> Result<crate::common::transformed::TreeNodeRecursion>
+    fn apply_children<'n, F>(&'n self, _f: F) -> Result<TreeNodeRecursion>
     where
-        F: FnMut(&'n Self) -> Result<crate::common::transformed::TreeNodeRecursion>,
+        F: FnMut(&'n LogicalPlan) -> Result<TreeNodeRecursion>,
     {
         todo!()
+    }
+}
+
+impl<'a, T: TransformNode + 'a> TreeNodeContainer<'a, T> for Vec<T> {
+    fn apply<F>(&'a self, mut f: F) -> Result<TreeNodeRecursion>
+    where
+        F: FnMut(&'a T) -> Result<TreeNodeRecursion>,
+    {
+        for child in self {
+            match child.apply(&mut f)? {
+                TreeNodeRecursion::Continue => {}
+                TreeNodeRecursion::Stop => return Ok(TreeNodeRecursion::Stop),
+            }
+        }
+
+        Ok(TreeNodeRecursion::Continue)
     }
 }
 

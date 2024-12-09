@@ -86,7 +86,7 @@ fn cast_if_needed(expr: Box<LogicalExpr>, current_type: &DataType, target_type: 
 mod tests {
     use super::*;
     use crate::{
-        common::table_relation::TableRelation,
+        common::{table_relation::TableRelation, table_schema::TableSchema},
         datatypes::{operator::Operator, scalar::ScalarValue},
         logical::{
             expr::{AggregateExpr, AggregateOperator, Column},
@@ -110,9 +110,17 @@ mod tests {
             Field::new("float_col", DataType::Float64, false),
         ]));
         let expr = LogicalExpr::BinaryExpr(BinaryExpr {
-            left: Box::new(LogicalExpr::Column(Column::new("int_col", None::<TableRelation>))),
+            left: Box::new(LogicalExpr::Column(Column::new(
+                "int_col",
+                None::<TableRelation>,
+                false,
+            ))),
             op: Operator::Add,
-            right: Box::new(LogicalExpr::Column(Column::new("float_col", None::<TableRelation>))),
+            right: Box::new(LogicalExpr::Column(Column::new(
+                "float_col",
+                None::<TableRelation>,
+                false,
+            ))),
         });
         let plan = LogicalPlan::Projection(Projection {
             exprs: vec![expr],
@@ -120,7 +128,7 @@ mod tests {
                 produce_one_row: true,
                 schema: Arc::new(Schema::empty()),
             })),
-            schema: schema.clone(),
+            schema: Arc::new(TableSchema::new(vec![], schema)),
         });
 
         assert_analyzed_plan_eq(
@@ -139,9 +147,17 @@ mod tests {
             Field::new("int2", DataType::Int32, false),
         ]));
         let expr = LogicalExpr::BinaryExpr(BinaryExpr {
-            left: Box::new(LogicalExpr::Column(Column::new("int1", None::<TableRelation>))),
+            left: Box::new(LogicalExpr::Column(Column::new(
+                "int1",
+                None::<TableRelation>,
+                false,
+            ))),
             op: Operator::Add,
-            right: Box::new(LogicalExpr::Column(Column::new("int2", None::<TableRelation>))),
+            right: Box::new(LogicalExpr::Column(Column::new(
+                "int2",
+                None::<TableRelation>,
+                false,
+            ))),
         });
         let plan = LogicalPlan::Projection(Projection {
             exprs: vec![expr],
@@ -149,7 +165,7 @@ mod tests {
                 produce_one_row: true,
                 schema: Arc::new(Schema::empty()),
             })),
-            schema: schema.clone(),
+            schema: Arc::new(TableSchema::new(vec![], schema)),
         });
 
         assert_analyzed_plan_eq(plan, "Projection: (int1 + int2)\n  Empty Relation\n");
@@ -167,15 +183,27 @@ mod tests {
         ]));
 
         let inner_expr = LogicalExpr::BinaryExpr(BinaryExpr {
-            left: Box::new(LogicalExpr::Column(Column::new("int_col", None::<TableRelation>))),
+            left: Box::new(LogicalExpr::Column(Column::new(
+                "int_col",
+                None::<TableRelation>,
+                false,
+            ))),
             op: Operator::Add,
-            right: Box::new(LogicalExpr::Column(Column::new("float_col", None::<TableRelation>))),
+            right: Box::new(LogicalExpr::Column(Column::new(
+                "float_col",
+                None::<TableRelation>,
+                false,
+            ))),
         });
 
         let outer_expr = LogicalExpr::BinaryExpr(BinaryExpr {
             left: Box::new(inner_expr),
             op: Operator::Mul,
-            right: Box::new(LogicalExpr::Column(Column::new("double_col", None::<TableRelation>))),
+            right: Box::new(LogicalExpr::Column(Column::new(
+                "double_col",
+                None::<TableRelation>,
+                false,
+            ))),
         });
 
         let plan = LogicalPlan::Projection(Projection {
@@ -184,7 +212,7 @@ mod tests {
                 produce_one_row: true,
                 schema: Arc::new(Schema::empty()),
             })),
-            schema: schema.clone(),
+            schema: Arc::new(TableSchema::new(vec![], schema)),
         });
 
         assert_analyzed_plan_eq(
@@ -206,15 +234,27 @@ mod tests {
         ]));
 
         let expr1 = LogicalExpr::BinaryExpr(BinaryExpr {
-            left: Box::new(LogicalExpr::Column(Column::new("int16_col", None::<TableRelation>))),
+            left: Box::new(LogicalExpr::Column(Column::new(
+                "int16_col",
+                None::<TableRelation>,
+                false,
+            ))),
             op: Operator::Add,
-            right: Box::new(LogicalExpr::Column(Column::new("float64_col", None::<TableRelation>))),
+            right: Box::new(LogicalExpr::Column(Column::new(
+                "float64_col",
+                None::<TableRelation>,
+                false,
+            ))),
         });
 
         let expr2 = LogicalExpr::BinaryExpr(BinaryExpr {
             left: Box::new(expr1),
             op: Operator::Add,
-            right: Box::new(LogicalExpr::Column(Column::new("float32_col", None::<TableRelation>))),
+            right: Box::new(LogicalExpr::Column(Column::new(
+                "float32_col",
+                None::<TableRelation>,
+                false,
+            ))),
         });
 
         let plan = LogicalPlan::Projection(Projection {
@@ -223,7 +263,7 @@ mod tests {
                 produce_one_row: true,
                 schema: Arc::new(Schema::empty()),
             })),
-            schema: schema.clone(),
+            schema: Arc::new(TableSchema::new(vec![], schema)),
         });
 
         assert_analyzed_plan_eq(
@@ -247,19 +287,31 @@ mod tests {
         // Create sum(int_col)
         let sum_expr = LogicalExpr::AggregateExpr(AggregateExpr {
             op: AggregateOperator::Sum,
-            expr: Box::new(LogicalExpr::Column(Column::new("int_col", None::<TableRelation>))),
+            expr: Box::new(LogicalExpr::Column(Column::new(
+                "int_col",
+                None::<TableRelation>,
+                false,
+            ))),
         });
 
         // Create avg(float32_col)
         let avg_expr = LogicalExpr::AggregateExpr(AggregateExpr {
             op: AggregateOperator::Avg,
-            expr: Box::new(LogicalExpr::Column(Column::new("float32_col", None::<TableRelation>))),
+            expr: Box::new(LogicalExpr::Column(Column::new(
+                "float32_col",
+                None::<TableRelation>,
+                false,
+            ))),
         });
 
         // Create count(double_col)
         let count_expr = LogicalExpr::AggregateExpr(AggregateExpr {
             op: AggregateOperator::Count,
-            expr: Box::new(LogicalExpr::Column(Column::new("double_col", None::<TableRelation>))),
+            expr: Box::new(LogicalExpr::Column(Column::new(
+                "double_col",
+                None::<TableRelation>,
+                false,
+            ))),
         });
 
         // Create avg * count
@@ -282,7 +334,7 @@ mod tests {
                 produce_one_row: true,
                 schema: Arc::new(Schema::empty()),
             })),
-            schema: schema.clone(),
+            schema: Arc::new(TableSchema::new(vec![], schema)),
         });
 
         assert_analyzed_plan_eq(
@@ -306,13 +358,21 @@ mod tests {
         // Create avg(int32_col)
         let avg_expr = LogicalExpr::AggregateExpr(AggregateExpr {
             op: AggregateOperator::Avg,
-            expr: Box::new(LogicalExpr::Column(Column::new("int32_col", None::<TableRelation>))),
+            expr: Box::new(LogicalExpr::Column(Column::new(
+                "int32_col",
+                None::<TableRelation>,
+                false,
+            ))),
         });
 
         // Create sum(float32_col)
         let sum_expr = LogicalExpr::AggregateExpr(AggregateExpr {
             op: AggregateOperator::Sum,
-            expr: Box::new(LogicalExpr::Column(Column::new("float32_col", None::<TableRelation>))),
+            expr: Box::new(LogicalExpr::Column(Column::new(
+                "float32_col",
+                None::<TableRelation>,
+                false,
+            ))),
         });
 
         // Create avg + sum
@@ -328,7 +388,7 @@ mod tests {
                 produce_one_row: true,
                 schema: Arc::new(Schema::empty()),
             })),
-            schema: schema.clone(),
+            schema: Arc::new(TableSchema::new(vec![], schema)),
         });
 
         assert_analyzed_plan_eq(
@@ -351,14 +411,22 @@ mod tests {
 
         // Create float_col + 42
         let add_expr = LogicalExpr::BinaryExpr(BinaryExpr {
-            left: Box::new(LogicalExpr::Column(Column::new("float_col", None::<TableRelation>))),
+            left: Box::new(LogicalExpr::Column(Column::new(
+                "float_col",
+                None::<TableRelation>,
+                false,
+            ))),
             op: Operator::Add,
             right: Box::new(LogicalExpr::Literal(ScalarValue::from(42i32))),
         });
 
         // Create int_col * 3.14
         let mul_expr = LogicalExpr::BinaryExpr(BinaryExpr {
-            left: Box::new(LogicalExpr::Column(Column::new("int_col", None::<TableRelation>))),
+            left: Box::new(LogicalExpr::Column(Column::new(
+                "int_col",
+                None::<TableRelation>,
+                false,
+            ))),
             op: Operator::Mul,
             right: Box::new(LogicalExpr::Literal(ScalarValue::from(3.14))),
         });
@@ -376,7 +444,7 @@ mod tests {
                 produce_one_row: true,
                 schema: Arc::new(Schema::empty()),
             })),
-            schema: schema.clone(),
+            schema: Arc::new(TableSchema::new(vec![], schema)),
         });
 
         assert_analyzed_plan_eq(
@@ -395,7 +463,11 @@ mod tests {
 
         // Create int_col + 1.5
         let add_expr = LogicalExpr::BinaryExpr(BinaryExpr {
-            left: Box::new(LogicalExpr::Column(Column::new("int_col", None::<TableRelation>))),
+            left: Box::new(LogicalExpr::Column(Column::new(
+                "int_col",
+                None::<TableRelation>,
+                false,
+            ))),
             op: Operator::Add,
             right: Box::new(LogicalExpr::Literal(ScalarValue::from(1.5f64))),
         });
@@ -412,7 +484,7 @@ mod tests {
                 produce_one_row: true,
                 schema: Arc::new(Schema::empty()),
             })),
-            schema: schema.clone(),
+            schema: Arc::new(TableSchema::new(vec![], schema)),
         });
 
         assert_analyzed_plan_eq(

@@ -17,6 +17,13 @@ pub struct TableSchema {
 }
 
 impl TableSchema {
+    pub fn new(field_qualifiers: Vec<Option<TableRelation>>, schema: SchemaRef) -> Self {
+        Self {
+            field_qualifiers,
+            schema,
+        }
+    }
+
     pub fn try_from_qualified_schema(relation: impl Into<TableRelation>, schema: SchemaRef) -> Result<Self> {
         Ok(Self {
             field_qualifiers: vec![Some(relation.into()); schema.fields().len()],
@@ -48,7 +55,7 @@ impl TableSchema {
             .fields()
             .iter()
             .zip(self.field_qualifiers.iter())
-            .map(|(f, q)| Column::new(f.name(), q.clone()))
+            .map(|(f, q)| Column::new(f.name(), q.clone(), false))
             .collect()
     }
 }

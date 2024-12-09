@@ -8,7 +8,7 @@ use crate::common::join_type::JoinType;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::datatypes::operator::Operator;
 use crate::error::{Error, Result};
-use crate::logical::expr::{BinaryExpr, Column, LogicalExpr};
+use crate::logical::expr::{BinaryExpr, Column, LogicalExpr, SubQuery};
 use crate::logical::plan::{CrossJoin, Filter, LogicalPlan};
 use crate::logical::LogicalPlanBuilder;
 
@@ -45,8 +45,13 @@ impl OptimizerRule for PushdownFilterInnerJoin {
                 .map_exprs(|expr| {
                     expr.transform(|expr| match expr {
                         LogicalExpr::SubQuery(query) => self
-                            .optimize(*query)
-                            .map(|rewritten_query| LogicalExpr::SubQuery(Box::new(rewritten_query)))
+                            .optimize(*query.subquery)
+                            .map(|rewritten_query| {
+                                LogicalExpr::SubQuery(SubQuery {
+                                    subquery: Box::new(rewritten_query),
+                                    outer_ref_columns: query.outer_ref_columns,
+                                })
+                            })
                             .map(Transformed::yes),
                         _ => Ok(Transformed::no(expr)),
                     })

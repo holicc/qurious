@@ -117,3 +117,9 @@ fn apply_impl<'n, N: TransformNode, F: FnMut(&'n N) -> Result<TreeNodeRecursion>
 ) -> Result<TreeNodeRecursion> {
     f(node)?.visit_children(|| node.apply_children(|c| apply_impl(c, f)))
 }
+
+pub trait TreeNodeContainer<'a, T: 'a> {
+    fn apply<F>(&'a self, f: F) -> Result<TreeNodeRecursion>
+    where
+        F: FnMut(&'a T) -> Result<TreeNodeRecursion>;
+}

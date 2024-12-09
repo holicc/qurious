@@ -90,7 +90,7 @@ impl QueryPlanner for DefaultQueryPlanner {
                 .map(|expr| Arc::new(Negative::new(expr)) as Arc<dyn PhysicalExpr>),
             LogicalExpr::Like(like) => self.physical_expr_like(input_schema, like),
             LogicalExpr::SubQuery(plan) => self
-                .create_physical_plan(plan)
+                .create_physical_plan(&plan.subquery)
                 .map(|plan| Arc::new(physical::expr::SubQuery { plan }) as Arc<dyn PhysicalExpr>),
             _ => unimplemented!("unsupported logical expression: {}", expr),
         }
@@ -110,7 +110,7 @@ impl DefaultQueryPlanner {
             .collect::<Result<Vec<_>>>()?;
 
         Ok(Arc::new(physical::plan::Projection::new(
-            projection.schema.clone(),
+            projection.schema(),
             physical_plan,
             exprs,
         )))

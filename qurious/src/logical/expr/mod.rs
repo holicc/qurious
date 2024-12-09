@@ -44,7 +44,7 @@ pub enum LogicalExpr {
     IsNotNull(Box<LogicalExpr>),
     Like(Like),
     Negative(Box<LogicalExpr>),
-    SubQuery(Box<LogicalPlan>),
+    SubQuery(SubQuery),
 }
 
 macro_rules! impl_logical_expr_methods {
@@ -94,7 +94,7 @@ impl Display for LogicalExpr {
             LogicalExpr::Function(function) => write!(f, "{function}",),
             LogicalExpr::IsNull(logical_expr) => write!(f, "{} IS NULL", logical_expr),
             LogicalExpr::IsNotNull(logical_expr) => write!(f, "{} IS NOT NULLni", logical_expr),
-            LogicalExpr::SubQuery(logical_plan) => write!(f, "(\n{})\n", utils::format(logical_plan, 5)),
+            LogicalExpr::SubQuery(subquery) => write!(f, "(\n{})\n", utils::format(&subquery.subquery, 5)),
             LogicalExpr::Like(like) => {
                 if like.negated {
                     write!(f, "{} NOT LIKE {}", like.expr, like.pattern)
@@ -107,6 +107,14 @@ impl Display for LogicalExpr {
 }
 
 impl LogicalExpr {
+    pub fn qualified_name(&self) -> Option<TableRelation> {
+        match self {
+            LogicalExpr::Column(column) => column.relation.clone(),
+            LogicalExpr::Alias(alias) => Some(alias.name.clone().into()),
+            _ => None,
+        }
+    }
+
     pub fn rebase_expr(self, base_exprs: &[&LogicalExpr]) -> Result<Self> {
         self.transform(|nested_expr| {
             if base_exprs.contains(&&nested_expr) {
@@ -162,7 +170,7 @@ impl LogicalExpr {
             LogicalExpr::Column(_) => Ok(self.clone()),
             LogicalExpr::AggregateExpr(agg) => agg.as_column(),
             LogicalExpr::Literal(_) | LogicalExpr::Wildcard | LogicalExpr::BinaryExpr(_) => Ok(LogicalExpr::Column(
-                Column::new(format!("{}", self), None::<TableRelation>),
+                Column::new(format!("{}", self), None::<TableRelation>, false),
             )),
             _ => Err(Error::InternalError(format!("Expect column, got {:?}", self))),
         }
@@ -196,7 +204,7 @@ impl LogicalExpr {
             LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => op.infer_type(&expr.data_type(schema)?),
             LogicalExpr::SortExpr(SortExpr { expr, .. }) | LogicalExpr::Negative(expr) => expr.data_type(schema),
             LogicalExpr::Like(_) | LogicalExpr::IsNull(_) | LogicalExpr::IsNotNull(_) => Ok(DataType::Boolean),
-            LogicalExpr::SubQuery(plan) => Ok(plan.schema().fields[0].data_type().clone()),
+            LogicalExpr::SubQuery(subquery) => Ok(subquery.subquery.schema().fields[0].data_type().clone()),
             _ => internal_err!("[{}] has no data type", self),
         }
     }
@@ -252,7 +260,12 @@ impl TransformNode for LogicalExpr {
             LogicalExpr::IsNull(expr) => f(*expr)?.update(|expr| LogicalExpr::IsNull(Box::new(expr))),
             LogicalExpr::IsNotNull(expr) => f(*expr)?.update(|expr| LogicalExpr::IsNotNull(Box::new(expr))),
             LogicalExpr::Negative(expr) => f(*expr)?.update(|expr| LogicalExpr::Negative(Box::new(expr))),
-            LogicalExpr::SubQuery(plan) => plan.map_exprs(f)?.update(|plan| LogicalExpr::SubQuery(Box::new(plan))),
+            LogicalExpr::SubQuery(subquery) => subquery.subquery.map_exprs(f)?.update(|plan| {
+                LogicalExpr::SubQuery(SubQuery {
+                    subquery: Box::new(plan),
+                    outer_ref_columns: subquery.outer_ref_columns,
+                })
+            }),
 
             LogicalExpr::Wildcard | LogicalExpr::Column(_) | LogicalExpr::Literal(_) => Transformed::no(self),
             LogicalExpr::Like(like) => f(*like.expr)?.update(|expr| {
@@ -267,7 +280,7 @@ impl TransformNode for LogicalExpr {
 
     fn apply_children<'n, F>(&'n self, mut f: F) -> Result<TreeNodeRecursion>
     where
-        F: FnMut(&'n Self) -> Result<TreeNodeRecursion>,
+        F: FnMut(&'n LogicalExpr) -> Result<TreeNodeRecursion>,
     {
         let children = match self {
             LogicalExpr::BinaryExpr(BinaryExpr { left, right, .. }) => vec![left.as_ref(), right.as_ref()],
@@ -312,6 +325,6 @@ pub struct Like {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SubQuery {
-    pub subquery: Arc<LogicalPlan>,
+    pub subquery: Box<LogicalPlan>,
     pub outer_ref_columns: Vec<LogicalExpr>,
 }

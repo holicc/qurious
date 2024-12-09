@@ -115,6 +115,7 @@ impl AggregateExpr {
             LogicalExpr::Column(Column {
                 name: format!("{}({})", self.op, inner_col),
                 relation: None,
+                is_outer_ref: false,
             })
         })
     }

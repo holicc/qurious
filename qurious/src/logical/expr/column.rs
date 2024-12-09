@@ -15,13 +15,15 @@ use super::LogicalExpr;
 pub struct Column {
     pub name: String,
     pub relation: Option<TableRelation>,
+    pub is_outer_ref: bool,
 }
 
 impl Column {
-    pub fn new(name: impl Into<String>, relation: Option<impl Into<TableRelation>>) -> Self {
+    pub fn new(name: impl Into<String>, relation: Option<impl Into<TableRelation>>, is_outer_ref: bool) -> Self {
         Self {
             name: name.into(),
             relation: relation.map(|r| r.into()),
+            is_outer_ref,
         }
     }
 
@@ -58,6 +60,7 @@ impl FromStr for Column {
         Ok(Self {
             name: s.to_string(),
             relation: None,
+            is_outer_ref: false,
         })
     }
 }
@@ -66,5 +69,6 @@ pub fn column(name: &str) -> LogicalExpr {
     LogicalExpr::Column(Column {
         name: name.to_string(),
         relation: None,
+        is_outer_ref: false,
     })
 }
