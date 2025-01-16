@@ -659,46 +659,31 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_from_statment(&mut self) -> Result<Vec<ast::From>> {
-        // parse subquery
-        if self.next_if_token(TokenType::LParen).is_some() {
-            self.next_except(TokenType::Keyword(Keyword::Select))?;
-
-            let subquery = self.parse_select_statement()?;
-            self.next_except(TokenType::RParen)?;
-
-            return Ok(vec![ast::From::SubQuery {
-                query: Box::new(subquery),
-                alias: self.parse_alias()?,
-            }]);
-        }
-
-        // parse table refereneces
-        let mut table_ref = vec![];
-
+        let relation = self.parse_table_reference()?;
+        let mut table_ref = vec![relation];
         loop {
-            table_ref.push(self.parse_table_reference()?);
-            if self.next_if_token(TokenType::Comma).is_none() {
+            if let Some(join_type) = self.parse_join_type()? {
+                let right = self.parse_table_reference()?;
+                let on = if join_type == ast::JoinType::Cross {
+                    None
+                } else {
+                    self.next_except(TokenType::Keyword(Keyword::On))?;
+                    Some(self.parse_expression(0)?)
+                };
+
+                let left = table_ref.pop().ok_or(Error::ParserError("no left table".to_string()))?;
+
+                table_ref.push(ast::From::Join {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    on,
+                    join_type,
+                });
+            } else if self.next_if_token(TokenType::Comma).is_some() {
+                table_ref.push(self.parse_table_reference()?);
+            } else {
                 break;
             }
-        }
-
-        // parse join cause
-        // TODO handle multiple join
-        if let Some(join_type) = self.parse_join_type()? {
-            let mut right = self.parse_from_statment()?;
-            let on = if join_type == ast::JoinType::Cross {
-                None
-            } else {
-                self.next_except(TokenType::Keyword(Keyword::On))?;
-                Some(self.parse_expression(0)?)
-            };
-
-            return Ok(vec![ast::From::Join {
-                join_type,
-                left: Box::new(table_ref.remove(0)),
-                right: Box::new(right.remove(0)),
-                on,
-            }]);
         }
 
         Ok(table_ref)
@@ -725,6 +710,17 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_table_reference(&mut self) -> Result<ast::From> {
+        if self.next_if_token(TokenType::LParen).is_some() {
+            self.next_except(TokenType::Keyword(Keyword::Select))?;
+            let subquery = self.parse_select_statement()?;
+            self.next_except(TokenType::RParen)?;
+
+            return Ok(ast::From::SubQuery {
+                query: Box::new(subquery),
+                alias: self.parse_alias()?,
+            });
+        }
+
         let mut table_name = self.next_token().map(|i| i.literal)?;
         let mut is_table_function = false;
         let mut args = Vec::new();
@@ -1282,8 +1278,8 @@ mod tests {
 
     use super::Parser;
     use crate::ast::{
-        self, Assignment, CopyOption, CopySource, CopyTarget, DateTimeField, Expression, FunctionArgument, Ident,
-        Select, SelectItem, Statement,
+        self, Assignment, BinaryOperator, CopyOption, CopySource, CopyTarget, DateTimeField, Expression,
+        FunctionArgument, Ident, Select, SelectItem, Statement,
     };
     use crate::datatype::DataType;
     use crate::error::Result;
@@ -1292,6 +1288,169 @@ mod tests {
     fn assert_stmt_eq(sql: &str, stmt: Statement) {
         let result = parse_stmt(sql).unwrap();
         assert_eq!(result, stmt, "Runing SQL: {}", sql);
+    }
+
+    #[test]
+    fn test_join_multiple_table() {
+        assert_stmt_eq(
+            "SELECT * FROM a LEFT JOIN b ON a.id = b.id LEFT JOIN c on c.id = b.id",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Join {
+                    left: Box::new(ast::From::Join {
+                        left: Box::new(ast::From::Table {
+                            name: "a".to_owned(),
+                            alias: None,
+                        }),
+                        right: Box::new(ast::From::Table {
+                            name: "b".to_owned(),
+                            alias: None,
+                        }),
+                        on: Some(Expression::BinaryOperator(BinaryOperator::Eq(
+                            Box::new(Expression::CompoundIdentifier(vec![
+                                Ident {
+                                    value: "a".to_owned(),
+                                    quote_style: None,
+                                },
+                                Ident {
+                                    value: "id".to_owned(),
+                                    quote_style: None,
+                                },
+                            ])),
+                            Box::new(Expression::CompoundIdentifier(vec![
+                                Ident {
+                                    value: "b".to_owned(),
+                                    quote_style: None,
+                                },
+                                Ident {
+                                    value: "id".to_owned(),
+                                    quote_style: None,
+                                },
+                            ])),
+                        ))),
+                        join_type: ast::JoinType::Left,
+                    }),
+                    right: Box::new(ast::From::Table {
+                        name: "c".to_owned(),
+                        alias: None,
+                    }),
+                    on: Some(Expression::BinaryOperator(BinaryOperator::Eq(
+                        Box::new(Expression::CompoundIdentifier(vec![
+                            Ident {
+                                value: "c".to_owned(),
+                                quote_style: None,
+                            },
+                            Ident {
+                                value: "id".to_owned(),
+                                quote_style: None,
+                            },
+                        ])),
+                        Box::new(Expression::CompoundIdentifier(vec![
+                            Ident {
+                                value: "b".to_owned(),
+                                quote_style: None,
+                            },
+                            Ident {
+                                value: "id".to_owned(),
+                                quote_style: None,
+                            },
+                        ])),
+                    ))),
+                    join_type: ast::JoinType::Left,
+                }],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT * FROM a,b LEFT JOIN c ON a.id = c.id LEFT JOIN d ON b.id = d.id",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![
+                    ast::From::Table {
+                        name: "a".to_owned(),
+                        alias: None,
+                    },
+                    ast::From::Join {
+                        left: Box::new(ast::From::Join {
+                            left: Box::new(ast::From::Table {
+                                name: "b".to_owned(),
+                                alias: None,
+                            }),
+                            right: Box::new(ast::From::Table {
+                                name: "c".to_owned(),
+                                alias: None,
+                            }),
+                            on: Some(Expression::BinaryOperator(BinaryOperator::Eq(
+                                Box::new(Expression::CompoundIdentifier(vec![
+                                    Ident {
+                                        value: "a".to_owned(),
+                                        quote_style: None,
+                                    },
+                                    Ident {
+                                        value: "id".to_owned(),
+                                        quote_style: None,
+                                    },
+                                ])),
+                                Box::new(Expression::CompoundIdentifier(vec![
+                                    Ident {
+                                        value: "c".to_owned(),
+                                        quote_style: None,
+                                    },
+                                    Ident {
+                                        value: "id".to_owned(),
+                                        quote_style: None,
+                                    },
+                                ])),
+                            ))),
+                            join_type: ast::JoinType::Left,
+                        }),
+                        right: Box::new(ast::From::Table {
+                            name: "d".to_owned(),
+                            alias: None,
+                        }),
+                        on: Some(Expression::BinaryOperator(BinaryOperator::Eq(
+                            Box::new(Expression::CompoundIdentifier(vec![
+                                Ident {
+                                    value: "b".to_owned(),
+                                    quote_style: None,
+                                },
+                                Ident {
+                                    value: "id".to_owned(),
+                                    quote_style: None,
+                                },
+                            ])),
+                            Box::new(Expression::CompoundIdentifier(vec![
+                                Ident {
+                                    value: "d".to_owned(),
+                                    quote_style: None,
+                                },
+                                Ident {
+                                    value: "id".to_owned(),
+                                    quote_style: None,
+                                },
+                            ])),
+                        ))),
+                        join_type: ast::JoinType::Left,
+                    },
+                ],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
     }
 
     #[test]
