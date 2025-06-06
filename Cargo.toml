@@ -21,8 +21,7 @@ arrow = "53.2.0"
 url = "2.5.0"
 log = "^0.4"
 dashmap = "6.0.1"
-connectorx = { git = "https://github.com/holicc/connector-x.git" }
-
+connectorx = "0.4.2"
 
 [workspace.lints.rust]
 unused_imports = "deny"

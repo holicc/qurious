@@ -7,7 +7,7 @@ use super::OptimizerRule;
 use crate::common::join_type::JoinType;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::datatypes::operator::Operator;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::logical::expr::{BinaryExpr, Column, LogicalExpr, SubQuery};
 use crate::logical::plan::{CrossJoin, Filter, LogicalPlan};
 use crate::logical::LogicalPlanBuilder;
@@ -93,11 +93,7 @@ impl OptimizerRule for PushdownFilterInnerJoin {
                                         (*r_k).clone(),
                                     ))
                                 })
-                                .reduce(|l, r| LogicalExpr::BinaryExpr(BinaryExpr::new(l, Operator::And, r)))
-                                .ok_or(Error::InternalError(format!(
-                                    "no valid join condition found for {:?}",
-                                    filter
-                                )))?;
+                                .reduce(|l, r| LogicalExpr::BinaryExpr(BinaryExpr::new(l, Operator::And, r)));
 
                             // find the best join condition
                             left = LogicalPlanBuilder::from(left)

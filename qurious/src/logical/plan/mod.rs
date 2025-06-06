@@ -134,6 +134,7 @@ impl LogicalPlan {
             LogicalPlan::SubqueryAlias(s) => s.schema.clone(),
             LogicalPlan::Filter(f) => f.input.table_schema(),
             LogicalPlan::Projection(p) => p.schema.clone(),
+            LogicalPlan::Join(j) => j.schema.clone(),
             _ => todo!("[{}] not implement table_schema", self),
         }
     }

@@ -204,32 +204,33 @@ impl DefaultQueryPlanner {
         let left = self.create_physical_plan(join.left.as_ref())?;
         let right = self.create_physical_plan(join.right.as_ref())?;
 
-        let using_columns = join.filter.using_columns();
+        // let using_columns = join.filter.as_ref().map(|f| f.using_columns()).unwrap_or_default();
 
-        let ls = left.schema();
-        let li = using_columns
-            .iter()
-            .filter_map(|c| ls.fields().find(&c.name))
-            .map(|(i, f)| (f.clone(), (i, JoinSide::Left)));
+        // let ls = left.schema();
+        // let li = using_columns
+        //     .iter()
+        //     .filter_map(|c| ls.fields().find(&c.name))
+        //     .map(|(i, f)| (f.clone(), (i, JoinSide::Left)));
 
-        let rs = right.schema();
-        let ri = using_columns
-            .iter()
-            .filter_map(|c| rs.fields().find(&c.name))
-            .map(|(i, f)| (f.clone(), (i, JoinSide::Right)));
+        // let rs = right.schema();
+        // let ri = using_columns
+        //     .iter()
+        //     .filter_map(|c| rs.fields().find(&c.name))
+        //     .map(|(i, f)| (f.clone(), (i, JoinSide::Right)));
 
-        let (filter_schema, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = li.chain(ri).unzip();
-        let filter_schema = Arc::new(filter_schema.finish());
-        let filter_expr = self.create_physical_expr(&filter_schema, &join.filter)?;
+        // let (filter_schema, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = li.chain(ri).unzip();
+        // let filter_schema = Arc::new(filter_schema.finish());
+        // let filter_expr = self.create_physical_expr(&filter_schema, &join.filter)?;
 
-        let join_filter = JoinFilter {
-            expr: filter_expr,
-            schema: filter_schema,
-            column_indices,
-        };
+        // let join_filter = JoinFilter {
+        //     expr: filter_expr,
+        //     schema: filter_schema,
+        //     column_indices,
+        // };
 
-        physical::plan::Join::try_new(left, right, join.join_type, Some(join_filter))
-            .map(|j| Arc::new(j) as Arc<dyn PhysicalPlan>)
+        // physical::plan::Join::try_new(left, right, join.join_type, Some(join_filter))
+        //     .map(|j| Arc::new(j) as Arc<dyn PhysicalPlan>)
+        todo!()
     }
 
     fn physical_empty_relation(&self, empty: &EmptyRelation) -> Result<Arc<dyn PhysicalPlan>> {

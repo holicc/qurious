@@ -1,13 +1,19 @@
-use arrow::datatypes::Schema;
+use arrow::datatypes::{Field, Schema};
 use std::sync::Arc;
 
 use super::{
     expr::{LogicalExpr, SortExpr},
     plan::{Aggregate, CrossJoin, EmptyRelation, Filter, Join, Limit, LogicalPlan, Projection, Sort, TableScan},
 };
-use crate::{common::table_relation::TableRelation, error::Result};
 use crate::{
-    common::{join_type::JoinType, table_schema::TableSchema},
+    common::table_relation::TableRelation,
+    error::{Error, Result},
+};
+use crate::{
+    common::{
+        join_type::JoinType,
+        table_schema::{TableSchema, TableSchemaRef},
+    },
     provider::table::TableProvider,
 };
 
@@ -74,26 +80,22 @@ impl LogicalPlanBuilder {
         })
     }
 
-    pub fn join_on(self, right: LogicalPlan, join_type: JoinType, on: LogicalExpr) -> Result<Self> {
-        let left_fields = self.plan.schema().fields.clone();
-        let right_fields = right.schema().fields.clone();
+    pub fn join_on(self, right: LogicalPlan, join_type: JoinType, filter: Option<LogicalExpr>) -> Result<Self> {
+        let schema = build_join_schema(join_type, &self.plan.table_schema(), &right.table_schema())?;
+        let on = vec![];
 
-        // left then right
-        let schema = Schema::new(
-            left_fields
-                .iter()
-                .chain(right_fields.iter())
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
+        if join_type != JoinType::Inner && filter.is_none() && on.is_empty() {
+            return Err(Error::InternalError(format!("join condition should not be empty")));
+        }
 
         Ok(LogicalPlanBuilder {
             plan: LogicalPlan::Join(Join {
                 left: Arc::new(self.plan),
                 right: Arc::new(right),
                 join_type,
-                filter: on,
-                schema: Arc::new(schema),
+                on,
+                filter,
+                schema,
             }),
         })
     }
@@ -133,5 +135,150 @@ impl LogicalPlanBuilder {
                 skip,
             }),
         }
+    }
+}
+
+fn build_join_schema(join_type: JoinType, left: &TableSchemaRef, right: &TableSchemaRef) -> Result<TableSchemaRef> {
+    let left_fields = left.iter();
+    let right_fields = right.iter();
+
+    let qualified_fields = match join_type {
+        // left then right, right set to nullable
+        JoinType::Left => left_fields
+            .map(|(a, b)| (a.cloned(), b.clone()))
+            .chain(nullify_fields(right_fields))
+            .collect::<Vec<_>>(),
+        // right then left, left set to nullable
+        JoinType::Right => right_fields
+            .map(|(a, b)| (a.cloned(), b.clone()))
+            .chain(nullify_fields(left_fields))
+            .collect::<Vec<_>>(),
+        // left then right
+        JoinType::Inner => left_fields
+            .map(|(a, b)| (a.cloned(), b.clone()))
+            .chain(right_fields.map(|(a, b)| (a.cloned(), b.clone())))
+            .collect::<Vec<_>>(),
+        // left then right, both set to nullable
+        JoinType::Full => nullify_fields(left_fields)
+            .into_iter()
+            .chain(nullify_fields(right_fields))
+            .collect(),
+    };
+
+    TableSchema::try_new(qualified_fields).map(Arc::new)
+}
+
+fn nullify_fields<'a>(
+    fields: impl Iterator<Item = (Option<&'a TableRelation>, &'a Arc<Field>)>,
+) -> Vec<(Option<TableRelation>, Arc<Field>)> {
+    fields
+        .map(|(rel, field)| (rel.cloned(), Arc::new(field.as_ref().clone().with_nullable(true))))
+        .collect::<Vec<_>>()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{test_utils::sql_to_plan, utils};
+
+    fn assert_plan(sql: &str, expected: Vec<&str>) {
+        let plan = sql_to_plan(sql);
+        let actual = utils::format(&plan, 0);
+        let actual = actual.trim().lines().collect::<Vec<_>>();
+
+        assert_eq!(
+            expected, actual,
+            "\n\nexpected:\n\n{expected:#?}\nactual:\n\n{actual:#?}\n\n"
+        );
+    }
+
+    #[test]
+    fn test_inner_join() {
+        assert_plan(
+            "SELECT * FROM users a JOIN repos b ON a.id = b.owner_id",
+            vec![
+                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "  Inner Join: Filter: users.id = repos.owner_id",
+                "    SubqueryAlias: a",
+                "      TableScan: users",
+                "    SubqueryAlias: b",
+                "      TableScan: repos",
+            ],
+        );
+    }
+
+    #[test]
+    fn test_left_join() {
+        assert_plan(
+            "SELECT * FROM users a LEFT JOIN repos b ON a.id = b.owner_id",
+            vec![
+                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "  Left Join: Filter: users.id = repos.owner_id",
+                "    SubqueryAlias: a",
+                "      TableScan: users",
+                "    SubqueryAlias: b",
+                "      TableScan: repos",
+            ],
+        );
+    }
+
+    #[test]
+    fn test_right_join() {
+        assert_plan(
+            "SELECT * FROM users a RIGHT JOIN repos b ON a.id = b.owner_id",
+            vec![
+                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "  Right Join: Filter: users.id = repos.owner_id",
+                "    SubqueryAlias: a",
+                "      TableScan: users",
+                "    SubqueryAlias: b",
+                "      TableScan: repos",
+            ],
+        );
+    }
+
+    #[test]
+    fn test_full_join() {
+        assert_plan(
+            "SELECT * FROM users a FULL JOIN repos b ON a.id = b.owner_id",
+            vec![
+                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "  Full Join: Filter: users.id = repos.owner_id",
+                "    SubqueryAlias: a",
+                "      TableScan: users",
+                "    SubqueryAlias: b",
+                "      TableScan: repos",
+            ],
+        );
+    }
+
+    #[test]
+    fn test_join_with_where() {
+        assert_plan(
+            "SELECT * FROM users a JOIN repos b ON a.id = b.owner_id WHERE a.name = 'test'",
+            vec![
+                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "  Filter: users.name = Utf8('test')",
+                "    Inner Join: Filter: users.id = repos.owner_id",
+                "      SubqueryAlias: a",
+                "        TableScan: users",
+                "      SubqueryAlias: b",
+                "        TableScan: repos",
+            ],
+        );
+    }
+
+    #[test]
+    fn test_join_with_multiple_conditions() {
+        assert_plan(
+            "SELECT * FROM users a JOIN repos b ON a.id = b.owner_id AND a.name = b.name",
+            vec![
+                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "  Inner Join: Filter: users.id = repos.owner_id AND users.name = repos.name",
+                "    SubqueryAlias: a",
+                "      TableScan: users",
+                "    SubqueryAlias: b",
+                "      TableScan: repos",
+            ],
+        );
     }
 }

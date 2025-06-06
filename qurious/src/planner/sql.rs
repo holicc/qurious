@@ -681,12 +681,12 @@ impl<'a> SqlQueryPlanner<'a> {
 
                         (
                             LogicalPlanBuilder::from(left)
-                                .join_on(right, JoinType::from(join_type), filter_expr)?
+                                .join_on(right, JoinType::from(join_type), Some(filter_expr))?
                                 .build(),
                             None,
                         )
                     }
-                    _ => todo!(),
+                    _ => todo!("join type: [{:?}]", froms.remove(0)),
                 };
 
                 if let Some(alias) = alias {

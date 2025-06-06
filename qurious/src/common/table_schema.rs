@@ -6,7 +6,7 @@ use crate::{
     internal_err,
     logical::expr::Column,
 };
-use arrow::datatypes::{Schema, SchemaRef};
+use arrow::datatypes::{Field, FieldRef, Schema, SchemaRef};
 
 pub type TableSchemaRef = Arc<TableSchema>;
 
@@ -17,6 +17,15 @@ pub struct TableSchema {
 }
 
 impl TableSchema {
+    pub fn try_new(qualified_fields: Vec<(Option<TableRelation>, Arc<Field>)>) -> Result<Self> {
+        let (qualifiers, fields): (Vec<_>, Vec<_>) = qualified_fields.into_iter().unzip();
+        Ok(Self {
+            schema: Arc::new(Schema::new(fields)),
+            field_qualifiers: qualifiers,
+        })
+    }
+
+    /// Deprecated use `try_new` instead
     pub fn new(field_qualifiers: Vec<Option<TableRelation>>, schema: SchemaRef) -> Self {
         Self {
             field_qualifiers,
@@ -57,6 +66,13 @@ impl TableSchema {
             .zip(self.field_qualifiers.iter())
             .map(|(f, q)| Column::new(f.name(), q.clone(), false))
             .collect()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (Option<&TableRelation>, &FieldRef)> {
+        self.field_qualifiers
+            .iter()
+            .zip(self.schema.fields().iter())
+            .map(|(q, f)| (q.as_ref(), f))
     }
 }
 
