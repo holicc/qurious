@@ -260,6 +260,20 @@ impl<'a> SqlQueryPlanner<'a> {
         Ok((None, false))
     }
 
+    /// check if the column is in the relation
+    /// return (exists, is_outer_ref)
+    fn check_column_exists(&self, column_name: &str, table: &TableRelation) -> Option<(bool, bool)> {
+        self.contexts.iter().rev().enumerate().find_map(|(i, ctx)| {
+            ctx.relations.get(table).and_then(|schema| {
+                if schema.has_field(Some(table), column_name) {
+                    Some((true, i > 0))
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
     /// find the relation of the table
     fn find_relation(&self, table: &TableRelation) -> Option<(TableRelation, bool)> {
         self.contexts.iter().rev().enumerate().find_map(|(i, ctx)| {
@@ -929,8 +943,9 @@ impl<'a> SqlQueryPlanner<'a> {
                 }
 
                 let name = normalize_ident(idents.remove(1));
-                let relation = idents.remove(0).value.into();
-                if let Some((relation, is_outer_ref)) = self.find_relation(&relation) {
+                let relation: TableRelation = idents.remove(0).value.into();
+
+                if let Some((true, is_outer_ref)) = self.check_column_exists(&name, &relation) {
                     return Ok(LogicalExpr::Column(Column::new(name, Some(relation), is_outer_ref)));
                 }
 

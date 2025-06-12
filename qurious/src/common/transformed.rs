@@ -88,11 +88,27 @@ pub trait TransformNode: Sized + Clone {
     where
         F: FnMut(&'n Self) -> Result<TreeNodeRecursion>;
 
+    /// Deprecated, use transform_down instead
+    /// TODO: remove this method in the future
     fn transform<F>(self, mut f: F) -> Result<Transformed<Self>>
     where
         F: FnMut(Self) -> Result<Transformed<Self>>,
     {
-        transform_impl(self, &mut f)
+        transform_down_impl(self, &mut f)
+    }
+
+    fn transform_up<F>(self, mut f: F) -> Result<Transformed<Self>>
+    where
+        F: FnMut(Self) -> Result<Transformed<Self>>,
+    {
+        transform_up_impl(self, &mut f)
+    }
+
+    fn transform_down<F>(self, mut f: F) -> Result<Transformed<Self>>
+    where
+        F: FnMut(Self) -> Result<Transformed<Self>>,
+    {
+        transform_down_impl(self, &mut f)
     }
 
     fn apply<'n, F>(&'n self, mut f: F) -> Result<TreeNodeRecursion>
@@ -103,12 +119,20 @@ pub trait TransformNode: Sized + Clone {
     }
 }
 
-fn transform_impl<N, F>(node: N, f: &mut F) -> Result<Transformed<N>>
+fn transform_down_impl<N, F>(node: N, f: &mut F) -> Result<Transformed<N>>
 where
     N: TransformNode,
     F: FnMut(N) -> Result<Transformed<N>>,
 {
-    f(node.clone())?.transform_children(|n| n.map_children(|c| transform_impl(c, f)))
+    f(node)?.transform_children(|n| n.map_children(|c| transform_down_impl(c, f)))
+}
+
+fn transform_up_impl<N, F>(node: N, f: &mut F) -> Result<Transformed<N>>
+where
+    N: TransformNode,
+    F: FnMut(N) -> Result<Transformed<N>>,
+{
+    node.map_children(|c| transform_up_impl(c, f))?.transform_children(f)
 }
 
 fn apply_impl<'n, N: TransformNode, F: FnMut(&'n N) -> Result<TreeNodeRecursion>>(

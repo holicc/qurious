@@ -51,10 +51,9 @@ impl TableSchema {
         self.schema.clone()
     }
 
-    pub fn has_field(&self, qualifier: Option<TableRelation>, name: &str) -> bool {
+    pub fn has_field(&self, qualifier: Option<&TableRelation>, name: &str) -> bool {
         match (self.schema.index_of(name).ok(), qualifier) {
-            (Some(i), Some(q)) => self.field_qualifiers[i] == Some(q),
-            (Some(_), None) => true,
+            (Some(i), q) => self.field_qualifiers[i].as_ref() == q,
             _ => false,
         }
     }

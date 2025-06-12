@@ -1,5 +1,6 @@
 mod count_wildcard_rule;
 mod pushdown_filter_inner_join;
+mod extract_equijoin_predicate;
 // mod scalar_subquery_to_join;
 mod type_coercion;
 

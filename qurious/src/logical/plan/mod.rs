@@ -10,6 +10,7 @@ mod sort;
 mod sub_query;
 
 use std::fmt::{self, Display, Formatter};
+use std::sync::Arc;
 
 pub use aggregate::Aggregate;
 pub use ddl::*;
@@ -258,6 +259,21 @@ impl TransformNode for LogicalPlan {
                     input: Box::new(input),
                 })
             }),
+            LogicalPlan::Join(Join {
+                left,
+                right,
+                join_type,
+                on,
+                filter,
+                schema,
+            }) => Transformed::yes(LogicalPlan::Join(Join {
+                left: f(Arc::unwrap_or_clone(left)).data().map(Arc::new)?,
+                right: f(Arc::unwrap_or_clone(right)).data().map(Arc::new)?,
+                join_type,
+                on,
+                filter,
+                schema,
+            })),
             _ => Transformed::no(self),
         })
     }
