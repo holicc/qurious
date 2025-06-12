@@ -12,12 +12,13 @@ use arrow::{
 use crate::{
     common::join_type::JoinType,
     error::Result,
-    physical::{expr::PhysicalExpr, plan::PhysicalPlan},
+    physical::{
+        expr::PhysicalExpr,
+        plan::{ColumnIndex, PhysicalPlan},
+    },
 };
 
 use super::need_produce_result_in_final;
-
-pub type ColumnIndex = (usize, JoinSide);
 
 #[derive(Debug)]
 pub enum JoinSide {
@@ -38,7 +39,7 @@ pub struct JoinFilter {
     pub column_indices: Vec<ColumnIndex>,
 }
 
-pub struct Join {
+pub struct NestedLoopJoinExec {
     pub left: Arc<dyn PhysicalPlan>,
     pub right: Arc<dyn PhysicalPlan>,
     pub join_type: JoinType,
@@ -48,7 +49,7 @@ pub struct Join {
     column_indices: Vec<ColumnIndex>,
 }
 
-impl Join {
+impl NestedLoopJoinExec {
     pub fn try_new(
         left: Arc<dyn PhysicalPlan>,
         right: Arc<dyn PhysicalPlan>,
@@ -70,7 +71,7 @@ impl Join {
     }
 }
 
-impl PhysicalPlan for Join {
+impl PhysicalPlan for NestedLoopJoinExec {
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }

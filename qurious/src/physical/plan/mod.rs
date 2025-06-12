@@ -1,7 +1,7 @@
 mod aggregate;
 mod empty;
 mod filter;
-mod join;
+pub mod join;
 mod limit;
 mod projection;
 mod scan;

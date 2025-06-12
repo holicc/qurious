@@ -204,33 +204,53 @@ impl DefaultQueryPlanner {
         let left = self.create_physical_plan(join.left.as_ref())?;
         let right = self.create_physical_plan(join.right.as_ref())?;
 
-        // let using_columns = join.filter.as_ref().map(|f| f.using_columns()).unwrap_or_default();
+        let join_filter = if let Some(filter) = &join.filter {
+            let using_columns = filter.using_columns();
 
-        // let ls = left.schema();
-        // let li = using_columns
-        //     .iter()
-        //     .filter_map(|c| ls.fields().find(&c.name))
-        //     .map(|(i, f)| (f.clone(), (i, JoinSide::Left)));
+            let ls = left.schema();
+            let li = using_columns
+                .iter()
+                .filter_map(|c| ls.fields().find(&c.name))
+                .map(|(i, f)| (f.clone(), (i, JoinSide::Left)));
 
-        // let rs = right.schema();
-        // let ri = using_columns
-        //     .iter()
-        //     .filter_map(|c| rs.fields().find(&c.name))
-        //     .map(|(i, f)| (f.clone(), (i, JoinSide::Right)));
+            let rs = right.schema();
+            let ri = using_columns
+                .iter()
+                .filter_map(|c| rs.fields().find(&c.name))
+                .map(|(i, f)| (f.clone(), (i, JoinSide::Right)));
 
-        // let (filter_schema, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = li.chain(ri).unzip();
-        // let filter_schema = Arc::new(filter_schema.finish());
-        // let filter_expr = self.create_physical_expr(&filter_schema, &join.filter)?;
+            let (filter_schema, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = li.chain(ri).unzip();
+            let filter_schema = Arc::new(filter_schema.finish());
+            let filter_expr = self.create_physical_expr(&filter_schema, &filter)?;
 
-        // let join_filter = JoinFilter {
-        //     expr: filter_expr,
-        //     schema: filter_schema,
-        //     column_indices,
-        // };
+            Some(JoinFilter {
+                expr: filter_expr,
+                schema: filter_schema,
+                column_indices,
+            })
+        } else {
+            None
+        };
 
-        // physical::plan::Join::try_new(left, right, join.join_type, Some(join_filter))
-        //     .map(|j| Arc::new(j) as Arc<dyn PhysicalPlan>)
-        todo!()
+        if !join.on.is_empty() {
+            let on = join
+                .on
+                .iter()
+                .map(|(left_expr, right_expr)| {
+                    let left_physical = self.create_physical_expr(&left.schema(), left_expr)?;
+                    let right_physical = self.create_physical_expr(&right.schema(), right_expr)?;
+                    Ok((left_physical, right_physical))
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            // Use hash join for equi-join conditions
+            physical::plan::join::HashJoinExec::try_new(left, right, join.join_type, on, join_filter)
+                .map(|j| Arc::new(j) as Arc<dyn PhysicalPlan>)
+        } else {
+            // Use nested loop join for non-equi joins
+            physical::plan::NestedLoopJoinExec::try_new(left, right, join.join_type, join_filter)
+                .map(|j| Arc::new(j) as Arc<dyn PhysicalPlan>)
+        }
     }
 
     fn physical_empty_relation(&self, empty: &EmptyRelation) -> Result<Arc<dyn PhysicalPlan>> {

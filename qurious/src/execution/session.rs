@@ -96,9 +96,7 @@ impl ExecuteSession {
             LogicalPlan::Ddl(ddl) => self.execute_ddl(ddl),
             LogicalPlan::Dml(stmt) => self.execute_dml(stmt),
             plan => {
-                println!("before optimize: \n{}", utils::format(&plan, 0));
                 let plan = self.optimizer.optimize(plan)?;
-                println!("after optimize: \n{}", utils::format(&plan, 0));
                 self.planner.create_physical_plan(&plan)?.execute()
             }
         }
