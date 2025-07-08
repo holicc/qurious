@@ -10,6 +10,7 @@ use crate::common::table_relation::TableRelation;
 use crate::datasource::memory::MemoryTable;
 use crate::error::Error;
 use crate::functions::{all_builtin_functions, UserDefinedFunction};
+use crate::internal_err;
 use crate::logical::plan::{
     CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, Filter, LogicalPlan,
 };
@@ -21,7 +22,6 @@ use crate::provider::schema::SchemaProvider;
 use crate::provider::table::TableProvider;
 use crate::utils::batch::make_count_batch;
 use crate::{error::Result, planner::DefaultQueryPlanner};
-use crate::{internal_err, utils};
 
 use crate::execution::providers::CatalogProviderList;
 
@@ -478,32 +478,6 @@ order by
                 "+------------+----------+--------+-------+",
                 "| ST/SZ/001  | HKD      | SZ     | STOCK |",
                 "+------------+----------+--------+-------+",
-            ],
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "connectorx")]
-    fn test_postgres() {
-        use crate::datasource::connectorx::postgres::PostgresCatalogProvider;
-
-        let session = ExecuteSession::new().unwrap();
-        let catalog = PostgresCatalogProvider::try_new("postgresql://root:root@localhost:5433/qurious").unwrap();
-
-        session.register_catalog("qurious", Arc::new(catalog)).unwrap();
-
-        let data = session
-            .sql("SELECT * FROM qurious.public.schools WHERE id = 1")
-            .unwrap();
-
-        assert_batch_eq(
-            &data,
-            vec![
-                "+----+--------------------+",
-                "| id | name               |",
-                "+----+--------------------+",
-                "| 1  | BeiJing University |",
-                "+----+--------------------+",
             ],
         );
     }

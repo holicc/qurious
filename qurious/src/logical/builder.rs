@@ -197,7 +197,7 @@ mod tests {
             "SELECT * FROM users a JOIN repos b ON a.id = b.owner_id",
             vec![
                 "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
-                "  Inner Join: Filter: users.id = repos.owner_id",
+                "  Inner Join: Filter: a.id = b.owner_id",
                 "    SubqueryAlias: a",
                 "      TableScan: users",
                 "    SubqueryAlias: b",
@@ -212,7 +212,7 @@ mod tests {
             "SELECT * FROM users a LEFT JOIN repos b ON a.id = b.owner_id",
             vec![
                 "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
-                "  Left Join: Filter: users.id = repos.owner_id",
+                "  Left Join: Filter: a.id = b.owner_id",
                 "    SubqueryAlias: a",
                 "      TableScan: users",
                 "    SubqueryAlias: b",
@@ -227,7 +227,7 @@ mod tests {
             "SELECT * FROM users a RIGHT JOIN repos b ON a.id = b.owner_id",
             vec![
                 "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
-                "  Right Join: Filter: users.id = repos.owner_id",
+                "  Right Join: Filter: a.id = b.owner_id",
                 "    SubqueryAlias: a",
                 "      TableScan: users",
                 "    SubqueryAlias: b",
@@ -242,7 +242,7 @@ mod tests {
             "SELECT * FROM users a FULL JOIN repos b ON a.id = b.owner_id",
             vec![
                 "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
-                "  Full Join: Filter: users.id = repos.owner_id",
+                "  Full Join: Filter: a.id = b.owner_id",
                 "    SubqueryAlias: a",
                 "      TableScan: users",
                 "    SubqueryAlias: b",
@@ -257,8 +257,8 @@ mod tests {
             "SELECT * FROM users a JOIN repos b ON a.id = b.owner_id WHERE a.name = 'test'",
             vec![
                 "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
-                "  Filter: users.name = Utf8('test')",
-                "    Inner Join: Filter: users.id = repos.owner_id",
+                "  Filter: a.name = Utf8('test')",
+                "    Inner Join: Filter: a.id = b.owner_id",
                 "      SubqueryAlias: a",
                 "        TableScan: users",
                 "      SubqueryAlias: b",
@@ -273,7 +273,7 @@ mod tests {
             "SELECT * FROM users a JOIN repos b ON a.id = b.owner_id AND a.name = b.name",
             vec![
                 "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
-                "  Inner Join: Filter: users.id = repos.owner_id AND users.name = repos.name",
+                "  Inner Join: Filter: a.id = b.owner_id AND a.name = b.name",
                 "    SubqueryAlias: a",
                 "      TableScan: users",
                 "    SubqueryAlias: b",

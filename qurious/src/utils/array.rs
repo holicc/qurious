@@ -13,24 +13,8 @@ use arrow::{
     },
     datatypes::{DataType, Decimal128Type, Decimal256Type, DecimalType, TimeUnit},
 };
-use std::sync::Arc;
-
-#[macro_export]
-macro_rules! hash_array {
-    ($ARRAY: ident,$VALUES: expr,$HASHER_MAP: expr) => {{
-        let group_values = $VALUES
-            .as_any()
-            .downcast_ref::<$ARRAY>()
-            .ok_or(Error::InternalError("Failed to downcast to StringArray".to_string()))?;
-
-        for (i, v) in group_values.iter().enumerate() {
-            if let Some(val) = v {
-                let mut hasher = $HASHER_MAP.entry(i).or_insert(DefaultHasher::new());
-                val.hash(&mut hasher);
-            }
-        }
-    }};
-}
+use std::hash::Hash;
+use std::{hash::Hasher, sync::Arc};
 
 #[macro_export]
 macro_rules! build_primary_array {
@@ -182,4 +166,37 @@ pub fn repeat_array(ary: &ArrayRef, index: usize, size: usize) -> Result<ArrayRe
         }
         _ => internal_err!("Unsupported data type {}", ary.data_type()),
     }
+}
+
+macro_rules! hash_array {
+    ($ARRAY: ident,$VALUES: expr,$HASHER_MAP: expr) => {{
+        let group_values = $VALUES
+            .as_any()
+            .downcast_ref::<$ARRAY>()
+            .ok_or(crate::error::Error::InternalError(format!(
+                "Failed to downcast to {}",
+                stringify!($ARRAY)
+            )))?;
+
+        for (row, v) in group_values.iter().enumerate() {
+            if let Some(val) = v {
+                let mut hasher = unsafe { $HASHER_MAP.get_unchecked_mut(row) };
+                val.hash(&mut hasher);
+            }
+        }
+    }};
+}
+
+pub fn create_hashes<H: Hasher>(arrays: &[ArrayRef], hash_buffer: &mut Vec<H>) -> Result<Vec<u64>> {
+    for col in arrays.iter() {
+        match col.data_type() {
+            DataType::Int64 => hash_array!(Int64Array, col, hash_buffer),
+            DataType::UInt8 => hash_array!(UInt8Array, col, hash_buffer),
+            DataType::Int32 => hash_array!(Int32Array, col, hash_buffer),
+            DataType::Utf8 => hash_array!(StringArray, col, hash_buffer),
+            _ => return internal_err!("Unsupported data type in hasher: {}", col.data_type()),
+        }
+    }
+
+    Ok(hash_buffer.iter().map(|v| v.finish()).collect())
 }

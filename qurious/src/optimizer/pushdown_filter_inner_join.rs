@@ -257,10 +257,10 @@ mod tests {
     #[test]
     fn test_not_valid_join_pair() {
         assert_after_optimizer(
-            "SELECT * FROM users,repos WHERE (users.id = repos.user_id AND users.id = 10) OR (users.name = repos.name AND repos.id = 20)",
+            "SELECT * FROM users,repos WHERE (users.id = repos.owner_id AND users.id = 10) OR (users.name = repos.name AND repos.id = 20)",
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
-                "  Filter: users.id = repos.user_id AND users.id = Int64(10) OR users.name = repos.name AND repos.id = Int64(20)",
+                "  Filter: users.id = repos.owner_id AND users.id = Int64(10) OR users.name = repos.name AND repos.id = Int64(20)",
                 "    CrossJoin",
                 "      TableScan: users",
                 "      TableScan: repos",
@@ -268,10 +268,10 @@ mod tests {
         );
 
         assert_after_optimizer(
-            "SELECT * FROM users,repos WHERE (users.id = repos.user_id AND users.id = 10) OR (users.id = repos.id OR users.id = 20)",
+            "SELECT * FROM users,repos WHERE (users.id = repos.owner_id AND users.id = 10) OR (users.id = repos.id OR users.id = 20)",
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
-                "  Filter: users.id = repos.user_id AND users.id = Int64(10) OR users.id = repos.id OR users.id = Int64(20)",
+                "  Filter: users.id = repos.owner_id AND users.id = Int64(10) OR users.id = repos.id OR users.id = Int64(20)",
                 "    CrossJoin",
                 "      TableScan: users",
                 "      TableScan: repos",
@@ -282,11 +282,11 @@ mod tests {
     #[test]
     fn should_not_pushdown_filter_for_inner_join() {
         assert_after_optimizer(
-            "SELECT * FROM users INNER JOIN repos ON users.id = repos.user_id WHERE users.id = 10",
+            "SELECT * FROM users INNER JOIN repos ON users.id = repos.owner_id WHERE users.id = 10",
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = Int64(10)",
-                "    Inner Join: Filter: users.id = repos.user_id",
+                "    Inner Join: Filter: users.id = repos.owner_id",
                 "      TableScan: users",
                 "      TableScan: repos",
             ],

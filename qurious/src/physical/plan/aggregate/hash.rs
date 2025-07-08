@@ -1,35 +1,27 @@
+use crate::arrow_err;
 use crate::error::{Error, Result};
 use crate::physical::expr::Accumulator;
 use crate::physical::{
     expr::{AggregateExpr, PhysicalExpr},
     plan::PhysicalPlan,
 };
-use crate::{arrow_err, hash_array};
+use crate::utils::array::create_hashes;
 use arrow::compute::TakeOptions;
 use arrow::row::{RowConverter, SortField};
-use arrow::{
-    array::{Array, Int32Array, Int64Array, StringArray, UInt8Array},
-    datatypes::*,
-};
 use arrow::{
     array::{ArrayRef, UInt64Array},
     compute,
     datatypes::SchemaRef,
     record_batch::RecordBatch,
 };
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    hash::{DefaultHasher, Hash, Hasher},
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Display, hash::DefaultHasher, sync::Arc};
 
 struct GroupAccumulator<'a> {
     /// accumulators each group has a vector of accumulators
     /// Key: group index Value: (group_values, accumulators, indices)
     accumulators: HashMap<usize, (Vec<ArrayRef>, Vec<Box<dyn Accumulator>>)>,
     /// Key: row num Value: hash
-    hashes_buffer: HashMap<usize, DefaultHasher>,
+    hashes_buffer: Vec<DefaultHasher>,
     /// Key: hash Value: group index
     map: HashMap<u64, usize>,
     ///
@@ -43,51 +35,36 @@ impl<'a> GroupAccumulator<'a> {
     {
         Ok(Self {
             accumulators: HashMap::new(),
-            hashes_buffer: HashMap::new(),
+            hashes_buffer: Vec::new(),
             map: HashMap::new(),
             accumlator_factory: f,
         })
     }
 
-    fn update(&mut self, group_by_values: &[ArrayRef], input_values: &[ArrayRef]) -> Result<()> {
+    fn update(&mut self, rows: usize, group_by_values: &[ArrayRef], input_values: &[ArrayRef]) -> Result<()> {
         self.hashes_buffer.clear();
+        self.hashes_buffer.resize(rows, DefaultHasher::new());
 
-        for col in group_by_values {
-            match col.data_type() {
-                DataType::UInt8 => hash_array!(UInt8Array, col, &mut self.hashes_buffer),
-                DataType::Int32 => hash_array!(Int32Array, col, &mut self.hashes_buffer),
-                DataType::Int64 => hash_array!(Int64Array, col, &mut self.hashes_buffer),
-                DataType::Utf8 => hash_array!(StringArray, col, &mut self.hashes_buffer),
-                _ => {
-                    return Err(Error::InternalError(format!(
-                        "[group_indices] unsupported data type {:?}",
-                        col.data_type()
-                    )))
-                }
-            }
-        }
-
+        let hashes = create_hashes(&group_by_values, &mut self.hashes_buffer)?;
         let mut accs_indices = HashMap::new();
-        for (row, target_hash_buffer) in &self.hashes_buffer {
-            let target_hash = target_hash_buffer.finish();
-
+        for (row, target_hash) in hashes.into_iter().enumerate() {
             match self.map.get_mut(&target_hash) {
                 Some(group_index) => {
-                    accs_indices.entry(*group_index).or_insert(vec![]).push(*row as u64);
+                    accs_indices.entry(*group_index).or_insert(vec![]).push(row as u64);
                 }
                 None => {
-                    self.map.insert(target_hash, *row);
+                    self.map.insert(target_hash, row);
 
-                    accs_indices.insert(*row, vec![*row as u64]);
+                    accs_indices.insert(row, vec![row as u64]);
 
                     let accs = (self.accumlator_factory)()?;
-                    let indices = UInt64Array::from_iter(vec![*row as u64]);
+                    let indices = UInt64Array::from_iter(vec![row as u64]);
                     let group_values = group_by_values
                         .iter()
                         .map(|values| compute::take(&values, &indices, None).map_err(|e| arrow_err!(e)))
                         .collect::<Result<Vec<_>>>()?;
 
-                    self.accumulators.insert(*row, (group_values, accs));
+                    self.accumulators.insert(row, (group_values, accs));
                 }
             }
         }
@@ -181,7 +158,7 @@ impl PhysicalPlan for HashAggregate {
                 .map(|e| e.expression().evaluate(&batch))
                 .collect::<Result<Vec<ArrayRef>>>()?;
 
-            group_accumulator.update(&group_by_values, &input_values)?;
+            group_accumulator.update(batch.num_rows(), &group_by_values, &input_values)?;
         }
 
         RecordBatch::try_new(self.schema.clone(), group_accumulator.output(&self.schema)?)

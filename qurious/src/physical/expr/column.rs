@@ -5,7 +5,7 @@ use arrow::{array::ArrayRef, record_batch::RecordBatch};
 use super::PhysicalExpr;
 use crate::error::{Error, Result};
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct Column {
     name: String,
     index: usize,

@@ -6,7 +6,7 @@ use arrow::{
         UInt32Array, UInt32Builder, UInt64Array, UInt64Builder,
     },
     compute::{self, concat_batches},
-    datatypes::{DataType, Field, Schema, SchemaBuilder, SchemaRef},
+    datatypes::{DataType, SchemaRef},
 };
 
 use crate::{
@@ -14,13 +14,13 @@ use crate::{
     error::Result,
     physical::{
         expr::PhysicalExpr,
-        plan::{ColumnIndex, PhysicalPlan},
+        plan::{build_join_schema, ColumnIndex, PhysicalPlan},
     },
 };
 
 use super::need_produce_result_in_final;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum JoinSide {
     Left,
     Right,
@@ -58,7 +58,7 @@ impl NestedLoopJoinExec {
     ) -> Result<Self> {
         let left_schema = left.schema();
         let right_schema = right.schema();
-        let (schema, column_indices) = join_schema(&left_schema, &right_schema, &join_type);
+        let (schema, column_indices) = build_join_schema(&left_schema, &right_schema, &join_type);
 
         Ok(Self {
             left,
@@ -276,39 +276,4 @@ fn build_bitmap(join_type: &JoinType, num_rows: usize) -> BooleanBufferBuilder {
     }
 
     BooleanBufferBuilder::new(0)
-}
-
-fn join_schema(left: &Schema, right: &Schema, join_type: &JoinType) -> (SchemaRef, Vec<ColumnIndex>) {
-    let (left_nullable, right_nullable) = match join_type {
-        JoinType::Left => (false, true),
-        JoinType::Right => (true, false),
-        JoinType::Inner => (false, false),
-        JoinType::Full => (true, true),
-    };
-
-    let with_nullable = |nullable| -> Box<dyn FnMut(&Arc<Field>) -> Field> {
-        if nullable {
-            Box::new(|f| f.as_ref().clone().with_nullable(true))
-        } else {
-            Box::new(|f| f.as_ref().clone())
-        }
-    };
-
-    let left_fields = left
-        .fields()
-        .iter()
-        .map(with_nullable(left_nullable))
-        .enumerate()
-        .map(|(index, f)| (f, (index, JoinSide::Left)));
-
-    let right_fields = right
-        .fields()
-        .iter()
-        .map(with_nullable(right_nullable))
-        .enumerate()
-        .map(|(index, f)| (f, (index, JoinSide::Right)));
-
-    let (fields, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = left_fields.chain(right_fields).unzip();
-
-    (Arc::new(fields.finish()), column_indices)
 }

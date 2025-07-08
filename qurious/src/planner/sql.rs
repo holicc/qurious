@@ -244,7 +244,7 @@ impl<'a> SqlQueryPlanner<'a> {
         for (i, ctx) in self.contexts.iter().rev().enumerate() {
             let mut matched = vec![];
             for (relation, table_schema) in &ctx.relations {
-                if table_schema.has_field(None, column_name) {
+                if table_schema.has_field(Some(relation), column_name) {
                     matched.push(relation.clone());
                 }
             }
@@ -264,8 +264,12 @@ impl<'a> SqlQueryPlanner<'a> {
     /// return (exists, is_outer_ref)
     fn check_column_exists(&self, column_name: &str, table: &TableRelation) -> Option<(bool, bool)> {
         self.contexts.iter().rev().enumerate().find_map(|(i, ctx)| {
-            ctx.relations.get(table).and_then(|schema| {
-                if schema.has_field(Some(table), column_name) {
+            let table_name = table.to_quanlify_name();
+            // check if the table has an alias
+            let table_name = ctx.table_aliase.get(&table_name).unwrap_or(table);
+
+            ctx.relations.get(&table_name).and_then(|schema| {
+                if schema.has_field(Some(&table_name), column_name) {
                     Some((true, i > 0))
                 } else {
                     None
@@ -277,11 +281,9 @@ impl<'a> SqlQueryPlanner<'a> {
     /// find the relation of the table
     fn find_relation(&self, table: &TableRelation) -> Option<(TableRelation, bool)> {
         self.contexts.iter().rev().enumerate().find_map(|(i, ctx)| {
-            ctx.relations.contains_key(table).then(|| (table.clone(), i > 0)).or(ctx
-                .table_aliase
-                .get(&table.to_string())
-                .cloned()
-                .map(|r| (r, i > 0)))
+            // if the table has an alias, return the alias
+            (ctx.table_aliase.contains_key(&table.to_quanlify_name()) || ctx.relations.contains_key(table))
+                .then(|| (table.clone(), i > 0))
         })
     }
 

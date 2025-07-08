@@ -90,8 +90,8 @@ select v1, v2, v3, v4 from a full join b on v1 = v3;
 ----
 1 1 1 100
 3 3 3 300
-2 2 NULL NULL
 NULL NULL 4 400
+2 2 NULL NULL
 
 statement ok
 drop table a;
