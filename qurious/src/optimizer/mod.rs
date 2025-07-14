@@ -1,10 +1,14 @@
 mod count_wildcard_rule;
 mod extract_equijoin_predicate;
 mod pushdown_filter_inner_join;
-// mod scalar_subquery_to_join;
+mod scalar_subquery_to_join;
 mod type_coercion;
 
-use crate::{error::Result, logical::plan::LogicalPlan, optimizer::extract_equijoin_predicate::ExtractEquijoinPredicate};
+use crate::{
+    error::Result,
+    logical::plan::LogicalPlan,
+    optimizer::{extract_equijoin_predicate::ExtractEquijoinPredicate, scalar_subquery_to_join::ScalarSubqueryToJoin},
+};
 use count_wildcard_rule::CountWildcardRule;
 use pushdown_filter_inner_join::PushdownFilterInnerJoin;
 use type_coercion::TypeCoercion;
@@ -25,6 +29,7 @@ impl Optimizer {
             rules: vec![
                 Box::new(CountWildcardRule),
                 Box::new(TypeCoercion),
+                Box::new(ScalarSubqueryToJoin::default()),
                 Box::new(ExtractEquijoinPredicate),
                 Box::new(PushdownFilterInnerJoin),
             ],

@@ -76,7 +76,7 @@ impl TableRelation {
     }
 
     /// Return the fully qualified name of the table
-    pub fn to_quanlify_name(&self) -> String {
+    pub fn to_qualified_name(&self) -> String {
         if self.is_file_source {
             let identify = self.identify.as_ref().expect("should have identify");
             return format!("tmp_table({})", &identify[..7]);
@@ -96,7 +96,7 @@ impl TableRelation {
 
 impl Display for TableRelation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.to_quanlify_name().fmt(f)
+        self.to_qualified_name().fmt(f)
     }
 }
 
@@ -144,18 +144,18 @@ mod tests {
     #[test]
     fn test_table_relation() {
         let table = TableRelation::from("table".to_string());
-        assert_eq!(table.to_quanlify_name(), "table");
+        assert_eq!(table.to_qualified_name(), "table");
 
         let table = TableRelation::from("schema.table".to_string());
-        assert_eq!(table.to_quanlify_name(), "schema.table");
+        assert_eq!(table.to_qualified_name(), "schema.table");
 
         let table = TableRelation::from("catalog.schema.table".to_string());
-        assert_eq!(table.to_quanlify_name(), "catalog.schema.table");
+        assert_eq!(table.to_qualified_name(), "catalog.schema.table");
     }
 
     #[test]
     fn test_parse_file_path() {
         let table = TableRelation::parse_file_path("./tests/testdata/file/case1.csv");
-        assert_eq!(table.to_quanlify_name(), "tmp_table(b563e59)");
+        assert_eq!(table.to_qualified_name(), "tmp_table(b563e59)");
     }
 }

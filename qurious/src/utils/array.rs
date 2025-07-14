@@ -194,6 +194,12 @@ pub fn create_hashes<H: Hasher>(arrays: &[ArrayRef], hash_buffer: &mut Vec<H>) -
             DataType::UInt8 => hash_array!(UInt8Array, col, hash_buffer),
             DataType::Int32 => hash_array!(Int32Array, col, hash_buffer),
             DataType::Utf8 => hash_array!(StringArray, col, hash_buffer),
+            DataType::Date32 => hash_array!(Date32Array, col, hash_buffer),
+            DataType::Date64 => hash_array!(Date64Array, col, hash_buffer),
+            DataType::Time32(TimeUnit::Second) => hash_array!(Time32SecondArray, col, hash_buffer),
+            DataType::Time32(TimeUnit::Millisecond) => hash_array!(Time32MillisecondArray, col, hash_buffer),
+            DataType::Time64(TimeUnit::Microsecond) => hash_array!(Time64MicrosecondArray, col, hash_buffer),
+            DataType::Time64(TimeUnit::Nanosecond) => hash_array!(Time64NanosecondArray, col, hash_buffer),
             _ => return internal_err!("Unsupported data type in hasher: {}", col.data_type()),
         }
     }

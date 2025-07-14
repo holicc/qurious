@@ -71,6 +71,13 @@ pub enum LogicalPlan {
 }
 
 impl LogicalPlan {
+    pub fn head_output_expr(&self) -> Result<Option<LogicalExpr>> {
+        match self {
+            LogicalPlan::Projection(p) => Ok(p.exprs.first().cloned()),
+            _ => todo!("[{}] not implement head_output_expr", self),
+        }
+    }
+
     pub fn outer_ref_columns(&self) -> Result<Vec<LogicalExpr>> {
         let mut outer_ref_columns = vec![];
 
@@ -114,7 +121,7 @@ impl LogicalPlan {
         match self {
             LogicalPlan::Projection(p) => p.schema(),
             LogicalPlan::Filter(f) => f.schema(),
-            LogicalPlan::Aggregate(a) => a.schema(),
+            LogicalPlan::Aggregate(a) => a.schema().arrow_schema(),
             LogicalPlan::TableScan(t) => t.schema(),
             LogicalPlan::EmptyRelation(e) => e.schema.clone(),
             LogicalPlan::CrossJoin(s) => s.schema(),
@@ -136,6 +143,7 @@ impl LogicalPlan {
             LogicalPlan::Filter(f) => f.input.table_schema(),
             LogicalPlan::Projection(p) => p.schema.clone(),
             LogicalPlan::Join(j) => j.schema.clone(),
+            LogicalPlan::Aggregate(a) => a.schema.clone(),
             _ => todo!("[{}] not implement table_schema", self),
         }
     }

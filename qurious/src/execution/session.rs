@@ -195,7 +195,7 @@ impl ExecuteSession {
             .table(table.table())
             .ok_or(Error::InternalError(format!(
                 "failed to resolve table: {}",
-                table.to_quanlify_name()
+                table.to_qualified_name()
             )))
     }
 
@@ -204,12 +204,12 @@ impl ExecuteSession {
             .catalog(table.catalog().unwrap_or(&self.config.default_catalog))
             .ok_or(Error::InternalError(format!(
                 "failed to resolve catalog: {}",
-                table.to_quanlify_name()
+                table.to_qualified_name()
             )))?
             .schema(table.schema().unwrap_or(&self.config.default_schema))
             .ok_or(Error::PlanError(format!(
                 "failed to resolve schema: {}",
-                table.to_quanlify_name()
+                table.to_qualified_name()
             )))
     }
 
@@ -237,7 +237,7 @@ impl ExecuteSession {
                 } else {
                     Err(Error::PlanError(format!(
                         "Drop table failed, table not found: {}",
-                        table.to_quanlify_name()
+                        table.to_qualified_name()
                     )))
                 }
             }
@@ -380,31 +380,54 @@ mod tests {
         // session.sql("INSERT INTO test VALUES (1, 1), (2, 2), (3, 3), (3, 5), (NULL, NULL);")?;
         // session.sql("select a, b, c, d from x join y on a = c")?;
         println!("++++++++++++++");
-        let batch = session.sql(
-            "select
-    l_orderkey,
-    sum(l_extendedprice * (1 - l_discount)) as revenue,
-    o_orderdate,
-    o_shippriority
+        let batch = session
+            .sql(
+                "select
+    s_acctbal,
+    s_name,
+    n_name,
+    p_partkey,
+    p_mfgr,
+    s_address,
+    s_phone,
+    s_comment
 from
-    customer,
-    orders,
-    lineitem
+    part,
+    supplier,
+    partsupp,
+    nation,
+    region
 where
-        c_mktsegment = 'BUILDING'
-  and c_custkey = o_custkey
-  and l_orderkey = o_orderkey
-  and o_orderdate < date '1995-03-15'
-  and l_shipdate > date '1995-03-15'
-group by
-    l_orderkey,
-    o_orderdate,
-    o_shippriority
+        p_partkey = ps_partkey
+  and s_suppkey = ps_suppkey
+  and p_size = 15
+  and p_type like '%BRASS'
+  and s_nationkey = n_nationkey
+  and n_regionkey = r_regionkey
+  and r_name = 'EUROPE'
+  and ps_supplycost = (
+    select
+        min(ps_supplycost)
+    from
+        partsupp,
+        supplier,
+        nation,
+        region
+    where
+            p_partkey = ps_partkey
+      and s_suppkey = ps_suppkey
+      and s_nationkey = n_nationkey
+      and n_regionkey = r_regionkey
+      and r_name = 'EUROPE'
+)
 order by
-    revenue desc,
-    o_orderdate
- limit 10;",
-        )?;
+    s_acctbal desc,
+    n_name,
+    s_name,
+    p_partkey
+limit 10;",
+            )
+            .unwrap();
 
         // let batch = session.sql("select avg(l_quantity) as count_order from lineitem")?;
 

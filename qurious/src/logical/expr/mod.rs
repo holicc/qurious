@@ -21,6 +21,7 @@ pub use sort::*;
 
 use crate::common::table_relation::TableRelation;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult, TreeNodeRecursion};
+use crate::datatypes::operator::Operator;
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::{Error, Result};
 use crate::logical::plan::LogicalPlan;
@@ -207,6 +208,18 @@ impl LogicalExpr {
             LogicalExpr::SubQuery(subquery) => Ok(subquery.subquery.schema().fields[0].data_type().clone()),
             _ => internal_err!("[{}] has no data type", self),
         }
+    }
+
+    pub fn contains_outer_ref_columns(&self) -> bool {
+        self.column_refs().iter().any(|column| column.is_outer_ref)
+    }
+
+    pub fn and(self, other: LogicalExpr) -> LogicalExpr {
+        LogicalExpr::BinaryExpr(BinaryExpr {
+            left: Box::new(self),
+            op: Operator::And,
+            right: Box::new(other),
+        })
     }
 }
 

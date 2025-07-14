@@ -172,7 +172,7 @@ impl DefaultQueryPlanner {
         // not group by
         if group_expr.is_empty() {
             return Ok(Arc::new(physical::plan::NoGroupingAggregate::new(
-                aggregate.schema.clone(),
+                aggregate.schema.arrow_schema(),
                 input,
                 aggr_expr,
             )));

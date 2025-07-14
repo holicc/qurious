@@ -1,5 +1,7 @@
+pub mod alias;
 pub mod array;
 pub mod batch;
+pub mod expr;
 pub mod type_coercion;
 
 use std::{path::Path, sync::Arc};

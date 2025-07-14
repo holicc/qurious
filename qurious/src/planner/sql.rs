@@ -264,7 +264,7 @@ impl<'a> SqlQueryPlanner<'a> {
     /// return (exists, is_outer_ref)
     fn check_column_exists(&self, column_name: &str, table: &TableRelation) -> Option<(bool, bool)> {
         self.contexts.iter().rev().enumerate().find_map(|(i, ctx)| {
-            let table_name = table.to_quanlify_name();
+            let table_name = table.to_qualified_name();
             // check if the table has an alias
             let table_name = ctx.table_aliase.get(&table_name).unwrap_or(table);
 
@@ -282,7 +282,7 @@ impl<'a> SqlQueryPlanner<'a> {
     fn find_relation(&self, table: &TableRelation) -> Option<(TableRelation, bool)> {
         self.contexts.iter().rev().enumerate().find_map(|(i, ctx)| {
             // if the table has an alias, return the alias
-            (ctx.table_aliase.contains_key(&table.to_quanlify_name()) || ctx.relations.contains_key(table))
+            (ctx.table_aliase.contains_key(&table.to_qualified_name()) || ctx.relations.contains_key(table))
                 .then(|| (table.clone(), i > 0))
         })
     }
@@ -1279,6 +1279,7 @@ mod tests {
         datasource::file::{self, csv::CsvReadOptions},
         datatypes::scalar::ScalarValue,
         functions::all_builtin_functions,
+        test_utils::create_tpch_tables,
         utils,
     };
 
@@ -1613,6 +1614,56 @@ mod tests {
         )
     }
 
+    #[test]
+    fn issue_tpch_q2() {
+        quick_test(
+            "select
+    s_acctbal,
+    s_name,
+    n_name,
+    p_partkey,
+    p_mfgr,
+    s_address,
+    s_phone,
+    s_comment
+from
+    part,
+    supplier,
+    partsupp,
+    nation,
+    region
+where
+        p_partkey = ps_partkey
+  and s_suppkey = ps_suppkey
+  and p_size = 15
+  and p_type like '%BRASS'
+  and s_nationkey = n_nationkey
+  and n_regionkey = r_regionkey
+  and r_name = 'EUROPE'
+  and ps_supplycost = (
+    select
+        min(ps_supplycost)
+    from
+        partsupp,
+        supplier,
+        nation,
+        region
+    where
+            p_partkey = ps_partkey
+      and s_suppkey = ps_suppkey
+      and s_nationkey = n_nationkey
+      and n_regionkey = r_regionkey
+      and r_name = 'EUROPE'
+)
+order by
+    s_acctbal desc,
+    n_name,
+    s_name,
+    p_partkey
+limit 10;",
+            "Limit: fetch=10, skip=0\n  Sort: supplier.s_acctbal DESC, nation.n_name ASC, supplier.s_name ASC, part.p_partkey ASC\n    Projection: (supplier.s_acctbal, supplier.s_name, nation.n_name, part.p_partkey, part.p_mfgr, supplier.s_address, supplier.s_phone, supplier.s_comment)\n      Filter: part.p_partkey = partsupp.ps_partkey AND supplier.s_suppkey = partsupp.ps_suppkey AND part.p_size = Int64(15) AND part.p_type LIKE Utf8('%BRASS') AND supplier.s_nationkey = nation.n_nationkey AND nation.n_regionkey = region.r_regionkey AND region.r_name = Utf8('EUROPE') AND partsupp.ps_supplycost = (\n          Projection: (MIN(partsupp.ps_supplycost))\n            Aggregate: group_expr=[], aggregat_expr=[MIN(partsupp.ps_supplycost)]\n              Filter: part.p_partkey = partsupp.ps_partkey AND supplier.s_suppkey = partsupp.ps_suppkey AND supplier.s_nationkey = nation.n_nationkey AND nation.n_regionkey = region.r_regionkey AND region.r_name = Utf8('EUROPE')\n                CrossJoin\n                  CrossJoin\n                    CrossJoin\n                      TableScan: partsupp\n                      TableScan: supplier\n                    TableScan: nation\n                  TableScan: region\n)\n\n        CrossJoin\n          CrossJoin\n            CrossJoin\n              CrossJoin\n                TableScan: part\n                TableScan: supplier\n              TableScan: partsupp\n            TableScan: nation\n          TableScan: region\n")
+    }
+
     fn quick_test(sql: &str, expected: &str) {
         let mut tables = HashMap::new();
 
@@ -1684,6 +1735,8 @@ mod tests {
             TableRelation::parse_file_path("./tests/testdata/file/case2.parquet"),
             file::parquet::read_parquet("./tests/testdata/file/case2.parquet").unwrap(),
         );
+
+        tables.extend(create_tpch_tables());
 
         let mut parser = Parser::new(sql);
         let stmt = parser.parse().unwrap();

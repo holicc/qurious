@@ -1,8 +1,8 @@
 use crate::common::table_schema::TableSchemaRef;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::error::Result;
-use crate::logical::expr::alias::Alias;
 use crate::logical::expr::Column;
+use crate::utils::expr::split_conjunctive_predicates;
 use crate::{
     datatypes::operator::Operator,
     logical::{
@@ -62,7 +62,7 @@ fn extract_equijoin_predicates(
     left_schema: TableSchemaRef,
     right_schema: TableSchemaRef,
 ) -> (Vec<(LogicalExpr, LogicalExpr)>, Option<LogicalExpr>) {
-    let exprs = split_conjunctive_predicates(filter, vec![]);
+    let exprs = split_conjunctive_predicates(filter);
     let mut equijoins = vec![];
     let mut filters = vec![];
     for expr in exprs {
@@ -108,24 +108,6 @@ fn extract_equijoin_predicates(
             })
         }),
     )
-}
-
-fn split_conjunctive_predicates(filter: LogicalExpr, mut exprs: Vec<LogicalExpr>) -> Vec<LogicalExpr> {
-    match filter {
-        LogicalExpr::BinaryExpr(BinaryExpr {
-            left,
-            op: Operator::And,
-            right,
-        }) => {
-            let exprs = split_conjunctive_predicates(*left, exprs);
-            split_conjunctive_predicates(*right, exprs)
-        }
-        LogicalExpr::Alias(Alias { expr, .. }) => split_conjunctive_predicates(*expr, exprs),
-        other => {
-            exprs.push(other);
-            exprs
-        }
-    }
 }
 
 fn check_all_columns_from_schema(columns: &HashSet<Column>, schema: &TableSchemaRef) -> bool {

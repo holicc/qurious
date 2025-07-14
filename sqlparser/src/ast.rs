@@ -795,13 +795,7 @@ impl Display for Expression {
             }
             Expression::SubQuery(select) => write!(f, "({})", select),
             Expression::Like { negated, left, right } => {
-                write!(
-                    f,
-                    "{} {} LIKE {}",
-                    left,
-                    if *negated { "NOT" } else { "" },
-                    right
-                )
+                write!(f, "{} {} LIKE {}", left, if *negated { "NOT" } else { "" }, right)
             }
         }
     }

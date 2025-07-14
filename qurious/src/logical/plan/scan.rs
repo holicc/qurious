@@ -48,7 +48,7 @@ impl TableScan {
 
 impl Display for TableScan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TableScan: {}", self.table_name.to_quanlify_name(),)
+        write!(f, "TableScan: {}", self.table_name.to_qualified_name(),)
     }
 }
 

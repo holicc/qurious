@@ -1,4 +1,5 @@
 use crate::arrow_err;
+use crate::common::table_schema::TableSchemaRef;
 use crate::error::{Error, Result};
 use crate::physical::expr::Accumulator;
 use crate::physical::{
@@ -107,7 +108,7 @@ impl<'a> GroupAccumulator<'a> {
 }
 
 pub struct HashAggregate {
-    schema: SchemaRef,
+    schema: TableSchemaRef,
     input: Arc<dyn PhysicalPlan>,
     group_exprs: Vec<Arc<dyn PhysicalExpr>>,
     aggregate_exprs: Vec<Arc<dyn AggregateExpr>>,
@@ -115,7 +116,7 @@ pub struct HashAggregate {
 
 impl HashAggregate {
     pub fn new(
-        schema: SchemaRef,
+        schema: TableSchemaRef,
         input: Arc<dyn PhysicalPlan>,
         group_exprs: Vec<Arc<dyn PhysicalExpr>>,
         aggregate_exprs: Vec<Arc<dyn AggregateExpr>>,
@@ -131,7 +132,7 @@ impl HashAggregate {
 
 impl PhysicalPlan for HashAggregate {
     fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+        self.schema.arrow_schema()
     }
 
     fn execute(&self) -> Result<Vec<RecordBatch>> {
@@ -161,7 +162,8 @@ impl PhysicalPlan for HashAggregate {
             group_accumulator.update(batch.num_rows(), &group_by_values, &input_values)?;
         }
 
-        RecordBatch::try_new(self.schema.clone(), group_accumulator.output(&self.schema)?)
+        let schema = self.schema.arrow_schema();
+        RecordBatch::try_new(schema.clone(), group_accumulator.output(&schema)?)
             .map(|v| vec![v])
             .map_err(|e| arrow_err!(e))
     }
@@ -188,7 +190,7 @@ mod tests {
     use arrow::datatypes::DataType;
 
     use crate::{
-        build_schema,
+        build_table_schema,
         physical::{self, expr::MaxAggregateExpr, plan::PhysicalPlan},
         test_utils::build_table_scan_i32,
     };
@@ -197,10 +199,10 @@ mod tests {
 
     #[test]
     fn test_group_by() {
-        let schema = build_schema!(
-            ("c1", DataType::Int32),
-            ("b1", DataType::Int32),
-            ("MAX(a1)", DataType::Int32)
+        let schema = build_table_schema!(
+            (("", "c1"), DataType::Int32),
+            (("", "b1"), DataType::Int32),
+            (("", "MAX(a1)"), DataType::Int32)
         );
 
         let input = build_table_scan_i32(vec![
@@ -220,7 +222,7 @@ mod tests {
             return_type: DataType::Int32,
         }) as Arc<_>];
 
-        let agg = HashAggregate::new(Arc::new(schema), input, group_exprs, aggregate_exprs);
+        let agg = HashAggregate::new(schema, input, group_exprs, aggregate_exprs);
 
         let results = agg.execute().unwrap();
 

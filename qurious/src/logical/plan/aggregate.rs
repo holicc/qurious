@@ -1,15 +1,14 @@
-use arrow::datatypes::{Schema, SchemaRef};
-use itertools::Itertools;
-
 use super::LogicalPlan;
+use crate::common::table_schema::{TableSchema, TableSchemaRef};
 use crate::error::Result;
 use crate::logical::expr::LogicalExpr;
+use crate::utils::expr::exprs_to_fields;
 use std::fmt::Display;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Aggregate {
-    pub schema: SchemaRef,
+    pub schema: TableSchemaRef,
     pub input: Box<LogicalPlan>,
     pub group_expr: Vec<LogicalExpr>,
     pub aggr_expr: Vec<LogicalExpr>,
@@ -17,20 +16,18 @@ pub struct Aggregate {
 
 impl Aggregate {
     pub fn try_new(input: LogicalPlan, group_expr: Vec<LogicalExpr>, aggr_expr: Vec<LogicalExpr>) -> Result<Self> {
-        let group_expr = group_expr.into_iter().unique().collect::<Vec<_>>();
-        let aggr_expr = aggr_expr.into_iter().unique().collect::<Vec<_>>();
-        let group_fields = group_expr.iter().map(|f| f.field(&input));
-        let agg_fields = aggr_expr.iter().map(|f| f.field(&input));
+        let mut qualified_fields = exprs_to_fields(&group_expr, &input)?;
+        qualified_fields.extend(exprs_to_fields(&aggr_expr, &input)?);
 
         Ok(Self {
-            schema: Arc::new(Schema::new(group_fields.chain(agg_fields).collect::<Result<Vec<_>>>()?)),
+            schema: TableSchema::try_new(qualified_fields).map(Arc::new)?,
             input: Box::new(input),
             group_expr,
             aggr_expr,
         })
     }
 
-    pub fn schema(&self) -> SchemaRef {
+    pub fn schema(&self) -> TableSchemaRef {
         self.schema.clone()
     }
 

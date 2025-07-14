@@ -8,6 +8,7 @@ use super::{
 use crate::{
     common::table_relation::TableRelation,
     error::{Error, Result},
+    logical::plan::SubqueryAlias,
 };
 use crate::{
     common::{
@@ -125,6 +126,10 @@ impl LogicalPlanBuilder {
                 input: Box::new(self.plan),
             }),
         })
+    }
+
+    pub fn alias(self, alias: &str) -> Result<Self> {
+        SubqueryAlias::try_new(self.plan, alias).map(|s| LogicalPlanBuilder::from(LogicalPlan::SubqueryAlias(s)))
     }
 
     pub fn limit(self, fetch: Option<usize>, skip: usize) -> Self {

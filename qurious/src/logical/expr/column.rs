@@ -41,6 +41,13 @@ impl Column {
             self.name.clone()
         }
     }
+
+    pub fn with_relation(self, relation: impl Into<TableRelation>) -> Self {
+        Self {
+            relation: Some(relation.into()),
+            ..self
+        }
+    }
 }
 
 impl Display for Column {

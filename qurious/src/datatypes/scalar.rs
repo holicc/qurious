@@ -1,7 +1,9 @@
 use crate::error::{Error, Result};
 use arrow::{
     array::{
-        new_null_array, Array, ArrayRef, ArrowPrimitiveType, BooleanArray, Decimal128Array, Decimal256Array, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, LargeStringArray, PrimitiveArray, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array
+        new_null_array, Array, ArrayRef, ArrowPrimitiveType, BooleanArray, Decimal128Array, Decimal256Array,
+        Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, LargeStringArray, PrimitiveArray,
+        StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
     },
     datatypes::{i256, DataType, Field},
 };

@@ -8,7 +8,7 @@ pub enum Operator {
     GtEq,
     Lt,
     LtEq,
-    
+
     And,
     Or,
 

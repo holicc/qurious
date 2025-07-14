@@ -8,7 +8,14 @@ use arrow::{
 use sqlparser::parser::Parser;
 
 use crate::{
-    datasource::memory::MemoryTable, logical::plan::LogicalPlan, physical::plan::{PhysicalPlan, Scan}, planner::sql::SqlQueryPlanner
+    common::table_relation::TableRelation,
+    datasource::memory::MemoryTable,
+    logical::plan::LogicalPlan,
+    optimizer::OptimizerRule,
+    physical::plan::{PhysicalPlan, Scan},
+    planner::sql::SqlQueryPlanner,
+    provider::table::TableProvider,
+    utils,
 };
 
 #[macro_export]
@@ -74,6 +81,61 @@ macro_rules! build_schema {
 }
 
 #[macro_export]
+macro_rules! build_table_schema {
+    ( $(($qualified_field:expr,$data_type:expr)),+$(,)?) => {
+        {
+            use crate::common::table_schema::TableSchema;
+            use crate::common::table_relation::TableRelation;
+            use arrow::datatypes::Field;
+            use std::sync::Arc;
+
+            let qualified_fields = vec![
+                $(
+                    {
+                        let (relation, field_name) = $qualified_field;
+                        let relation = if relation.is_empty() {
+                            None
+                        } else {
+                            Some(TableRelation::from(relation))
+                        };
+                        let field = Arc::new(Field::new(field_name, $data_type, false));
+                        (relation, field)
+                    },
+                )*
+            ];
+
+            Arc::new(TableSchema::try_new(qualified_fields).unwrap())
+        }
+    };
+
+    ( $(($qualified_field:expr,$data_type:expr, $nullable:expr)),+$(,)? ) => {
+        {
+            use crate::common::table_schema::TableSchema;
+            use crate::common::table_relation::TableRelation;
+            use arrow::datatypes::Field;
+            use std::sync::Arc;
+
+            let qualified_fields = vec![
+                $(
+                    {
+                        let (relation, field_name) = $qualified_field;
+                        let relation = if relation.is_empty() {
+                            None
+                        } else {
+                            Some(TableRelation::from(relation))
+                        };
+                        let field = Arc::new(Field::new(field_name, $data_type, $nullable));
+                        (relation, field)
+                    },
+                )*
+            ];
+
+            Arc::new(TableSchema::try_new(qualified_fields).unwrap())
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! build_table_scan {
     ( $(($column: expr, $data_type: ty, $f_dy: expr, $data: expr)),+$(,)? ) => {
        {
@@ -102,6 +164,18 @@ macro_rules! build_table_scan {
         Arc::new(Scan::new(Arc::new(schema), Arc::new(source), None))
        }
     };
+}
+
+pub fn assert_after_optimizer(sql: &str, optimizer: impl OptimizerRule, expected: Vec<&str>) {
+    let plan = sql_to_plan(sql);
+    let plan = optimizer.optimize(plan).unwrap();
+    let actual = utils::format(&plan, 0);
+    let actual = actual.trim().lines().collect::<Vec<_>>();
+
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{expected:#?}\nactual:\n\n{actual:#?}\n\n"
+    );
 }
 
 pub fn assert_batch_eq(actual: &[RecordBatch], except: Vec<&str>) {
@@ -186,9 +260,18 @@ pub fn sql_to_plan(sql: &str) -> LogicalPlan {
         ),
     );
 
-    // Add tables from test_create_table
+    tables.extend(create_tpch_tables());
+
+    let stmt = Parser::new(sql).parse().unwrap();
+    let udsf = HashMap::default();
+    SqlQueryPlanner::create_logical_plan(stmt, tables, &udsf).unwrap()
+}
+
+pub fn create_tpch_tables() -> HashMap<TableRelation, Arc<dyn TableProvider>> {
+    let mut tables = HashMap::new();
+
     tables.insert(
-        "supplier".into(),
+        TableRelation::from("supplier"),
         build_mem_datasource!(
             ("s_suppkey", DataType::Int64, false),
             ("s_name", DataType::Utf8, false),
@@ -202,7 +285,7 @@ pub fn sql_to_plan(sql: &str) -> LogicalPlan {
     );
 
     tables.insert(
-        "part".into(),
+        TableRelation::from("part"),
         build_mem_datasource!(
             ("p_partkey", DataType::Int64, false),
             ("p_name", DataType::Utf8, false),
@@ -218,7 +301,7 @@ pub fn sql_to_plan(sql: &str) -> LogicalPlan {
     );
 
     tables.insert(
-        "partsupp".into(),
+        TableRelation::from("partsupp"),
         build_mem_datasource!(
             ("ps_partkey", DataType::Int64, false),
             ("ps_suppkey", DataType::Int64, false),
@@ -230,7 +313,7 @@ pub fn sql_to_plan(sql: &str) -> LogicalPlan {
     );
 
     tables.insert(
-        "customer".into(),
+        TableRelation::from("customer"),
         build_mem_datasource!(
             ("c_custkey", DataType::Int64, false),
             ("c_name", DataType::Utf8, false),
@@ -245,7 +328,7 @@ pub fn sql_to_plan(sql: &str) -> LogicalPlan {
     );
 
     tables.insert(
-        "orders".into(),
+        TableRelation::from("orders"),
         build_mem_datasource!(
             ("o_orderkey", DataType::Int64, false),
             ("o_custkey", DataType::Int64, false),
@@ -261,7 +344,7 @@ pub fn sql_to_plan(sql: &str) -> LogicalPlan {
     );
 
     tables.insert(
-        "lineitem".into(),
+        TableRelation::from("lineitem"),
         build_mem_datasource!(
             ("l_orderkey", DataType::Int64, false),
             ("l_partkey", DataType::Int64, false),
@@ -284,7 +367,7 @@ pub fn sql_to_plan(sql: &str) -> LogicalPlan {
     );
 
     tables.insert(
-        "nation".into(),
+        TableRelation::from("nation"),
         build_mem_datasource!(
             ("n_nationkey", DataType::Int64, false),
             ("n_name", DataType::Utf8, false),
@@ -295,7 +378,7 @@ pub fn sql_to_plan(sql: &str) -> LogicalPlan {
     );
 
     tables.insert(
-        "region".into(),
+        TableRelation::from("region"),
         build_mem_datasource!(
             ("r_regionkey", DataType::Int64, false),
             ("r_name", DataType::Utf8, false),
@@ -304,7 +387,5 @@ pub fn sql_to_plan(sql: &str) -> LogicalPlan {
         ),
     );
 
-    let stmt = Parser::new(sql).parse().unwrap();
-    let udsf = HashMap::default();
-    SqlQueryPlanner::create_logical_plan(stmt, tables, &udsf).unwrap()
+    tables
 }

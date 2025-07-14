@@ -147,17 +147,9 @@ mod tests {
             Field::new("int2", DataType::Int32, false),
         ]));
         let expr = LogicalExpr::BinaryExpr(BinaryExpr {
-            left: Box::new(LogicalExpr::Column(Column::new(
-                "int1",
-                None::<TableRelation>,
-                false,
-            ))),
+            left: Box::new(LogicalExpr::Column(Column::new("int1", None::<TableRelation>, false))),
             op: Operator::Add,
-            right: Box::new(LogicalExpr::Column(Column::new(
-                "int2",
-                None::<TableRelation>,
-                false,
-            ))),
+            right: Box::new(LogicalExpr::Column(Column::new("int2", None::<TableRelation>, false))),
         });
         let plan = LogicalPlan::Projection(Projection {
             exprs: vec![expr],
