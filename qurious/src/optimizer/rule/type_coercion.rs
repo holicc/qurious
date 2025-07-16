@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use arrow::datatypes::{DataType, Schema};
 
-use super::OptimizerRule;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::error::Result;
 use crate::logical::expr::alias::Alias;
 use crate::logical::expr::{AggregateExpr, BinaryExpr, LogicalExpr};
 use crate::logical::plan::LogicalPlan;
+use crate::optimizer::rule::rule_optimizer::OptimizerRule;
 use crate::utils::merge_schema;
 use crate::utils::type_coercion::get_input_types;
 
@@ -18,7 +18,7 @@ impl OptimizerRule for TypeCoercion {
         "type_coercion"
     }
 
-    fn optimize(&self, base_plan: LogicalPlan) -> Result<LogicalPlan> {
+    fn rewrite(&self, base_plan: LogicalPlan) -> Result<LogicalPlan> {
         base_plan
             .transform(|plan| {
                 if matches!(plan, LogicalPlan::TableScan(_)) {
@@ -98,7 +98,7 @@ mod tests {
 
     fn assert_analyzed_plan_eq(plan: LogicalPlan, expected: &str) {
         let optimizer = TypeCoercion;
-        let optimized_plan = optimizer.optimize(plan).unwrap();
+        let optimized_plan = optimizer.rewrite(plan).unwrap();
         assert_eq!(utils::format(&optimized_plan, 0), expected);
     }
 

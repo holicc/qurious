@@ -11,7 +11,7 @@ use crate::{
     common::table_relation::TableRelation,
     datasource::memory::MemoryTable,
     logical::plan::LogicalPlan,
-    optimizer::OptimizerRule,
+    optimizer::rule::OptimizerRule,
     physical::plan::{PhysicalPlan, Scan},
     planner::sql::SqlQueryPlanner,
     provider::table::TableProvider,
@@ -168,7 +168,7 @@ macro_rules! build_table_scan {
 
 pub fn assert_after_optimizer(sql: &str, optimizer: impl OptimizerRule, expected: Vec<&str>) {
     let plan = sql_to_plan(sql);
-    let plan = optimizer.optimize(plan).unwrap();
+    let plan = optimizer.rewrite(plan).unwrap();
     let actual = utils::format(&plan, 0);
     let actual = actual.trim().lines().collect::<Vec<_>>();
 

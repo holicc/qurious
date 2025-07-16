@@ -9,7 +9,7 @@ use crate::{
         expr::{BinaryExpr, LogicalExpr},
         plan::{Join, LogicalPlan},
     },
-    optimizer::OptimizerRule,
+    optimizer::rule::rule_optimizer::OptimizerRule,
 };
 use std::collections::HashSet;
 
@@ -22,7 +22,7 @@ impl OptimizerRule for ExtractEquijoinPredicate {
         "extract_equijoin_predicate"
     }
 
-    fn optimize(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
+    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
         plan.transform_up(|plan| {
             match plan {
                 LogicalPlan::Join(Join {
@@ -122,12 +122,12 @@ fn check_all_columns_from_schema(columns: &HashSet<Column>, schema: &TableSchema
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{optimizer::OptimizerRule, test_utils::sql_to_plan, utils};
+    use crate::{optimizer::rule::rule_optimizer::OptimizerRule, test_utils::sql_to_plan, utils};
 
     fn assert_after_optimizer(sql: &str, expected: Vec<&str>) {
         let plan = sql_to_plan(sql);
         let optimizer = ExtractEquijoinPredicate;
-        let plan = optimizer.optimize(plan).unwrap();
+        let plan = optimizer.rewrite(plan).unwrap();
         let actual = utils::format(&plan, 0);
         let actual = actual.trim().lines().collect::<Vec<_>>();
 

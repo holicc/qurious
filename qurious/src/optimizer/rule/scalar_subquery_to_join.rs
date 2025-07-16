@@ -1,7 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use super::OptimizerRule;
 use crate::common::join_type::JoinType;
 use crate::common::table_schema::TableSchemaRef;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult, TreeNodeRecursion};
@@ -13,6 +12,7 @@ use crate::logical::expr::alias::Alias;
 use crate::logical::expr::{BinaryExpr, Column, LogicalExpr, SubQuery};
 use crate::logical::plan::LogicalPlan;
 use crate::logical::LogicalPlanBuilder;
+use crate::optimizer::rule::OptimizerRule;
 use crate::utils::alias::AliasGenerator;
 use crate::utils::expr::split_conjunctive_predicates;
 
@@ -38,7 +38,7 @@ impl OptimizerRule for ScalarSubqueryToJoin {
         "scalar_subquery_to_join"
     }
 
-    fn optimize(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
+    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
         let new_plan = plan
             .transform(|plan| match plan {
                 LogicalPlan::Filter(filter) => {
@@ -61,11 +61,28 @@ impl OptimizerRule for ScalarSubqueryToJoin {
                         cur_input = match filter.input.as_ref() {
                             LogicalPlan::EmptyRelation(_) => new_subquery_plan,
                             _ => {
+                                let mut all_correlated_cols = BTreeSet::new();
+                                correlated_exprs
+                                    .correlated_subquery_cols_map
+                                    .values()
+                                    .for_each(|cols| all_correlated_cols.extend(cols.clone()));
+
                                 let join_filter = correlated_exprs
                                     .join_filters
                                     .into_iter()
                                     .reduce(LogicalExpr::and)
-                                    .or(Some(LogicalExpr::Literal(true.into())));
+                                    .map_or(Ok(Some(LogicalExpr::Literal(true.into()))), |expr| {
+                                        expr.transform(|expr| match expr {
+                                            LogicalExpr::Column(col) if all_correlated_cols.contains(&col) => {
+                                                Ok(Transformed::yes(LogicalExpr::Column(
+                                                    col.with_relation(subquery_alias.clone()),
+                                                )))
+                                            }
+                                            _ => Ok(Transformed::no(expr)),
+                                        })
+                                        .data()
+                                        .map(Some)
+                                    })?;
 
                                 LogicalPlanBuilder::from(cur_input)
                                     .join_on(new_subquery_plan, JoinType::Left, join_filter)?
@@ -77,7 +94,7 @@ impl OptimizerRule for ScalarSubqueryToJoin {
                     Ok(Transformed::yes(LogicalPlanBuilder::filter(cur_input, rewritten_expr)?))
                 }
                 LogicalPlan::SubqueryAlias(subquery_alias) => self
-                    .optimize(Arc::unwrap_or_clone(subquery_alias.input))
+                    .rewrite(Arc::unwrap_or_clone(subquery_alias.input))
                     .and_then(|new_plan| {
                         LogicalPlanBuilder::from(new_plan)
                             .alias(&subquery_alias.alias.to_qualified_name())
@@ -89,7 +106,7 @@ impl OptimizerRule for ScalarSubqueryToJoin {
             .data()?;
 
         new_plan
-            .map_children(|child_plan| self.optimize(child_plan).map(Transformed::yes))
+            .map_children(|child_plan| self.rewrite(child_plan).map(Transformed::yes))
             .data()
     }
 }
@@ -322,7 +339,7 @@ mod tests {
             vec![
                 "Projection: (customer.c_custkey)",
                 "  Filter: Int64(1) < __scalar_sq_0.MAX(orders.o_custkey)",
-                "    Left Join: Filter: orders.o_custkey = customer.c_custkey",
+                "    Left Join: Filter: __scalar_sq_0.o_custkey = customer.c_custkey",
                 "      TableScan: customer",
                 "      SubqueryAlias: __scalar_sq_0",
                 "        Projection: (MAX(orders.o_custkey), orders.o_custkey)",
@@ -363,13 +380,13 @@ mod tests {
             vec![
                 "Projection: (customer.c_custkey)",
                 "  Filter: customer.c_acctbal < __scalar_sq_0.SUM(orders.o_totalprice)",
-                "    Left Join: Filter: orders.o_custkey = customer.c_custkey",
+                "    Left Join: Filter: __scalar_sq_0.o_custkey = customer.c_custkey",
                 "      TableScan: customer",
                 "      SubqueryAlias: __scalar_sq_0",
                 "        Projection: (SUM(orders.o_totalprice), orders.o_custkey)",
                 "          Aggregate: group_expr=[orders.o_custkey], aggregat_expr=[SUM(orders.o_totalprice)]",
                 "            Filter: orders.o_totalprice < __scalar_sq_1.SUM(lineitem.l_extendedprice)",
-                "              Left Join: Filter: lineitem.l_orderkey = orders.o_orderkey",
+                "              Left Join: Filter: __scalar_sq_1.l_orderkey = orders.o_orderkey",
                 "                TableScan: orders",
                 "                SubqueryAlias: __scalar_sq_1",
                 "                  Projection: (SUM(lineitem.l_extendedprice), lineitem.l_orderkey)",
@@ -387,7 +404,7 @@ mod tests {
             vec![
                 "Projection: (customer.c_custkey)",
                 "  Filter: customer.c_custkey = __scalar_sq_0.MAX(orders.o_custkey)",
-                "    Left Join: Filter: orders.o_custkey = customer.c_custkey",
+                "    Left Join: Filter: __scalar_sq_0.o_custkey = customer.c_custkey",
                 "      TableScan: customer",
                 "      SubqueryAlias: __scalar_sq_0",
                 "        Projection: (MAX(orders.o_custkey), orders.o_custkey)",
@@ -395,6 +412,84 @@ mod tests {
                 "            Filter: orders.o_orderkey = Int64(1)",
                 "              TableScan: orders",
             ]
+        );
+    }
+
+    #[test]
+    fn test_tpch_q3() {
+        assert_after_optimizer(
+            "SELECT
+        s_acctbal,
+        s_name,
+        n_name,
+        p_partkey,
+        p_mfgr,
+        s_address,
+        s_phone,
+        s_comment
+    FROM
+        part,
+        supplier,
+        partsupp,
+        nation,
+        region
+    WHERE
+            p_partkey = ps_partkey
+      AND s_suppkey = ps_suppkey
+      AND p_size = 15
+      AND p_type like '%BRASS'
+      AND s_nationkey = n_nationkey
+      AND n_regionkey = r_regionkey
+      AND r_name = 'EUROPE'
+      AND ps_supplycost = (
+        SELECT
+            min(ps_supplycost)
+        FROM
+            partsupp,
+            supplier,
+            nation,
+            region
+        WHERE
+                p_partkey = ps_partkey
+          AND s_suppkey = ps_suppkey
+          AND s_nationkey = n_nationkey
+          AND n_regionkey = r_regionkey
+          AND r_name = 'EUROPE'
+    )
+    ORDER BY
+        s_acctbal desc,
+        n_name,
+        s_name,
+        p_partkey
+    LIMIT 10;",
+            ScalarSubqueryToJoin::default(),
+            vec![
+                "Limit: fetch=10, skip=0",
+                "  Sort: supplier.s_acctbal DESC, nation.n_name ASC, supplier.s_name ASC, part.p_partkey ASC",
+                "    Projection: (supplier.s_acctbal, supplier.s_name, nation.n_name, part.p_partkey, part.p_mfgr, supplier.s_address, supplier.s_phone, supplier.s_comment)",
+                "      Filter: part.p_partkey = partsupp.ps_partkey AND supplier.s_suppkey = partsupp.ps_suppkey AND part.p_size = Int64(15) AND part.p_type LIKE Utf8('%BRASS') AND supplier.s_nationkey = nation.n_nationkey AND nation.n_regionkey = region.r_regionkey AND region.r_name = Utf8('EUROPE') AND partsupp.ps_supplycost = __scalar_sq_0.MIN(partsupp.ps_supplycost)",
+                "        Left Join: Filter: part.p_partkey = __scalar_sq_0.ps_partkey",
+                "          CrossJoin",
+                "            CrossJoin",
+                "              CrossJoin",
+                "                CrossJoin",
+                "                  TableScan: part",
+                "                  TableScan: supplier",
+                "                TableScan: partsupp",
+                "              TableScan: nation",
+                "            TableScan: region",
+                "          SubqueryAlias: __scalar_sq_0",
+                "            Projection: (MIN(partsupp.ps_supplycost), partsupp.ps_partkey)",
+                "              Aggregate: group_expr=[partsupp.ps_partkey], aggregat_expr=[MIN(partsupp.ps_supplycost)]",
+                "                Filter: supplier.s_suppkey = partsupp.ps_suppkey AND supplier.s_nationkey = nation.n_nationkey AND nation.n_regionkey = region.r_regionkey AND region.r_name = Utf8('EUROPE')",
+                "                  CrossJoin",
+                "                    CrossJoin",
+                "                      CrossJoin",
+                "                        TableScan: partsupp",
+                "                        TableScan: supplier",
+                "                      TableScan: nation",
+                "                    TableScan: region",
+            ],
         );
     }
 }

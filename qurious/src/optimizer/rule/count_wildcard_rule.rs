@@ -1,9 +1,9 @@
-use super::OptimizerRule;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::Result;
 use crate::logical::expr::{AggregateExpr, AggregateOperator, LogicalExpr};
 use crate::logical::plan::LogicalPlan;
+use crate::optimizer::rule::rule_optimizer::OptimizerRule;
 
 pub struct CountWildcardRule;
 
@@ -12,7 +12,7 @@ impl OptimizerRule for CountWildcardRule {
         "count_wildcard_rule"
     }
 
-    fn optimize(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
+    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
         plan.transform(|input| input.map_exprs(count_wildcard_rule)).data()
     }
 }

@@ -14,6 +14,7 @@ use crate::internal_err;
 use crate::logical::plan::{
     CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, Filter, LogicalPlan,
 };
+use crate::optimizer::rule::RuleBaseOptimizer;
 use crate::optimizer::Optimizer;
 use crate::planner::sql::{parse_csv_options, parse_file_path, SqlQueryPlanner};
 use crate::planner::QueryPlanner;
@@ -34,7 +35,7 @@ pub struct ExecuteSession {
     planner: Arc<dyn QueryPlanner>,
     table_factory: DefaultTableFactory,
     catalog_list: Arc<CatalogProviderList>,
-    optimizer: Optimizer,
+    optimizer: Arc<dyn Optimizer>,
     udfs: RwLock<HashMap<String, Arc<dyn UserDefinedFunction>>>,
 }
 
@@ -65,7 +66,7 @@ impl ExecuteSession {
             planner: Arc::new(DefaultQueryPlanner::default()),
             catalog_list,
             table_factory: DefaultTableFactory::new(),
-            optimizer: Optimizer::new(),
+            optimizer: Arc::new(RuleBaseOptimizer::new()),
             udfs,
         })
     }

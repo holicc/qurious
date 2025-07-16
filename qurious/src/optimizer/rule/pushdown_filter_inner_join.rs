@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use arrow::datatypes::SchemaRef;
 
-use super::OptimizerRule;
 use crate::common::join_type::JoinType;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::datatypes::operator::Operator;
@@ -11,6 +10,7 @@ use crate::error::Result;
 use crate::logical::expr::{BinaryExpr, Column, LogicalExpr, SubQuery};
 use crate::logical::plan::{CrossJoin, Filter, LogicalPlan};
 use crate::logical::LogicalPlanBuilder;
+use crate::optimizer::rule::rule_optimizer::OptimizerRule;
 
 type JoinPairSet<'a> = Vec<(&'a LogicalExpr, &'a LogicalExpr)>;
 
@@ -37,82 +37,86 @@ impl OptimizerRule for PushdownFilterInnerJoin {
         "pushdown_filter_inner_join"
     }
 
-    fn optimize(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
-        // pushdown filter to inner join
-        plan.transform(|plan| {
-            // rewrite sub query
-            let plan = plan
-                .map_exprs(|expr| {
-                    expr.transform(|expr| match expr {
-                        LogicalExpr::SubQuery(query) => self
-                            .optimize(*query.subquery)
-                            .map(|rewritten_query| {
-                                LogicalExpr::SubQuery(SubQuery {
-                                    subquery: Box::new(rewritten_query),
-                                    outer_ref_columns: query.outer_ref_columns,
+    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
+        let new_plan = plan
+            .transform(|plan| {
+                // rewrite sub query
+                let plan = plan
+                    .map_exprs(|expr| {
+                        expr.transform(|expr| match expr {
+                            LogicalExpr::SubQuery(query) => self
+                                .rewrite(*query.subquery)
+                                .map(|rewritten_query| {
+                                    LogicalExpr::SubQuery(SubQuery {
+                                        subquery: Box::new(rewritten_query),
+                                        outer_ref_columns: query.outer_ref_columns,
+                                    })
                                 })
-                            })
-                            .map(Transformed::yes),
-                        _ => Ok(Transformed::no(expr)),
+                                .map(Transformed::yes),
+                            _ => Ok(Transformed::no(expr)),
+                        })
                     })
-                })
-                .data()?;
+                    .data()?;
 
-            match plan {
-                LogicalPlan::Filter(Filter { input, expr: filter })
-                    if matches!(input.as_ref(), LogicalPlan::CrossJoin(_)) =>
-                {
-                    let mut used_join_keys = vec![];
-                    // extract cross join inputs
-                    let mut cross_join_inputs = extract_cross_join_inputs(*input);
-                    // extract filter condition
-                    let join_set = extract_join_set(&filter);
-                    // remove first input as left and try to find a right then combine them into a inner join
-                    let mut left = cross_join_inputs.remove(0);
-                    while !cross_join_inputs.is_empty() {
-                        let right = cross_join_inputs.remove(0);
-                        let left_schema = left.schema();
-                        let right_schema = right.schema();
-                        // try to find a join condition
-                        let valid_join_pairs = join_set
-                            .iter()
-                            .filter(|(l_k, r_k)| is_valid_join_pair(l_k, r_k, &left_schema, &right_schema))
-                            .collect::<Vec<_>>();
-                        // no valid join condition, just cross join
-                        if valid_join_pairs.is_empty() {
-                            left = LogicalPlanBuilder::from(left).cross_join(right)?.build();
-                        } else {
-                            used_join_keys.extend(valid_join_pairs.clone());
-                            // build join on filter
-                            let join_on = valid_join_pairs
-                                .into_iter()
-                                .map(|(l_k, r_k)| {
-                                    LogicalExpr::BinaryExpr(BinaryExpr::new(
-                                        (*l_k).clone(),
-                                        Operator::Eq,
-                                        (*r_k).clone(),
-                                    ))
-                                })
-                                .reduce(|l, r| LogicalExpr::BinaryExpr(BinaryExpr::new(l, Operator::And, r)));
+                match plan {
+                    LogicalPlan::Filter(Filter { input, expr: filter })
+                        if matches!(input.as_ref(), LogicalPlan::CrossJoin(_)) =>
+                    {
+                        let mut used_join_keys = vec![];
+                        // extract cross join inputs
+                        let mut cross_join_inputs = extract_cross_join_inputs(*input);
+                        // extract filter condition
+                        let join_set = extract_join_set(&filter);
+                        // remove first input as left and try to find a right then combine them into a inner join
+                        let mut left = cross_join_inputs.remove(0);
+                        while !cross_join_inputs.is_empty() {
+                            let right = cross_join_inputs.remove(0);
+                            let left_schema = left.schema();
+                            let right_schema = right.schema();
+                            // try to find a join condition
+                            let valid_join_pairs = join_set
+                                .iter()
+                                .filter(|(l_k, r_k)| is_valid_join_pair(l_k, r_k, &left_schema, &right_schema))
+                                .collect::<Vec<_>>();
+                            // no valid join condition, just cross join
+                            if valid_join_pairs.is_empty() {
+                                left = LogicalPlanBuilder::from(left).cross_join(right)?.build();
+                            } else {
+                                used_join_keys.extend(valid_join_pairs.clone());
+                                // build join on filter
+                                let join_on = valid_join_pairs
+                                    .into_iter()
+                                    .map(|(l_k, r_k)| {
+                                        LogicalExpr::BinaryExpr(BinaryExpr::new(
+                                            (*l_k).clone(),
+                                            Operator::Eq,
+                                            (*r_k).clone(),
+                                        ))
+                                    })
+                                    .reduce(|l, r| LogicalExpr::BinaryExpr(BinaryExpr::new(l, Operator::And, r)));
 
-                            // find the best join condition
-                            left = LogicalPlanBuilder::from(left)
-                                .join_on(right, JoinType::Inner, join_on)?
-                                .build();
+                                // find the best join condition
+                                left = LogicalPlanBuilder::from(left)
+                                    .join_on(right, JoinType::Inner, join_on)?
+                                    .build();
+                            }
+                        }
+
+                        match remove_join_key_from_filter(&filter, &used_join_keys) {
+                            Some(expr) => Filter::try_new(left, expr)
+                                .map(LogicalPlan::Filter)
+                                .map(Transformed::yes),
+                            None => Ok(Transformed::yes(left)),
                         }
                     }
-
-                    match remove_join_key_from_filter(&filter, &used_join_keys) {
-                        Some(expr) => Filter::try_new(left, expr)
-                            .map(LogicalPlan::Filter)
-                            .map(Transformed::yes),
-                        None => Ok(Transformed::yes(left)),
-                    }
+                    _ => Ok(Transformed::no(plan)),
                 }
-                _ => Ok(Transformed::no(plan)),
-            }
-        })
-        .data()
+            })
+            .data()?;
+
+        new_plan
+            .map_children(|plan| self.rewrite(plan).map(Transformed::yes))
+            .data()
     }
 }
 
@@ -235,7 +239,9 @@ fn check_all_columns_from_schema(columns: &HashSet<&Column>, schema: &SchemaRef)
 
 #[cfg(test)]
 mod tests {
-    use crate::{optimizer::pushdown_filter_inner_join::PushdownFilterInnerJoin, test_utils::assert_after_optimizer};
+    use crate::{
+        optimizer::rule::pushdown_filter_inner_join::PushdownFilterInnerJoin, test_utils::assert_after_optimizer,
+    };
 
     #[test]
     fn test_not_valid_join_pair() {
