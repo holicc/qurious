@@ -1,5 +1,6 @@
 use log::debug;
 
+use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::error::Result;
 use crate::logical::plan::LogicalPlan;
 use crate::optimizer::rule::count_wildcard_rule::CountWildcardRule;
@@ -38,7 +39,9 @@ impl Optimizer for RuleBaseOptimizer {
         let mut current_plan = plan.clone();
         for rule in &self.rules {
             debug!("Applying rule: {}", rule.name());
-            current_plan = rule.rewrite(current_plan)?;
+            current_plan = current_plan
+                .map_children(|plan| rule.rewrite(plan).map(Transformed::yes))
+                .data()?;
         }
         Ok(current_plan)
     }

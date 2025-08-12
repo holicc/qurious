@@ -177,6 +177,13 @@ impl LogicalExpr {
         }
     }
 
+    pub fn try_as_column(&self) -> Option<&Column> {
+        match self {
+            LogicalExpr::Column(column) => Some(column),
+            _ => None,
+        }
+    }
+
     pub fn column_refs(&self) -> HashSet<&Column> {
         let mut columns = HashSet::new();
 

@@ -5,7 +5,7 @@ use crate::{
     datatypes::operator::Operator,
     error::Result,
     logical::{
-        expr::{alias::Alias, BinaryExpr, LogicalExpr},
+        expr::{alias::Alias, BinaryExpr, Column, LogicalExpr},
         plan::LogicalPlan,
     },
 };
@@ -37,4 +37,15 @@ fn split_conjunction_impl(filter: LogicalExpr, mut exprs: Vec<LogicalExpr>) -> V
             exprs
         }
     }
+}
+
+pub fn is_restrict_null_predicate<'a>(
+    predicate: &'a LogicalExpr,
+    join_cols_of_predicates: impl IntoIterator<Item = &'a Column>,
+) -> Result<bool> {
+    if matches!(predicate, LogicalExpr::Column(_)) {
+        return Ok(true);
+    }
+
+    todo!()
 }

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use arrow::datatypes::SchemaRef;
@@ -8,9 +8,10 @@ use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::datatypes::operator::Operator;
 use crate::error::Result;
 use crate::logical::expr::{BinaryExpr, Column, LogicalExpr, SubQuery};
-use crate::logical::plan::{CrossJoin, Filter, LogicalPlan};
+use crate::logical::plan::{CrossJoin, Filter, Join, LogicalPlan};
 use crate::logical::LogicalPlanBuilder;
 use crate::optimizer::rule::rule_optimizer::OptimizerRule;
+use crate::utils::expr::{is_restrict_null_predicate, split_conjunctive_predicates};
 
 type JoinPairSet<'a> = Vec<(&'a LogicalExpr, &'a LogicalExpr)>;
 
@@ -38,203 +39,99 @@ impl OptimizerRule for PushdownFilterInnerJoin {
     }
 
     fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
-        let new_plan = plan
-            .transform(|plan| {
-                // rewrite sub query
-                let plan = plan
-                    .map_exprs(|expr| {
-                        expr.transform(|expr| match expr {
-                            LogicalExpr::SubQuery(query) => self
-                                .rewrite(*query.subquery)
-                                .map(|rewritten_query| {
-                                    LogicalExpr::SubQuery(SubQuery {
-                                        subquery: Box::new(rewritten_query),
-                                        outer_ref_columns: query.outer_ref_columns,
-                                    })
-                                })
-                                .map(Transformed::yes),
-                            _ => Ok(Transformed::no(expr)),
-                        })
-                    })
-                    .data()?;
-
-                match plan {
-                    LogicalPlan::Filter(Filter { input, expr: filter })
-                        if matches!(input.as_ref(), LogicalPlan::CrossJoin(_)) =>
-                    {
-                        let mut used_join_keys = vec![];
-                        // extract cross join inputs
-                        let mut cross_join_inputs = extract_cross_join_inputs(*input);
-                        // extract filter condition
-                        let join_set = extract_join_set(&filter);
-                        // remove first input as left and try to find a right then combine them into a inner join
-                        let mut left = cross_join_inputs.remove(0);
-                        while !cross_join_inputs.is_empty() {
-                            let right = cross_join_inputs.remove(0);
-                            let left_schema = left.schema();
-                            let right_schema = right.schema();
-                            // try to find a join condition
-                            let valid_join_pairs = join_set
-                                .iter()
-                                .filter(|(l_k, r_k)| is_valid_join_pair(l_k, r_k, &left_schema, &right_schema))
-                                .collect::<Vec<_>>();
-                            // no valid join condition, just cross join
-                            if valid_join_pairs.is_empty() {
-                                left = LogicalPlanBuilder::from(left).cross_join(right)?.build();
-                            } else {
-                                used_join_keys.extend(valid_join_pairs.clone());
-                                // build join on filter
-                                let join_on = valid_join_pairs
-                                    .into_iter()
-                                    .map(|(l_k, r_k)| {
-                                        LogicalExpr::BinaryExpr(BinaryExpr::new(
-                                            (*l_k).clone(),
-                                            Operator::Eq,
-                                            (*r_k).clone(),
-                                        ))
-                                    })
-                                    .reduce(|l, r| LogicalExpr::BinaryExpr(BinaryExpr::new(l, Operator::And, r)));
-
-                                // find the best join condition
-                                left = LogicalPlanBuilder::from(left)
-                                    .join_on(right, JoinType::Inner, join_on)?
-                                    .build();
-                            }
-                        }
-
-                        match remove_join_key_from_filter(&filter, &used_join_keys) {
-                            Some(expr) => Filter::try_new(left, expr)
-                                .map(LogicalPlan::Filter)
-                                .map(Transformed::yes),
-                            None => Ok(Transformed::yes(left)),
-                        }
-                    }
-                    _ => Ok(Transformed::no(plan)),
-                }
-            })
-            .data()?;
-
-        new_plan
-            .map_children(|plan| self.rewrite(plan).map(Transformed::yes))
-            .data()
-    }
-}
-
-fn remove_join_key_from_filter(filter: &LogicalExpr, used_join_keys: &JoinPairSet) -> Option<LogicalExpr> {
-    if used_join_keys.is_empty() {
-        return Some(filter.clone());
-    }
-
-    match filter {
-        LogicalExpr::BinaryExpr(BinaryExpr { left, op, right }) => {
-            if op == &Operator::Eq && used_join_keys.contains(&(left.as_ref(), right.as_ref())) {
-                return None;
-            }
-
-            if op == &Operator::And {
-                let l = remove_join_key_from_filter(left, used_join_keys);
-                let r = remove_join_key_from_filter(right, used_join_keys);
-
-                return match (l, r) {
-                    (Some(ll), Some(rr)) => Some(LogicalExpr::BinaryExpr(BinaryExpr::new(ll, *op, rr))),
-                    (Some(ll), _) => Some(ll),
-                    (_, Some(rr)) => Some(rr),
-                    _ => None,
-                };
-            }
-
-            if op == &Operator::Or {
-                let l = remove_join_key_from_filter(left, used_join_keys);
-                let r = remove_join_key_from_filter(right, used_join_keys);
-
-                return match (l, r) {
-                    (Some(ll), Some(rr)) => Some(LogicalExpr::BinaryExpr(BinaryExpr::new(ll, *op, rr))),
-                    _ => None,
-                };
-            }
-
-            Some(filter.clone())
+        if let LogicalPlan::Join(join) = plan {
+            return push_down_filter_to_join(join, None);
         }
-        _ => Some(filter.clone()),
+
+        let LogicalPlan::Filter(filter) = plan else {
+            return Ok(plan);
+        };
+
+        match filter.input.as_ref().clone() {
+            LogicalPlan::Join(join) => {
+                push_down_filter_to_join(join, Some(&filter.expr))?;
+                todo!()
+            }
+
+            _ => todo!(),
+        }
+
+        todo!()
     }
 }
 
-fn extract_cross_join_inputs(plan: LogicalPlan) -> Vec<LogicalPlan> {
-    let mut cross_join_inputs = vec![];
-    let mut stack = vec![plan];
+fn push_down_filter_to_join(join: Join, parent_predicate: Option<&LogicalExpr>) -> Result<LogicalPlan> {
+    let parent_filter_exprs = parent_predicate.map_or_else(Vec::new, |expr| split_conjunctive_predicates(expr.clone()));
 
-    while let Some(next) = stack.pop() {
-        match next {
-            LogicalPlan::CrossJoin(CrossJoin { left, right, .. }) => {
-                stack.push(Arc::unwrap_or_clone(right));
-                stack.push(Arc::unwrap_or_clone(left));
+    let join_filter_exprs = join
+        .filter
+        .as_ref()
+        .map_or_else(Vec::new, |expr| split_conjunctive_predicates(expr.clone()));
+
+    let infer_filter_exprs = infer_join_predicates(&join, &parent_filter_exprs, &join_filter_exprs);
+
+    if parent_filter_exprs.is_empty() && join_filter_exprs.is_empty() && infer_filter_exprs.is_empty() {
+        return Ok(LogicalPlan::Join(join));
+    }
+
+    todo!()
+}
+
+fn infer_join_predicates(
+    join: &Join,
+    predicates: &[LogicalExpr],
+    on_filters: &[LogicalExpr],
+) -> Result<Vec<LogicalExpr>> {
+    let join_on_keys = join
+        .on
+        .iter()
+        .filter_map(|(l, r)| {
+            let left = l.try_as_column()?;
+            let right = r.try_as_column()?;
+
+            Some((left, right))
+        })
+        .collect::<Vec<_>>();
+
+    // infer predicates from the pushed down predicates.
+    let predicates = infer_join_predicates_impl::<true, true>(&join.join_type, &join_on_keys, predicates)?;
+
+    todo!()
+}
+
+fn infer_join_predicates_impl<const ENABLE_LEFT_TO_RIGHT: bool, const ENABLE_RIGHT_TO_LEFT: bool>(
+    join_type: &JoinType,
+    join_on_keys: &[(&Column, &Column)],
+    predicates: &[LogicalExpr],
+) -> Result<Vec<LogicalExpr>> {
+    let mut infered_join_predicates = Vec::new();
+
+    for predicate in predicates {
+        let mut join_cols_to_replace = HashMap::new();
+
+        for &col in &predicate.column_refs() {
+            for (l, r) in join_on_keys {
+                if ENABLE_LEFT_TO_RIGHT && col == *l {
+                    join_cols_to_replace.insert(col, *r);
+                }
+                if ENABLE_RIGHT_TO_LEFT && col == *r {
+                    join_cols_to_replace.insert(col, *l);
+                }
             }
-            _ => {
-                cross_join_inputs.push(next);
-            }
+        }
+
+        if join_cols_to_replace.is_empty() {
+            continue;
+        }
+
+        let is_null_predicate = is_restrict_null_predicate(&predicate, join_cols_to_replace.keys().cloned())?;
+
+        if join_type == &JoinType::Inner || is_null_predicate {
+            infered_join_predicates.push(predicate.clone());
         }
     }
 
-    cross_join_inputs
-}
-
-fn extract_join_set<'a>(expr: &'a LogicalExpr) -> JoinPairSet<'a> {
-    let mut join_set = JoinPairSet::new();
-
-    let mut stack = vec![expr];
-
-    while let Some(next) = stack.pop() {
-        match next {
-            LogicalExpr::BinaryExpr(BinaryExpr { left, op, right }) => match op {
-                Operator::And => {
-                    stack.push(right);
-                    stack.push(left);
-                }
-                Operator::Or => {
-                    let left_set = extract_join_set(&left);
-                    let right_set = extract_join_set(&right);
-
-                    // only join both side have the same key
-                    for (l_k, r_k) in left_set {
-                        if right_set.contains(&(l_k, r_k)) || right_set.contains(&(r_k, l_k)) {
-                            join_set.push((l_k, r_k));
-                        }
-                    }
-                }
-                Operator::Eq => {
-                    let pair = (left.as_ref(), right.as_ref());
-                    if !join_set.contains(&pair) {
-                        join_set.push(pair);
-                    }
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-    }
-
-    join_set
-}
-
-fn is_valid_join_pair(l_k: &LogicalExpr, r_k: &LogicalExpr, left_schema: &SchemaRef, right_schema: &SchemaRef) -> bool {
-    let l_cols = l_k.column_refs();
-    let r_cols = r_k.column_refs();
-
-    (!l_cols.is_empty() && !r_cols.is_empty())
-        && ((check_all_columns_from_schema(&l_cols, &left_schema)
-            && check_all_columns_from_schema(&r_cols, &right_schema))
-            || (check_all_columns_from_schema(&r_cols, &left_schema)
-                && check_all_columns_from_schema(&l_cols, &right_schema)))
-}
-
-fn check_all_columns_from_schema(columns: &HashSet<&Column>, schema: &SchemaRef) -> bool {
-    for col in columns.iter() {
-        if schema.field_with_name(&col.name).is_err() {
-            return false;
-        }
-    }
-
-    true
+    Ok(infered_join_predicates)
 }
 
 #[cfg(test)]

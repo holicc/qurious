@@ -7,6 +7,7 @@ mod pushdown_filter_inner_join;
 mod rule_optimizer;
 mod scalar_subquery_to_join;
 mod type_coercion;
+mod simplify_exprs;
 
 pub use rule_optimizer::*;
 

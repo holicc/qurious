@@ -10,7 +10,7 @@ use crate::common::table_relation::TableRelation;
 use crate::datasource::memory::MemoryTable;
 use crate::error::Error;
 use crate::functions::{all_builtin_functions, UserDefinedFunction};
-use crate::internal_err;
+use crate::{internal_err, utils};
 use crate::logical::plan::{
     CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, Filter, LogicalPlan,
 };
@@ -98,6 +98,7 @@ impl ExecuteSession {
             LogicalPlan::Dml(stmt) => self.execute_dml(stmt),
             plan => {
                 let plan = self.optimizer.optimize(plan)?;
+                println!("{}", utils::format(&plan, 0));
                 self.planner.create_physical_plan(&plan)?.execute()
             }
         }
