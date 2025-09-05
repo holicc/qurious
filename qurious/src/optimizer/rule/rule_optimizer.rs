@@ -7,17 +7,18 @@ use crate::optimizer::rule::count_wildcard_rule::CountWildcardRule;
 use crate::optimizer::rule::extract_equijoin_predicate::ExtractEquijoinPredicate;
 use crate::optimizer::rule::pushdown_filter_inner_join::PushdownFilterInnerJoin;
 use crate::optimizer::rule::scalar_subquery_to_join::ScalarSubqueryToJoin;
+use crate::optimizer::rule::simplify_exprs::SimplifyExprs;
 use crate::optimizer::rule::type_coercion::TypeCoercion;
 use crate::optimizer::Optimizer;
 
-pub trait OptimizerRule {
+pub trait OptimizerRule: Sync + Send {
     fn name(&self) -> &str;
 
     fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan>;
 }
 
 pub struct RuleBaseOptimizer {
-    rules: Vec<Box<dyn OptimizerRule + Sync + Send>>,
+    rules: Vec<Box<dyn OptimizerRule>>,
 }
 
 impl RuleBaseOptimizer {
@@ -26,11 +27,16 @@ impl RuleBaseOptimizer {
             rules: vec![
                 Box::new(CountWildcardRule),
                 Box::new(TypeCoercion),
+                Box::new(SimplifyExprs),
                 Box::new(ScalarSubqueryToJoin::default()),
                 Box::new(ExtractEquijoinPredicate),
                 Box::new(PushdownFilterInnerJoin),
             ],
         }
+    }
+
+    pub fn with_rules(rules: Vec<Box<dyn OptimizerRule>>) -> Self {
+        Self { rules }
     }
 }
 
@@ -40,7 +46,7 @@ impl Optimizer for RuleBaseOptimizer {
         for rule in &self.rules {
             debug!("Applying rule: {}", rule.name());
             current_plan = current_plan
-                .map_children(|plan| rule.rewrite(plan).map(Transformed::yes))
+                .transform(|plan| rule.rewrite(plan).map(Transformed::yes))
                 .data()?;
         }
         Ok(current_plan)
