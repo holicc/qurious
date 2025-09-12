@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arrow::datatypes::{DataType, Schema};
 
-use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
+use crate::common::transformed::{Transformed, TransformedResult};
 use crate::error::Result;
 use crate::logical::expr::alias::Alias;
 use crate::logical::expr::{AggregateExpr, BinaryExpr, LogicalExpr};
@@ -18,22 +18,18 @@ impl OptimizerRule for TypeCoercion {
         "type_coercion"
     }
 
-    fn rewrite(&self, base_plan: LogicalPlan) -> Result<LogicalPlan> {
-        base_plan
-            .transform(|plan| {
-                if matches!(plan, LogicalPlan::TableScan(_)) {
-                    return Ok(Transformed::no(plan));
-                }
-                let mut merged_schema = Arc::new(Schema::empty());
-                let schema = plan.schema();
+    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
+        if matches!(plan, LogicalPlan::TableScan(_)) {
+            return Ok(plan);
+        }
+        let mut merged_schema = Arc::new(Schema::empty());
+        let schema = plan.schema();
 
-                for input in plan.children().into_iter().flat_map(|x| x) {
-                    merged_schema = merge_schema(&schema, &input.schema()).map(Arc::new)?;
-                }
+        for input in plan.children().into_iter().flat_map(|x| x) {
+            merged_schema = merge_schema(&schema, &input.schema()).map(Arc::new)?;
+        }
 
-                plan.map_exprs(|expr| type_coercion(&merged_schema, expr))
-            })
-            .data()
+        plan.map_exprs(|expr| type_coercion(&merged_schema, expr)).data()
     }
 }
 

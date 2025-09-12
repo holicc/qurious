@@ -39,74 +39,71 @@ impl OptimizerRule for ScalarSubqueryToJoin {
     }
 
     fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
-        let new_plan = plan
-            .transform(|plan| match plan {
-                LogicalPlan::Filter(filter) => {
-                    if !contains_scalar_subquery(&filter.expr) {
-                        return Ok(Transformed::no(LogicalPlan::Filter(filter)));
-                    }
-
-                    let (subqueries, rewritten_expr) = extract_subquery_exprs(filter.expr.clone(), &self.id_generator)?;
-                    let mut cur_input = filter.input.as_ref().clone();
-
-                    // iterate through all subqueries in predicate, turning each into a left join
-                    for (subquery, subquery_alias) in subqueries {
-                        let (correlated_exprs, new_subquery_plan) =
-                            find_correlated_exprs(subquery.subquery.as_ref().clone())?;
-
-                        let new_subquery_plan = LogicalPlanBuilder::from(new_subquery_plan)
-                            .alias(&subquery_alias)?
-                            .build();
-
-                        cur_input = match filter.input.as_ref() {
-                            LogicalPlan::EmptyRelation(_) => new_subquery_plan,
-                            _ => {
-                                let mut all_correlated_cols = BTreeSet::new();
-                                correlated_exprs
-                                    .correlated_subquery_cols_map
-                                    .values()
-                                    .for_each(|cols| all_correlated_cols.extend(cols.clone()));
-
-                                let join_filter = correlated_exprs
-                                    .join_filters
-                                    .into_iter()
-                                    .reduce(LogicalExpr::and)
-                                    .map_or(Ok(Some(LogicalExpr::Literal(true.into()))), |expr| {
-                                        expr.transform(|expr| match expr {
-                                            LogicalExpr::Column(col) if all_correlated_cols.contains(&col) => {
-                                                Ok(Transformed::yes(LogicalExpr::Column(
-                                                    col.with_relation(subquery_alias.clone()),
-                                                )))
-                                            }
-                                            _ => Ok(Transformed::no(expr)),
-                                        })
-                                        .data()
-                                        .map(Some)
-                                    })?;
-
-                                LogicalPlanBuilder::from(cur_input)
-                                    .join_on(new_subquery_plan, JoinType::Left, join_filter)?
-                                    .build()
-                            }
-                        };
-                    }
-
-                    Ok(Transformed::yes(LogicalPlanBuilder::filter(cur_input, rewritten_expr)?))
+        let plan = match plan {
+            LogicalPlan::Filter(filter) => {
+                if !contains_scalar_subquery(&filter.expr) {
+                    return Ok(LogicalPlan::Filter(filter));
                 }
-                LogicalPlan::SubqueryAlias(subquery_alias) => self
-                    .rewrite(Arc::unwrap_or_clone(subquery_alias.input))
-                    .and_then(|new_plan| {
-                        LogicalPlanBuilder::from(new_plan)
-                            .alias(&subquery_alias.alias.to_qualified_name())
-                            .map(LogicalPlanBuilder::build)
-                    })
-                    .map(Transformed::yes),
-                _ => Ok(Transformed::no(plan)),
-            })
-            .data()?;
 
-        new_plan
-            .map_children(|child_plan| self.rewrite(child_plan).map(Transformed::yes))
+                let (subqueries, rewritten_expr) = extract_subquery_exprs(filter.expr.clone(), &self.id_generator)?;
+                let mut cur_input = filter.input.as_ref().clone();
+
+                // iterate through all subqueries in predicate, turning each into a left join
+                for (subquery, subquery_alias) in subqueries {
+                    let (correlated_exprs, new_subquery_plan) =
+                        find_correlated_exprs(subquery.subquery.as_ref().clone())?;
+
+                    let new_subquery_plan = LogicalPlanBuilder::from(new_subquery_plan)
+                        .alias(&subquery_alias)?
+                        .build();
+
+                    cur_input = match filter.input.as_ref() {
+                        LogicalPlan::EmptyRelation(_) => new_subquery_plan,
+                        _ => {
+                            let mut all_correlated_cols = BTreeSet::new();
+                            correlated_exprs
+                                .correlated_subquery_cols_map
+                                .values()
+                                .for_each(|cols| all_correlated_cols.extend(cols.clone()));
+
+                            let join_filter = correlated_exprs
+                                .join_filters
+                                .into_iter()
+                                .reduce(LogicalExpr::and)
+                                .map_or(Ok(Some(LogicalExpr::Literal(true.into()))), |expr| {
+                                    expr.transform(|expr| match expr {
+                                        LogicalExpr::Column(col) if all_correlated_cols.contains(&col) => {
+                                            Ok(Transformed::yes(LogicalExpr::Column(
+                                                col.with_relation(subquery_alias.clone()),
+                                            )))
+                                        }
+                                        _ => Ok(Transformed::no(expr)),
+                                    })
+                                    .data()
+                                    .map(Some)
+                                })?;
+
+                            LogicalPlanBuilder::from(cur_input)
+                                .join_on(new_subquery_plan, JoinType::Left, join_filter)?
+                                .build()
+                        }
+                    };
+                }
+
+                LogicalPlanBuilder::filter(cur_input, rewritten_expr)?
+            }
+            LogicalPlan::SubqueryAlias(subquery_alias) => self
+                .rewrite(Arc::unwrap_or_clone(subquery_alias.input))
+                .and_then(|new_plan| {
+                    LogicalPlanBuilder::from(new_plan)
+                        .alias(&subquery_alias.alias.to_qualified_name())
+                        .map(LogicalPlanBuilder::build)
+                })?,
+            _ => plan,
+        };
+
+        // rewrite children
+        plan.map_children(|child_plan| self.rewrite(child_plan).map(Transformed::yes))
             .data()
     }
 }

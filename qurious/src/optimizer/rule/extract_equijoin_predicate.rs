@@ -1,7 +1,5 @@
 use crate::common::table_schema::TableSchemaRef;
-use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::error::Result;
-use crate::logical::expr::Column;
 use crate::utils::expr::{check_all_columns_from_schema, split_conjunctive_predicates};
 use crate::{
     datatypes::operator::Operator,
@@ -11,7 +9,6 @@ use crate::{
     },
     optimizer::rule::rule_optimizer::OptimizerRule,
 };
-use std::collections::HashSet;
 
 /// Extract equijoin predicate from join filter.
 /// extract equijoin predicate from join filter and treat equijoin predicate specially.
@@ -23,36 +20,33 @@ impl OptimizerRule for ExtractEquijoinPredicate {
     }
 
     fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
-        plan.transform_up(|plan| {
-            match plan {
-                LogicalPlan::Join(Join {
-                    left,
-                    right,
-                    join_type,
-                    mut on,
-                    filter: Some(filter),
-                    schema,
-                }) => {
-                    // Extract equijoin predicates from filter
-                    let (equijoin_predicates, remaining_filter) =
-                        extract_equijoin_predicates(filter, left.table_schema(), right.table_schema());
+        let LogicalPlan::Join(Join {
+            left,
+            right,
+            join_type,
+            mut on,
+            filter: Some(filter),
+            schema,
+        }) = plan
+        else {
+            return Ok(plan);
+        };
 
-                    // Combine existing join conditions with extracted equijoin predicates
-                    on.extend(equijoin_predicates);
+        // Extract equijoin predicates from filter
+        let (equijoin_predicates, remaining_filter) =
+            extract_equijoin_predicates(filter, left.table_schema(), right.table_schema());
 
-                    Ok(Transformed::yes(LogicalPlan::Join(Join {
-                        left,
-                        right,
-                        join_type,
-                        on,
-                        filter: remaining_filter,
-                        schema,
-                    })))
-                }
-                _ => Ok(Transformed::no(plan)),
-            }
-        })
-        .data()
+        // Combine existing join conditions with extracted equijoin predicates
+        on.extend(equijoin_predicates);
+
+        Ok(LogicalPlan::Join(Join {
+            left,
+            right,
+            join_type,
+            on,
+            filter: remaining_filter,
+            schema,
+        }))
     }
 }
 
@@ -110,30 +104,16 @@ fn extract_equijoin_predicates(
     )
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{optimizer::rule::rule_optimizer::OptimizerRule, test_utils::sql_to_plan, utils};
-
-    fn assert_after_optimizer(sql: &str, expected: Vec<&str>) {
-        let plan = sql_to_plan(sql);
-        let optimizer = ExtractEquijoinPredicate;
-        let plan = optimizer.rewrite(plan).unwrap();
-        let actual = utils::format(&plan, 0);
-        let actual = actual.trim().lines().collect::<Vec<_>>();
-
-        assert_eq!(
-            expected, actual,
-            "\n\nexpected:\n\n{expected:#?}\nactual:\n\n{actual:#?}\n\n"
-        );
-    }
+    use crate::test_utils::assert_after_optimizer;
 
     #[test]
     fn test_extract_equijoin_predicate_from_filter() {
         assert_after_optimizer(
             "SELECT * FROM users INNER JOIN repos ON users.id = repos.owner_id WHERE users.id = repos.id AND users.name = 'test'",
+            Box::new(ExtractEquijoinPredicate),
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = repos.id AND users.name = Utf8('test')",
@@ -148,6 +128,7 @@ mod tests {
     fn test_no_equijoin_predicates_in_filter() {
         assert_after_optimizer(
             "SELECT * FROM users INNER JOIN repos ON users.id > repos.owner_id WHERE users.name = 'test' AND repos.name = 'repo'",
+            Box::new(ExtractEquijoinPredicate),
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.name = Utf8('test') AND repos.name = Utf8('repo')",
@@ -162,6 +143,7 @@ mod tests {
     fn test_multiple_equijoin_predicates() {
         assert_after_optimizer(
             "SELECT * FROM users INNER JOIN repos ON users.id = repos.owner_id AND users.name = repos.name WHERE users.id = repos.id AND users.email = 'test@example.com'",
+            Box::new(ExtractEquijoinPredicate),
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = repos.id AND users.email = Utf8('test@example.com')",
