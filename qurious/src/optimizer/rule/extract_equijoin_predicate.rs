@@ -2,7 +2,7 @@ use crate::common::table_schema::TableSchemaRef;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::error::Result;
 use crate::logical::expr::Column;
-use crate::utils::expr::split_conjunctive_predicates;
+use crate::utils::expr::{check_all_columns_from_schema, split_conjunctive_predicates};
 use crate::{
     datatypes::operator::Operator,
     logical::{
@@ -110,14 +110,7 @@ fn extract_equijoin_predicates(
     )
 }
 
-fn check_all_columns_from_schema(columns: &HashSet<Column>, schema: &TableSchemaRef) -> bool {
-    for col in columns.iter() {
-        if !schema.has_field(col.relation.as_ref(), &col.name) {
-            return false;
-        }
-    }
-    true
-}
+
 
 #[cfg(test)]
 mod tests {

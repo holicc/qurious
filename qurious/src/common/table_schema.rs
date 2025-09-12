@@ -58,6 +58,10 @@ impl TableSchema {
         }
     }
 
+    pub fn has_column(&self, column: &Column) -> bool {
+        self.has_field(column.relation.as_ref(), &column.name)
+    }
+
     pub fn columns(&self) -> Vec<Column> {
         self.schema
             .fields()

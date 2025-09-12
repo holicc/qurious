@@ -1,7 +1,10 @@
+use std::collections::HashSet;
+
 use arrow::datatypes::FieldRef;
+use itertools::Itertools;
 
 use crate::{
-    common::table_relation::TableRelation,
+    common::{table_relation::TableRelation, table_schema::TableSchemaRef},
     datatypes::operator::Operator,
     error::Result,
     logical::{
@@ -9,6 +12,8 @@ use crate::{
         plan::LogicalPlan,
     },
 };
+
+
 
 pub fn exprs_to_fields(exprs: &[LogicalExpr], plan: &LogicalPlan) -> Result<Vec<(Option<TableRelation>, FieldRef)>> {
     exprs
@@ -48,4 +53,13 @@ pub fn is_restrict_null_predicate<'a>(
     }
 
     todo!()
+}
+
+pub fn check_all_columns_from_schema(columns: &HashSet<Column>, schema: &TableSchemaRef) -> bool {
+    for col in columns.iter() {
+        if !schema.has_field(col.relation.as_ref(), &col.name) {
+            return false;
+        }
+    }
+    true
 }

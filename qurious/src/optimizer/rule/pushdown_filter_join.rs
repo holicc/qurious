@@ -31,11 +31,11 @@ type JoinPairSet<'a> = Vec<(&'a LogicalExpr, &'a LogicalExpr)>;
 ///     TableScan b
 /// ```
 #[derive(Debug, Default, Clone)]
-pub struct PushdownFilterInnerJoin;
+pub struct PushdownFilterJoin;
 
-impl OptimizerRule for PushdownFilterInnerJoin {
+impl OptimizerRule for PushdownFilterJoin {
     fn name(&self) -> &str {
-        "pushdown_filter_inner_join"
+        "pushdown_filter_join"
     }
 
     fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
@@ -136,15 +136,13 @@ fn infer_join_predicates_impl<const ENABLE_LEFT_TO_RIGHT: bool, const ENABLE_RIG
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        optimizer::rule::pushdown_filter_inner_join::PushdownFilterInnerJoin, test_utils::assert_after_optimizer,
-    };
+    use crate::{optimizer::rule::pushdown_filter_join::PushdownFilterJoin, test_utils::assert_after_optimizer};
 
     #[test]
     fn test_not_valid_join_pair() {
         assert_after_optimizer(
             "SELECT * FROM users,repos WHERE (users.id = repos.owner_id AND users.id = 10) OR (users.name = repos.name AND repos.id = 20)",
-            Box::new(PushdownFilterInnerJoin),
+            Box::new(PushdownFilterJoin),
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = repos.owner_id AND users.id = Int64(10) OR users.name = repos.name AND repos.id = Int64(20)",
@@ -156,7 +154,7 @@ mod tests {
 
         assert_after_optimizer(
             "SELECT * FROM users,repos WHERE (users.id = repos.owner_id AND users.id = 10) OR (users.id = repos.id OR users.id = 20)",
-            Box::new(PushdownFilterInnerJoin),
+            Box::new(PushdownFilterJoin),
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = repos.owner_id AND users.id = Int64(10) OR users.id = repos.id OR users.id = Int64(20)",
@@ -171,7 +169,7 @@ mod tests {
     fn should_not_pushdown_filter_for_inner_join() {
         assert_after_optimizer(
             "SELECT * FROM users INNER JOIN repos ON users.id = repos.owner_id WHERE users.id = 10",
-            Box::new(PushdownFilterInnerJoin),
+            Box::new(PushdownFilterJoin),
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = Int64(10)",
@@ -186,7 +184,7 @@ mod tests {
     fn test_multiple_cross_join() {
         assert_after_optimizer(
             "SELECT * FROM users,repos,commits WHERE users.id = repos.owner_id AND repos.id = commits.repo_id",
-            Box::new(PushdownFilterInnerJoin),
+            Box::new(PushdownFilterJoin),
             vec![
                 "Projection: (users.email, commits.id, repos.id, users.id, commits.message, repos.name, users.name, repos.owner_id, commits.repo_id, commits.time, commits.user_id)",
                 "  Inner Join: Filter: users.id = repos.owner_id AND repos.id = commits.repo_id",
@@ -213,7 +211,7 @@ mod tests {
                 AND n_regionkey = r_regionkey 
                 AND r_name = 'EUROPE'
             "#,
-            Box::new(PushdownFilterInnerJoin),
+            Box::new(PushdownFilterJoin),
             vec![
                 "Projection: (MIN(partsupp.ps_supplycost))",
                 "  Aggregate: group_expr=[], aggregat_expr=[MIN(partsupp.ps_supplycost)]",
@@ -278,7 +276,7 @@ mod tests {
                     p_partkey
                 limit 10;
         "#,
-            Box::new(PushdownFilterInnerJoin),
+            Box::new(PushdownFilterJoin),
             vec![
                 "Limit: fetch=10, skip=0",
                 "  Sort: supplier.s_acctbal DESC, nation.n_name ASC, supplier.s_name ASC, part.p_partkey ASC",
@@ -312,7 +310,7 @@ mod tests {
     fn test_pushdown_filter_inner_join_or() {
         assert_after_optimizer(
             "SELECT * FROM users, repos WHERE users.id = repos.owner_id or repos.owner_id = users.id",
-            Box::new(PushdownFilterInnerJoin),
+            Box::new(PushdownFilterJoin),
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Inner Join: Filter: users.id = repos.owner_id",
@@ -323,7 +321,7 @@ mod tests {
 
         assert_after_optimizer(
             "SELECT * FROM users, repos WHERE (users.id = repos.owner_id and users.id > 1) OR (users.id = repos.owner_id and repos.owner_id = 30)",
-            Box::new(PushdownFilterInnerJoin),
+            Box::new(PushdownFilterJoin),
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id > Int64(1) OR repos.owner_id = Int64(30)",
@@ -338,7 +336,7 @@ mod tests {
     fn test_pushdown_filter_inner_join_and() {
         assert_after_optimizer(
             "SELECT * FROM users, repos WHERE users.id = repos.owner_id and users.id > 10",
-            Box::new(PushdownFilterInnerJoin),
+            Box::new(PushdownFilterJoin),
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id > Int64(10)",
@@ -350,7 +348,7 @@ mod tests {
 
         assert_after_optimizer(
             "SELECT * FROM users, repos WHERE (users.id = repos.owner_id and users.id > 1) AND (users.id = repos.owner_id and repos.owner_id = 30)",
-            Box::new(PushdownFilterInnerJoin),
+            Box::new(PushdownFilterJoin),
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id > Int64(1) AND repos.owner_id = Int64(30)",
