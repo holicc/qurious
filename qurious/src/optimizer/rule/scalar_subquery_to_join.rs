@@ -38,11 +38,11 @@ impl OptimizerRule for ScalarSubqueryToJoin {
         "scalar_subquery_to_join"
     }
 
-    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
+    fn rewrite(&self, plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
         let plan = match plan {
             LogicalPlan::Filter(filter) => {
                 if !contains_scalar_subquery(&filter.expr) {
-                    return Ok(LogicalPlan::Filter(filter));
+                    return Ok(Transformed::no(LogicalPlan::Filter(filter)));
                 }
 
                 let (subqueries, rewritten_expr) = extract_subquery_exprs(filter.expr.clone(), &self.id_generator)?;
@@ -95,7 +95,7 @@ impl OptimizerRule for ScalarSubqueryToJoin {
             LogicalPlan::SubqueryAlias(subquery_alias) => self
                 .rewrite(Arc::unwrap_or_clone(subquery_alias.input))
                 .and_then(|new_plan| {
-                    LogicalPlanBuilder::from(new_plan)
+                    LogicalPlanBuilder::from(new_plan.data)
                         .alias(&subquery_alias.alias.to_qualified_name())
                         .map(LogicalPlanBuilder::build)
                 })?,
@@ -103,8 +103,7 @@ impl OptimizerRule for ScalarSubqueryToJoin {
         };
 
         // rewrite children
-        plan.map_children(|child_plan| self.rewrite(child_plan).map(Transformed::yes))
-            .data()
+        plan.map_children(|child_plan| self.rewrite(child_plan))
     }
 }
 

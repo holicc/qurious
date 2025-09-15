@@ -18,9 +18,9 @@ impl OptimizerRule for TypeCoercion {
         "type_coercion"
     }
 
-    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
+    fn rewrite(&self, plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
         if matches!(plan, LogicalPlan::TableScan(_)) {
-            return Ok(plan);
+            return Ok(Transformed::no(plan));
         }
         let mut merged_schema = Arc::new(Schema::empty());
         let schema = plan.schema();
@@ -29,7 +29,7 @@ impl OptimizerRule for TypeCoercion {
             merged_schema = merge_schema(&schema, &input.schema()).map(Arc::new)?;
         }
 
-        plan.map_exprs(|expr| type_coercion(&merged_schema, expr)).data()
+        plan.map_exprs(|expr| type_coercion(&merged_schema, expr))
     }
 }
 
@@ -94,7 +94,7 @@ mod tests {
 
     fn assert_analyzed_plan_eq(plan: LogicalPlan, expected: &str) {
         let optimizer = TypeCoercion;
-        let optimized_plan = optimizer.rewrite(plan).unwrap();
+        let optimized_plan = optimizer.rewrite(plan).data().unwrap();
         assert_eq!(utils::format(&optimized_plan, 0), expected);
     }
 

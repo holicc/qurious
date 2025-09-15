@@ -1,4 +1,5 @@
 use crate::common::table_schema::TableSchemaRef;
+use crate::common::transformed::Transformed;
 use crate::error::Result;
 use crate::utils::expr::{check_all_columns_from_schema, split_conjunctive_predicates};
 use crate::{
@@ -19,7 +20,7 @@ impl OptimizerRule for ExtractEquijoinPredicate {
         "extract_equijoin_predicate"
     }
 
-    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
+    fn rewrite(&self, plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
         let LogicalPlan::Join(Join {
             left,
             right,
@@ -29,7 +30,7 @@ impl OptimizerRule for ExtractEquijoinPredicate {
             schema,
         }) = plan
         else {
-            return Ok(plan);
+            return Ok(Transformed::no(plan));
         };
 
         // Extract equijoin predicates from filter
@@ -39,14 +40,14 @@ impl OptimizerRule for ExtractEquijoinPredicate {
         // Combine existing join conditions with extracted equijoin predicates
         on.extend(equijoin_predicates);
 
-        Ok(LogicalPlan::Join(Join {
+        Ok(Transformed::yes(LogicalPlan::Join(Join {
             left,
             right,
             join_type,
             on,
             filter: remaining_filter,
             schema,
-        }))
+        })))
     }
 }
 

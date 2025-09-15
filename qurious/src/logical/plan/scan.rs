@@ -48,7 +48,12 @@ impl TableScan {
 
 impl Display for TableScan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TableScan: {}", self.table_name.to_qualified_name(),)
+        write!(f, "TableScan: {}", self.table_name.to_qualified_name())?;
+
+        if let Some(filter) = &self.filter {
+            write!(f, ", full_filter=[{}]", filter)?;
+        }
+        Ok(())
     }
 }
 

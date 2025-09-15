@@ -51,8 +51,8 @@ impl OptimizerRule for SimplifyExprs {
         "simplify_exprs"
     }
 
-    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
-        plan.map_exprs(|expr| self.constant_folding(expr)).data()
+    fn rewrite(&self, plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
+        plan.map_exprs(|expr| self.constant_folding(expr))
     }
 }
 

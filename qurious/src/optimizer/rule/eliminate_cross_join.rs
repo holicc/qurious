@@ -1,7 +1,7 @@
 use indexmap::IndexSet;
 
 use crate::{
-    common::{join_type::JoinType, table_schema::TableSchemaRef},
+    common::{join_type::JoinType, table_schema::TableSchemaRef, transformed::Transformed},
     datatypes::operator::Operator,
     error::Result,
     logical::{
@@ -19,11 +19,11 @@ impl OptimizerRule for EliminateCrossJoin {
         "eliminate_cross_join"
     }
 
-    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan> {
+    fn rewrite(&self, plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
         match plan {
             LogicalPlan::Filter(filter) if matches!(filter.input.as_ref(), LogicalPlan::CrossJoin(_)) => {
                 let LogicalPlan::CrossJoin(cross_join) = *filter.input else {
-                    return Ok(LogicalPlan::Filter(filter));
+                    return Ok(Transformed::no(LogicalPlan::Filter(filter)));
                 };
 
                 let left_schema = cross_join.left.table_schema();
@@ -32,10 +32,10 @@ impl OptimizerRule for EliminateCrossJoin {
                 let (join_keys, remaining_predicate) = extract_join_pairs(&filter.expr, &left_schema, &right_schema);
 
                 if join_keys.is_empty() {
-                    Ok(LogicalPlan::Filter(Filter {
+                    Ok(Transformed::no(LogicalPlan::Filter(Filter {
                         input: Box::new(LogicalPlan::CrossJoin(cross_join)),
                         expr: filter.expr,
-                    }))
+                    })))
                 } else {
                     let inner_join_plan = LogicalPlan::Join(Join {
                         left: cross_join.left,
@@ -47,13 +47,13 @@ impl OptimizerRule for EliminateCrossJoin {
                     });
 
                     if let Some(predicate) = remaining_predicate {
-                        LogicalPlanBuilder::filter(inner_join_plan, predicate)
+                        LogicalPlanBuilder::filter(inner_join_plan, predicate).map(Transformed::yes)
                     } else {
-                        Ok(inner_join_plan)
+                        Ok(Transformed::yes(inner_join_plan))
                     }
                 }
             }
-            _ => Ok(plan),
+            _ => Ok(Transformed::no(plan)),
         }
     }
 }

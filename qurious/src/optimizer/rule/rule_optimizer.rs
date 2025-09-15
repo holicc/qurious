@@ -6,7 +6,7 @@ use crate::logical::plan::LogicalPlan;
 use crate::optimizer::rule::count_wildcard_rule::CountWildcardRule;
 use crate::optimizer::rule::eliminate_cross_join::EliminateCrossJoin;
 use crate::optimizer::rule::extract_equijoin_predicate::ExtractEquijoinPredicate;
-use crate::optimizer::rule::pushdown_filter_join::PushdownFilterJoin;
+use crate::optimizer::rule::pushdown_filter_join::PushdownFilter;
 use crate::optimizer::rule::scalar_subquery_to_join::ScalarSubqueryToJoin;
 use crate::optimizer::rule::simplify_exprs::SimplifyExprs;
 use crate::optimizer::rule::type_coercion::TypeCoercion;
@@ -15,7 +15,7 @@ use crate::optimizer::Optimizer;
 pub trait OptimizerRule: Sync + Send {
     fn name(&self) -> &str;
 
-    fn rewrite(&self, plan: LogicalPlan) -> Result<LogicalPlan>;
+    fn rewrite(&self, plan: LogicalPlan) -> Result<Transformed<LogicalPlan>>;
 }
 
 pub struct RuleBaseOptimizer {
@@ -32,7 +32,7 @@ impl RuleBaseOptimizer {
                 Box::new(ScalarSubqueryToJoin::default()),
                 Box::new(EliminateCrossJoin),
                 Box::new(ExtractEquijoinPredicate),
-                Box::new(PushdownFilterJoin),
+                Box::new(PushdownFilter),
             ],
         }
     }
@@ -47,9 +47,7 @@ impl Optimizer for RuleBaseOptimizer {
         let mut current_plan = plan.clone();
         for rule in &self.rules {
             debug!("Applying rule: {}", rule.name());
-            current_plan = current_plan
-                .transform(|plan| rule.rewrite(plan).map(Transformed::yes))
-                .data()?;
+            current_plan = current_plan.transform(|plan| rule.rewrite(plan)).data()?;
         }
         Ok(current_plan)
     }
