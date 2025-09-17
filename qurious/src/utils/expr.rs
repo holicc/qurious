@@ -1,10 +1,13 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use arrow::datatypes::FieldRef;
-use itertools::Itertools;
 
 use crate::{
-    common::{table_relation::TableRelation, table_schema::TableSchemaRef},
+    common::{
+        table_relation::TableRelation,
+        table_schema::TableSchemaRef,
+        transformed::{TransformNode, Transformed, TransformedResult},
+    },
     datatypes::operator::Operator,
     error::Result,
     logical::{
@@ -13,7 +16,44 @@ use crate::{
     },
 };
 
+pub fn replace_col(expr: LogicalExpr, col: &Column, new_col: &Column) -> Result<LogicalExpr> {
+    expr.transform_up(|expr| {
+        if matches!(&expr, LogicalExpr::Column(c) if c == col) {
+            Ok(Transformed::yes(LogicalExpr::Column((*new_col).to_owned())))
+        } else {
+            Ok(Transformed::no(expr))
+        }
+    })
+    .data()
+}
 
+pub fn replace_cols(expr: LogicalExpr, replace_map: &HashMap<&Column, &Column>) -> Result<LogicalExpr> {
+    expr.transform_up(|expr| {
+        if let LogicalExpr::Column(col) = &expr {
+            match replace_map.get(&col) {
+                Some(expr) => Ok(Transformed::yes(LogicalExpr::Column((*expr).to_owned()))),
+                None => Ok(Transformed::no(expr)),
+            }
+        } else {
+            Ok(Transformed::no(expr))
+        }
+    })
+    .data()
+}
+
+pub fn replace_cols_by_name(e: LogicalExpr, replace_map: &HashMap<String, LogicalExpr>) -> Result<LogicalExpr> {
+    e.transform_up(|expr| {
+        Ok(if let LogicalExpr::Column(c) = &expr {
+            match replace_map.get(&c.qualified_name()) {
+                Some(new_c) => Transformed::yes(new_c.clone()),
+                None => Transformed::no(expr),
+            }
+        } else {
+            Transformed::no(expr)
+        })
+    })
+    .data()
+}
 
 pub fn exprs_to_fields(exprs: &[LogicalExpr], plan: &LogicalPlan) -> Result<Vec<(Option<TableRelation>, FieldRef)>> {
     exprs
@@ -24,6 +64,10 @@ pub fn exprs_to_fields(exprs: &[LogicalExpr], plan: &LogicalPlan) -> Result<Vec<
 
 pub fn split_conjunctive_predicates(filter: LogicalExpr) -> Vec<LogicalExpr> {
     split_conjunction_impl(filter, vec![])
+}
+
+pub fn conjunction(filters: impl IntoIterator<Item = LogicalExpr>) -> Option<LogicalExpr> {
+    filters.into_iter().reduce(LogicalExpr::and)
 }
 
 fn split_conjunction_impl(filter: LogicalExpr, mut exprs: Vec<LogicalExpr>) -> Vec<LogicalExpr> {
@@ -42,17 +86,6 @@ fn split_conjunction_impl(filter: LogicalExpr, mut exprs: Vec<LogicalExpr>) -> V
             exprs
         }
     }
-}
-
-pub fn is_restrict_null_predicate<'a>(
-    predicate: &'a LogicalExpr,
-    join_cols_of_predicates: impl IntoIterator<Item = &'a Column>,
-) -> Result<bool> {
-    if matches!(predicate, LogicalExpr::Column(_)) {
-        return Ok(true);
-    }
-
-    todo!()
 }
 
 pub fn check_all_columns_from_schema(columns: &HashSet<Column>, schema: &TableSchemaRef) -> bool {

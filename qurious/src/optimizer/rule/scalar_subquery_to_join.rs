@@ -313,7 +313,7 @@ mod tests {
     fn test_contains_scalar_subquery() {
         assert_after_optimizer(
             "SELECT customer.c_custkey FROM customer WHERE customer.c_custkey < (SELECT MAX(orders.o_custkey) FROM orders)",
-            Box::new(ScalarSubqueryToJoin::default()),
+            vec![Box::new(ScalarSubqueryToJoin::default())],
             vec![
                 "Projection: (customer.c_custkey)",
                 "  Filter: customer.c_custkey < __scalar_sq_0.MAX(orders.o_custkey)",
@@ -331,7 +331,7 @@ mod tests {
     fn test_scalar_subquery_with_filter() {
         assert_after_optimizer(
             "SELECT customer.c_custkey FROM customer WHERE 1 < (SELECT max(orders.o_custkey) FROM orders WHERE orders.o_custkey = customer.c_custkey)",
-            Box::new(ScalarSubqueryToJoin::default()),
+            vec![Box::new(ScalarSubqueryToJoin::default())],
             vec![
                 "Projection: (customer.c_custkey)",
                 "  Filter: Int64(1) < __scalar_sq_0.MAX(orders.o_custkey)",
@@ -349,7 +349,7 @@ mod tests {
     fn test_multiple_subqueries() {
         assert_after_optimizer(
             "SELECT customer.c_custkey FROM customer WHERE 1 < (SELECT MAX(orders.o_custkey) FROM orders) AND 1 < (SELECT MIN(orders.o_custkey) FROM orders)",
-            Box::new(ScalarSubqueryToJoin::default()),
+            vec![Box::new(ScalarSubqueryToJoin::default())],
             vec![
                 "Projection: (customer.c_custkey)",
                 "  Filter: Int64(1) < __scalar_sq_0.MAX(orders.o_custkey) AND Int64(1) < __scalar_sq_1.MIN(orders.o_custkey)",
@@ -372,7 +372,7 @@ mod tests {
     fn test_recursive_subqueries() {
         assert_after_optimizer(
             "SELECT customer.c_custkey FROM customer WHERE customer.c_acctbal < (SELECT SUM(orders.o_totalprice) FROM orders WHERE orders.o_custkey = customer.c_custkey AND orders.o_totalprice < (SELECT SUM(lineitem.l_extendedprice) FROM lineitem WHERE lineitem.l_orderkey = orders.o_orderkey))",
-            Box::new(ScalarSubqueryToJoin::default()),
+            vec![Box::new(ScalarSubqueryToJoin::default())],
             vec![
                 "Projection: (customer.c_custkey)",
                 "  Filter: customer.c_acctbal < __scalar_sq_0.SUM(orders.o_totalprice)",
@@ -396,7 +396,7 @@ mod tests {
     fn test_with_subquery_filters() {
         assert_after_optimizer(
             "SELECT customer.c_custkey FROM customer WHERE customer.c_custkey = (SELECT MAX(orders.o_custkey) FROM orders WHERE orders.o_custkey = customer.c_custkey AND orders.o_orderkey = 1)",
-            Box::new(ScalarSubqueryToJoin::default()),
+            vec![Box::new(ScalarSubqueryToJoin::default())],
             vec![
                 "Projection: (customer.c_custkey)",
                 "  Filter: customer.c_custkey = __scalar_sq_0.MAX(orders.o_custkey)",
@@ -458,7 +458,7 @@ mod tests {
         s_name,
         p_partkey
     LIMIT 10;",
-            Box::new(ScalarSubqueryToJoin::default()),
+            vec![Box::new(ScalarSubqueryToJoin::default())],
             vec![
                 "Limit: fetch=10, skip=0",
                 "  Sort: supplier.s_acctbal DESC, nation.n_name ASC, supplier.s_name ASC, part.p_partkey ASC",

@@ -228,6 +228,14 @@ impl LogicalPlan {
 impl TransformNode for LogicalPlan {
     fn map_children<F: FnMut(Self) -> Result<Transformed<Self>>>(self, mut f: F) -> Result<Transformed<Self>> {
         Ok(match self {
+            LogicalPlan::SubqueryAlias(SubqueryAlias { input, alias, schema }) => f(Arc::unwrap_or_clone(input))?
+                .update(|input| {
+                    LogicalPlan::SubqueryAlias(SubqueryAlias {
+                        input: Arc::new(input),
+                        alias,
+                        schema,
+                    })
+                }),
             LogicalPlan::Projection(Projection { schema, input, exprs }) => f(*input)?.update(|input| {
                 LogicalPlan::Projection(Projection {
                     schema,

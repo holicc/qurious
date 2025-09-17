@@ -164,14 +164,14 @@ macro_rules! build_table_scan {
 
         let source = MemoryTable::try_new(Arc::new(schema.clone()), vec![batch]).unwrap();
 
-        Arc::new(Scan::new(Arc::new(schema), Arc::new(source), None))
+        Arc::new(Scan::new(Arc::new(schema), Arc::new(source), None, None))
        }
     };
 }
 
-pub fn assert_after_optimizer(sql: &str, optimizer: Box<dyn OptimizerRule>, expected: Vec<&str>) {
+pub fn assert_after_optimizer(sql: &str, rules: Vec<Box<dyn OptimizerRule>>, expected: Vec<&str>) {
     let plan = sql_to_plan(sql);
-    let rule_optimizer = RuleBaseOptimizer::with_rules(vec![optimizer]);
+    let rule_optimizer = RuleBaseOptimizer::with_rules(rules);
     let plan = rule_optimizer.optimize(&plan).unwrap();
     let actual = utils::format(&plan, 0);
     let actual = actual.trim().lines().collect::<Vec<_>>();
@@ -228,7 +228,7 @@ pub fn build_table_scan_i32(fields: Vec<(&str, Vec<i32>)>) -> Arc<dyn PhysicalPl
 
     let datasource = MemoryTable::try_new(Arc::new(schema.clone()), vec![record_batch]).unwrap();
 
-    Arc::new(Scan::new(Arc::new(schema), Arc::new(datasource), None))
+    Arc::new(Scan::new(Arc::new(schema), Arc::new(datasource), None, None))
 }
 
 pub fn sql_to_plan(sql: &str) -> LogicalPlan {

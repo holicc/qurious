@@ -6,7 +6,6 @@ use arrow::datatypes::SchemaRef;
 
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::Result;
-use crate::logical::expr::LogicalExpr;
 use crate::physical::expr::PhysicalExpr;
 use crate::physical::plan::PhysicalPlan;
 use std::fmt::Debug;
@@ -34,7 +33,11 @@ pub trait TableProvider: Debug + Send + Sync {
     fn schema(&self) -> SchemaRef;
 
     /// Perform a scan of the data source and return the results as RecordBatch
-    fn scan(&self, projection: Option<Vec<String>>, filters: &[LogicalExpr]) -> Result<Vec<RecordBatch>>;
+    fn scan(
+        &self,
+        projection: Option<Vec<String>>,
+        filters: Option<&Arc<dyn PhysicalExpr>>,
+    ) -> Result<Vec<RecordBatch>>;
 
     /// Get the default value for a column, if available.
     fn get_column_default(&self, _column: &str) -> Option<ScalarValue> {

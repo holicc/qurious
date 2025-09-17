@@ -146,7 +146,7 @@ mod tests {
     fn test_eliminate_cross_join_simple_and() {
         assert_after_optimizer(
             "SELECT * FROM users, repos WHERE users.id = repos.owner_id AND users.id = 10",
-            Box::new(EliminateCrossJoin),
+            vec![Box::new(EliminateCrossJoin)],
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = Int64(10)",
@@ -161,7 +161,7 @@ mod tests {
     fn test_eliminate_cross_join_simple_or() {
         assert_after_optimizer(
             "SELECT * FROM users, repos WHERE users.id = repos.owner_id OR users.id = 10",
-            Box::new(EliminateCrossJoin),
+            vec![Box::new(EliminateCrossJoin)],
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = repos.owner_id OR users.id = Int64(10)",
@@ -176,7 +176,7 @@ mod tests {
     fn test_eliminate_cross_join_and() {
         assert_after_optimizer(
             "SELECT * FROM users, repos WHERE (users.id = repos.owner_id and users.name < 'a') AND (users.id = repos.owner_id and users.name = 'b')",
-            Box::new(EliminateCrossJoin),
+            vec![Box::new(EliminateCrossJoin)],
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.name < Utf8('a') AND users.name = Utf8('b')",
@@ -191,7 +191,7 @@ mod tests {
     fn test_eliminate_cross_join_or() {
         assert_after_optimizer(
             "SELECT * FROM users, repos WHERE (users.id = repos.owner_id and users.name < 'a') OR (users.id = repos.owner_id and users.name = 'b')",
-            Box::new(EliminateCrossJoin),
+            vec![Box::new(EliminateCrossJoin)],
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.name < Utf8('a') OR users.name = Utf8('b')",
@@ -206,7 +206,7 @@ mod tests {
     fn test_eliminate_cross_join_or_with_not_valid_join_pair_case1() {
         assert_after_optimizer(
             "SELECT * FROM users, repos WHERE (users.id = repos.owner_id and users.name < 'a') OR (users.id = repos.id and users.name = 'b')",
-            Box::new(EliminateCrossJoin),
+            vec![Box::new(EliminateCrossJoin)],
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = repos.owner_id AND users.name < Utf8('a') OR users.id = repos.id AND users.name = Utf8('b')",
@@ -221,7 +221,7 @@ mod tests {
     fn test_eliminate_cross_join_or_with_not_valid_join_pair_case2() {
         assert_after_optimizer(
             "SELECT * FROM users, repos WHERE (users.id = repos.owner_id and users.name < 'a') OR (users.id = repos.owner_id OR users.name = 'b')",
-            Box::new(EliminateCrossJoin),
+            vec![Box::new(EliminateCrossJoin)],
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = repos.owner_id AND users.name < Utf8('a') OR users.id = repos.owner_id OR users.name = Utf8('b')",

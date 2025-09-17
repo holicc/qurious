@@ -114,7 +114,7 @@ mod tests {
     fn test_extract_equijoin_predicate_from_filter() {
         assert_after_optimizer(
             "SELECT * FROM users INNER JOIN repos ON users.id = repos.owner_id WHERE users.id = repos.id AND users.name = 'test'",
-            Box::new(ExtractEquijoinPredicate),
+            vec![Box::new(ExtractEquijoinPredicate)],
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = repos.id AND users.name = Utf8('test')",
@@ -129,7 +129,7 @@ mod tests {
     fn test_no_equijoin_predicates_in_filter() {
         assert_after_optimizer(
             "SELECT * FROM users INNER JOIN repos ON users.id > repos.owner_id WHERE users.name = 'test' AND repos.name = 'repo'",
-            Box::new(ExtractEquijoinPredicate),
+            vec![Box::new(ExtractEquijoinPredicate)],
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.name = Utf8('test') AND repos.name = Utf8('repo')",
@@ -144,7 +144,7 @@ mod tests {
     fn test_multiple_equijoin_predicates() {
         assert_after_optimizer(
             "SELECT * FROM users INNER JOIN repos ON users.id = repos.owner_id AND users.name = repos.name WHERE users.id = repos.id AND users.email = 'test@example.com'",
-            Box::new(ExtractEquijoinPredicate),
+            vec![Box::new(ExtractEquijoinPredicate)],
             vec![
                 "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
                 "  Filter: users.id = repos.id AND users.email = Utf8('test@example.com')",

@@ -187,10 +187,17 @@ impl DefaultQueryPlanner {
     }
 
     fn physical_plan_table_scan(&self, table_scan: &TableScan) -> Result<Arc<dyn PhysicalPlan>> {
+        let filter = table_scan
+            .filter
+            .as_ref()
+            .map(|expr| self.create_physical_expr(&table_scan.schema(), &expr))
+            .transpose()?;
+
         Ok(Arc::new(physical::plan::Scan::new(
             table_scan.schema(),
             table_scan.source.clone(),
             None,
+            filter,
         )) as Arc<dyn PhysicalPlan>)
     }
 

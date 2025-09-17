@@ -39,7 +39,7 @@ mod tests {
 
         println!(
             "{}",
-            util::pretty::pretty_format_batches(&source.scan(None, &vec![]).unwrap()).unwrap()
+            util::pretty::pretty_format_batches(&source.scan(None, None).unwrap()).unwrap()
         );
     }
 }

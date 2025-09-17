@@ -34,7 +34,7 @@ impl Column {
             .map_err(|e| arrow_err!(e))
     }
 
-    pub fn quanlified_name(&self) -> String {
+    pub fn qualified_name(&self) -> String {
         if let Some(relation) = &self.relation {
             format!("{}.{}", relation, self.name)
         } else {

@@ -12,7 +12,6 @@ use crate::arrow_err;
 use crate::datatypes::scalar::ScalarValue;
 use crate::error::Error;
 use crate::error::Result;
-use crate::logical::expr::LogicalExpr;
 use crate::physical::expr::PhysicalExpr;
 use crate::physical::plan::PhysicalPlan;
 use crate::provider::table::{TableProvider, TableType};
@@ -67,22 +66,35 @@ impl TableProvider for MemoryTable {
         self.schema.clone()
     }
 
-    fn scan(&self, projection: Option<Vec<String>>, _filters: &[LogicalExpr]) -> Result<Vec<RecordBatch>> {
-        let batches = self.data.read().map_err(|e| Error::InternalError(e.to_string()))?;
+    fn scan(
+        &self,
+        projection: Option<Vec<String>>,
+        filters: Option<&Arc<dyn PhysicalExpr>>,
+    ) -> Result<Vec<RecordBatch>> {
+        self.data
+            .read()
+            .map_err(|e| Error::InternalError(e.to_string()))?
+            .iter()
+            .map(|batch| {
+                let batch = if let Some(projection) = &projection {
+                    let indices = projection
+                        .iter()
+                        .map(|name| self.schema.index_of(name).map_err(|e| arrow_err!(e)))
+                        .collect::<Result<Vec<_>>>()?;
 
-        if let Some(projection) = projection {
-            let indices = projection
-                .iter()
-                .map(|name| self.schema.index_of(name).map_err(|e| arrow_err!(e)))
-                .collect::<Result<Vec<_>>>()?;
+                    batch.project(&indices).map_err(|e| arrow_err!(e))?
+                } else {
+                    batch.clone()
+                };
 
-            batches
-                .iter()
-                .map(|batch| batch.project(&indices).map_err(|e| arrow_err!(e)))
-                .collect()
-        } else {
-            Ok(batches.clone())
-        }
+                if let Some(filters) = filters {
+                    let mask = filters.evaluate(&batch)?;
+                    filter_record_batch(&batch, &mask.as_boolean()).map_err(|e| arrow_err!(e))
+                } else {
+                    Ok(batch)
+                }
+            })
+            .collect::<Result<Vec<RecordBatch>>>()
     }
 
     fn get_column_default(&self, column: &str) -> Option<ScalarValue> {

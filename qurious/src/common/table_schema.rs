@@ -92,6 +92,10 @@ impl TableSchema {
 
         Ok((field.data_type().clone(), field.is_nullable()))
     }
+
+    pub fn qualified_field(&self, index: usize) -> (Option<&TableRelation>, &Field) {
+        (self.field_qualifiers[index].as_ref(), self.schema.field(index))
+    }
 }
 
 impl TableSchema {
@@ -136,7 +140,7 @@ impl Display for TableSchema {
                 .fields()
                 .iter()
                 .zip(self.field_qualifiers.iter())
-                .map(|(f, q)| qualified_name(q, &f.name()))
+                .map(|(f, q)| qualified_name(q.as_ref(), &f.name()))
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -158,7 +162,7 @@ impl From<Schema> for TableSchema {
     }
 }
 
-pub fn qualified_name(qualifier: &Option<TableRelation>, name: &str) -> String {
+pub fn qualified_name(qualifier: Option<&TableRelation>, name: &str) -> String {
     match qualifier {
         Some(q) => format!("{}.{}", q, name),
         None => name.to_string(),

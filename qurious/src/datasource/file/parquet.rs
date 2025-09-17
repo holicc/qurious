@@ -26,7 +26,7 @@ mod tests {
 
         println!(
             "{}",
-            arrow::util::pretty::pretty_format_batches(&source.scan(None, &vec![]).unwrap()).unwrap()
+            arrow::util::pretty::pretty_format_batches(&source.scan(None, None).unwrap()).unwrap()
         );
     }
 }

@@ -97,7 +97,7 @@ impl AggregateExpr {
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
         self.expr.field(plan).and_then(|field| {
             let col_name = if let LogicalExpr::Column(inner) = self.expr.as_ref() {
-                &inner.quanlified_name()
+                &inner.qualified_name()
             } else {
                 field.name()
             };

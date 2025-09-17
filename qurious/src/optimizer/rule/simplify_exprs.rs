@@ -101,7 +101,7 @@ mod tests {
     fn test_constant_folding_where_clause_00() {
         assert_after_optimizer(
             "SELECT * FROM users WHERE id = 1 AND name = 'John' AND false",
-            Box::new(SimplifyExprs),
+            vec![Box::new(SimplifyExprs)],
             vec![
                 "Projection: (users.email, users.id, users.name)",
                 "  Filter: Boolean(false)",
@@ -114,7 +114,7 @@ mod tests {
     fn test_constant_folding_where_clause_01() {
         assert_after_optimizer(
             "SELECT * FROM users WHERE id = 1 + 1",
-            Box::new(SimplifyExprs),
+            vec![Box::new(SimplifyExprs)],
             vec![
                 "Projection: (users.email, users.id, users.name)",
                 "  Filter: users.id = Int64(2)",
@@ -127,7 +127,7 @@ mod tests {
     fn test_constant_folding_boolean_and_true() {
         assert_after_optimizer(
             "SELECT TRUE AND TRUE",
-            Box::new(SimplifyExprs),
+            vec![Box::new(SimplifyExprs)],
             vec!["Projection: (Boolean(true))", "  Empty Relation"],
         );
     }
@@ -136,7 +136,7 @@ mod tests {
     fn test_constant_folding_boolean_and_false() {
         assert_after_optimizer(
             "SELECT TRUE AND FALSE",
-            Box::new(SimplifyExprs),
+            vec![Box::new(SimplifyExprs)],
             vec!["Projection: (Boolean(false))", "  Empty Relation"],
         );
     }
@@ -145,7 +145,7 @@ mod tests {
     fn test_constant_folding_boolean_or_true() {
         assert_after_optimizer(
             "SELECT TRUE OR TRUE",
-            Box::new(SimplifyExprs),
+            vec![Box::new(SimplifyExprs)],
             vec!["Projection: (Boolean(true))", "  Empty Relation"],
         );
     }
@@ -154,7 +154,7 @@ mod tests {
     fn test_constant_folding_boolean_or_false() {
         assert_after_optimizer(
             "SELECT TRUE OR FALSE",
-            Box::new(SimplifyExprs),
+            vec![Box::new(SimplifyExprs)],
             vec!["Projection: (Boolean(true))", "  Empty Relation"],
         );
     }
