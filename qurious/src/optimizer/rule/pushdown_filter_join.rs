@@ -1,13 +1,12 @@
-use arrow::compute::kernels::filter;
 use indexmap::IndexSet;
 
 use crate::common::join_type::JoinType;
 use crate::common::table_schema::qualified_name;
-use crate::common::transformed::Transformed;
-use crate::error::{Result,Error};
+use crate::common::transformed::{TransformNode, Transformed, TreeNodeRecursion};
+use crate::error::{Error, Result};
 use crate::internal_err;
 use crate::logical::expr::{Column, LogicalExpr};
-use crate::logical::plan::{Filter, Join, LogicalPlan, SubqueryAlias};
+use crate::logical::plan::{Filter, Join, LogicalPlan, Projection, SubqueryAlias};
 use crate::logical::LogicalPlanBuilder;
 use crate::optimizer::rule::rule_optimizer::OptimizerRule;
 use crate::utils::expr::{conjunction, replace_col, replace_cols_by_name, split_conjunctive_predicates};
@@ -32,7 +31,31 @@ impl OptimizerRule for PushdownFilter {
         };
 
         match *filter.input {
-            LogicalPlan::Projection(projection) => {}
+            LogicalPlan::Projection(mut projection) => {
+                let predicates = split_conjunctive_predicates(filter.expr);
+                let (push_expr, keep_expr) = rewrite_predicates(predicates, &projection)?;
+                let is_transformed = push_expr.is_some();
+                let new_projection = if let Some(push_expr) = push_expr {
+                    let new_filter = LogicalPlanBuilder::filter(*projection.input, push_expr).map(Box::new)?;
+                    projection.input = new_filter;
+
+                    LogicalPlan::Projection(projection)
+                } else {
+                    LogicalPlan::Projection(projection)
+                };
+
+                if let Some(keep_expr) = keep_expr {
+                    return Ok(Transformed::yes(
+                        LogicalPlanBuilder::from(new_projection).add_filter(keep_expr)?.build(),
+                    ));
+                }
+
+                if is_transformed {
+                    Ok(Transformed::yes(new_projection))
+                } else {
+                    Ok(Transformed::no(new_projection))
+                }
+            }
             LogicalPlan::Filter(child_ilter) => {
                 let parent_predicates = split_conjunctive_predicates(filter.expr);
                 let child_predicates = split_conjunctive_predicates(child_ilter.expr);
@@ -173,14 +196,55 @@ impl PushdownFilter {
     }
 }
 
+fn rewrite_predicates(
+    predicates: Vec<LogicalExpr>,
+    projection: &Projection,
+) -> Result<(Option<LogicalExpr>, Option<LogicalExpr>)> {
+    let mut push_predicates = vec![];
+    let mut keep_predicates = vec![];
+
+    let projection_map = projection
+        .schema
+        .iter()
+        .zip(projection.exprs.iter())
+        .map(|((qualifier, field), expr)| (qualified_name(qualifier, field.name()), expr))
+        .collect::<HashMap<_, _>>();
+
+    for expr in predicates {
+        if contain(&expr, &projection_map)? {
+            push_predicates.push(expr);
+        } else {
+            keep_predicates.push(expr);
+        }
+    }
+
+    Ok((conjunction(push_predicates), conjunction(keep_predicates)))
+}
+
+fn contain(expr: &LogicalExpr, projection_map: &HashMap<String, &LogicalExpr>) -> Result<bool> {
+    let mut is_contain = false;
+
+    expr.apply(|expr| {
+        if let LogicalExpr::Column(col) = expr {
+            if projection_map.contains_key(&col.qualified_name()) {
+                is_contain = true;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+        }
+
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+
+    Ok(is_contain)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
         build_mem_datasource,
-        datatypes::{operator::Operator, scalar::ScalarValue},
         error::Result,
         logical::{
-            expr::{col, literal, BinaryExpr, Column, LogicalExpr},
+            expr::{col, literal},
             plan::{LogicalPlan, TableScan},
             LogicalPlanBuilder,
         },
@@ -192,7 +256,7 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn test_filter_before_projection() {
+    fn test_filter_before_table_scan() {
         assert_after_optimizer(
             "SELECT id,name FROM users WHERE id = 1",
             vec![Box::new(PushdownFilter)],
@@ -243,7 +307,14 @@ mod tests {
             .add_filter(col("name").gt(literal("test")))?
             .build();
 
-        assert_after_optimizer_with_plan(plan, vec![Box::new(PushdownFilter)], vec![]);
+        assert_after_optimizer_with_plan(
+            plan,
+            vec![Box::new(PushdownFilter)],
+            vec![
+                "Projection: (id, name, email)",
+                "  TableScan: users, full_filter=[name > Utf8('test') AND id = Int64(10)]",
+            ],
+        );
 
         Ok(())
     }
