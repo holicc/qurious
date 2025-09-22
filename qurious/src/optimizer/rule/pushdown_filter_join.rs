@@ -1,7 +1,11 @@
+use arrow::compute::kernels::filter;
+use indexmap::IndexSet;
+
 use crate::common::join_type::JoinType;
 use crate::common::table_schema::qualified_name;
 use crate::common::transformed::Transformed;
-use crate::error::Result;
+use crate::error::{Result,Error};
+use crate::internal_err;
 use crate::logical::expr::{Column, LogicalExpr};
 use crate::logical::plan::{Filter, Join, LogicalPlan, SubqueryAlias};
 use crate::logical::LogicalPlanBuilder;
@@ -28,6 +32,23 @@ impl OptimizerRule for PushdownFilter {
         };
 
         match *filter.input {
+            LogicalPlan::Projection(projection) => {}
+            LogicalPlan::Filter(child_ilter) => {
+                let parent_predicates = split_conjunctive_predicates(filter.expr);
+                let child_predicates = split_conjunctive_predicates(child_ilter.expr);
+                let new_predicates = parent_predicates
+                    .into_iter()
+                    .chain(child_predicates)
+                    .collect::<IndexSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+
+                let Some(predicates) = conjunction(new_predicates) else {
+                    return internal_err!("at least one predicate is required");
+                };
+
+                self.rewrite(LogicalPlan::Filter(Filter::try_new(*child_ilter.input, predicates)?))
+            }
             LogicalPlan::TableScan(mut scan) => {
                 if let Some(table_scan_filter) = scan.filter {
                     scan.filter = Some(table_scan_filter.and(filter.expr));
@@ -155,11 +176,20 @@ impl PushdownFilter {
 #[cfg(test)]
 mod tests {
     use crate::{
+        build_mem_datasource,
+        datatypes::{operator::Operator, scalar::ScalarValue},
+        error::Result,
+        logical::{
+            expr::{col, literal, BinaryExpr, Column, LogicalExpr},
+            plan::{LogicalPlan, TableScan},
+            LogicalPlanBuilder,
+        },
         optimizer::rule::{
             eliminate_cross_join::EliminateCrossJoin, pushdown_filter_join::PushdownFilter, ExtractEquijoinPredicate,
         },
-        test_utils::assert_after_optimizer,
+        test_utils::{assert_after_optimizer, assert_after_optimizer_with_plan},
     };
+    use std::collections::HashMap;
 
     #[test]
     fn test_filter_before_projection() {
@@ -197,6 +227,25 @@ mod tests {
                 "    TableScan: users, full_filter=[users.id = Int64(1)]",
             ],
         );
+    }
+
+    #[test]
+    fn test_multiple_filter() -> Result<()> {
+        let table = build_mem_datasource!(
+            ("id", DataType::Int64, false),
+            ("name", DataType::Utf8, false),
+            ("email", DataType::Utf8, false)
+        );
+        let table_scan = LogicalPlan::TableScan(TableScan::try_new("users", table, None).unwrap());
+        let plan = LogicalPlanBuilder::from(table_scan)
+            .add_project(vec![col("id"), col("name"), col("email")])?
+            .add_filter(col("id").eq(literal(10i64)))?
+            .add_filter(col("name").gt(literal("test")))?
+            .build();
+
+        assert_after_optimizer_with_plan(plan, vec![Box::new(PushdownFilter)], vec![]);
+
+        Ok(())
     }
 
     #[test]

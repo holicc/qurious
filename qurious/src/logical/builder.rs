@@ -52,6 +52,10 @@ impl LogicalPlanBuilder {
             .map(|s| LogicalPlanBuilder::from(LogicalPlan::Projection(s)))
     }
 
+    pub fn add_filter(self, predicate: LogicalExpr) -> Result<Self> {
+        Filter::try_new(self.plan, predicate).map(|s| LogicalPlanBuilder::from(LogicalPlan::Filter(s)))
+    }
+
     pub fn empty(produce_one_row: bool) -> Self {
         LogicalPlanBuilder {
             plan: LogicalPlan::EmptyRelation(EmptyRelation {

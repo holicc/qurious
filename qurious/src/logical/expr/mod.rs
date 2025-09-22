@@ -348,3 +348,25 @@ pub struct SubQuery {
     pub subquery: Box<LogicalPlan>,
     pub outer_ref_columns: Vec<LogicalExpr>,
 }
+
+pub fn col(ident: impl Into<Column>) -> LogicalExpr {
+    LogicalExpr::Column(ident.into())
+}
+
+pub fn binary_expr(left: LogicalExpr, op: Operator, right: LogicalExpr) -> LogicalExpr {
+    LogicalExpr::BinaryExpr(BinaryExpr {
+        left: Box::new(left),
+        op,
+        right: Box::new(right),
+    })
+}
+
+impl LogicalExpr {
+    pub fn eq(self, other: LogicalExpr) -> LogicalExpr {
+        binary_expr(self, Operator::Eq, other)
+    }
+
+    pub fn gt(self, other: LogicalExpr) -> LogicalExpr {
+        binary_expr(self, Operator::Gt, other)
+    }
+}

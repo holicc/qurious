@@ -171,6 +171,10 @@ macro_rules! build_table_scan {
 
 pub fn assert_after_optimizer(sql: &str, rules: Vec<Box<dyn OptimizerRule>>, expected: Vec<&str>) {
     let plan = sql_to_plan(sql);
+    assert_after_optimizer_with_plan(plan, rules, expected);
+}
+
+pub fn assert_after_optimizer_with_plan(plan: LogicalPlan, rules: Vec<Box<dyn OptimizerRule>>, expected: Vec<&str>) {
     let rule_optimizer = RuleBaseOptimizer::with_rules(rules);
     let plan = rule_optimizer.optimize(&plan).unwrap();
     let actual = utils::format(&plan, 0);

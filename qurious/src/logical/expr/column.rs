@@ -72,6 +72,16 @@ impl FromStr for Column {
     }
 }
 
+impl From<&str> for Column {
+    fn from(s: &str) -> Self {
+        Self {
+            name: s.to_string(),
+            relation: None,
+            is_outer_ref: false,
+        }
+    }
+}
+
 pub fn column(name: &str) -> LogicalExpr {
     LogicalExpr::Column(Column {
         name: name.to_string(),
