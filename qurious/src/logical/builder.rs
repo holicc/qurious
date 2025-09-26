@@ -85,9 +85,14 @@ impl LogicalPlanBuilder {
         })
     }
 
-    pub fn join_on(self, right: LogicalPlan, join_type: JoinType, filter: Option<LogicalExpr>) -> Result<Self> {
+    pub fn join(
+        self,
+        right: LogicalPlan,
+        join_type: JoinType,
+        on: Vec<(LogicalExpr, LogicalExpr)>,
+        filter: Option<LogicalExpr>,
+    ) -> Result<Self> {
         let schema = build_join_schema(join_type, &self.plan.table_schema(), &right.table_schema())?;
-        let on = vec![];
 
         if join_type != JoinType::Inner && filter.is_none() && on.is_empty() {
             return Err(Error::InternalError(format!("join condition should not be empty")));

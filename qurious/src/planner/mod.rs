@@ -334,8 +334,13 @@ pub fn check_join_is_valid(left: &Schema, right: &Schema, on: &[(LogicalExpr, Lo
         for v in l.column_refs() {
             if left.index_of(&v.name).is_err() {
                 return internal_err!(
-                    "The left side on clause contains column {} that is not in the left schema",
-                    v.name
+                    "The left side on clause contains column `{}` that is not in the left schema: [{}]",
+                    v.name,
+                    left.fields()
+                        .iter()
+                        .map(|f| f.name().as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
             }
         }
@@ -343,8 +348,14 @@ pub fn check_join_is_valid(left: &Schema, right: &Schema, on: &[(LogicalExpr, Lo
         for v in r.column_refs() {
             if right.index_of(&v.name).is_err() {
                 return internal_err!(
-                    "The right side on clause contains column {} that is not in the right schema",
-                    v.name
+                    "The right side on clause contains column `{}` that is not in the right schema: [{}]",
+                    v.name,
+                    right
+                        .fields()
+                        .iter()
+                        .map(|f| f.name().as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
             }
         }

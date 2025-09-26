@@ -84,7 +84,7 @@ impl OptimizerRule for ScalarSubqueryToJoin {
                                 })?;
 
                             LogicalPlanBuilder::from(cur_input)
-                                .join_on(new_subquery_plan, JoinType::Left, join_filter)?
+                                .join(new_subquery_plan, JoinType::Left, vec![], join_filter)?
                                 .build()
                         }
                     };

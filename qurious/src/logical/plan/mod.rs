@@ -294,11 +294,18 @@ impl TransformNode for LogicalPlan {
         })
     }
 
-    fn apply_children<'n, F>(&'n self, _f: F) -> Result<TreeNodeRecursion>
+    fn apply_children<'n, F>(&'n self, mut f: F) -> Result<TreeNodeRecursion>
     where
         F: FnMut(&'n LogicalPlan) -> Result<TreeNodeRecursion>,
     {
-        todo!()
+        for child in self.children().into_iter().flatten() {
+            match f(child)? {
+                TreeNodeRecursion::Continue => {}
+                TreeNodeRecursion::Stop => return Ok(TreeNodeRecursion::Stop),
+            }
+        }
+
+        Ok(TreeNodeRecursion::Continue)
     }
 }
 
