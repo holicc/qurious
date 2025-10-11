@@ -7,7 +7,7 @@ use crate::physical::{
     plan::PhysicalPlan,
 };
 use crate::utils::array::create_hashes;
-use arrow::compute::TakeOptions;
+use arrow::compute::{concat_batches, TakeOptions};
 use arrow::row::{RowConverter, SortField};
 use arrow::{
     array::{ArrayRef, UInt64Array},
@@ -143,24 +143,25 @@ impl PhysicalPlan for HashAggregate {
                 .map(|e| e.create_accumulator())
                 .collect::<Result<Vec<_>>>()
         };
-        let mut group_accumulator = GroupAccumulator::try_new(&accumlator_factory)?;
-        // for each batch from the input executor
-        for batch in batches {
-            // evaluate the groupt expression
-            let group_by_values = self
-                .group_exprs
-                .iter()
-                .map(|e| e.evaluate(&batch))
-                .collect::<Result<Vec<ArrayRef>>>()?;
-            // evaluate the aggregate expression
-            let input_values = self
-                .aggregate_exprs
-                .iter()
-                .map(|e| e.expression().evaluate(&batch))
-                .collect::<Result<Vec<ArrayRef>>>()?;
-
-            group_accumulator.update(batch.num_rows(), &group_by_values, &input_values)?;
+        if batches.is_empty() {
+            return Ok(vec![]);
         }
+        let schema = batches[0].schema();
+        let batch = concat_batches(&schema, &batches)?;
+        let mut group_accumulator = GroupAccumulator::try_new(&accumlator_factory)?;
+        let group_by_values = self
+            .group_exprs
+            .iter()
+            .map(|e| e.evaluate(&batch))
+            .collect::<Result<Vec<ArrayRef>>>()?;
+        // evaluate the aggregate expression
+        let input_values = self
+            .aggregate_exprs
+            .iter()
+            .map(|e| e.expression().evaluate(&batch))
+            .collect::<Result<Vec<ArrayRef>>>()?;
+
+        group_accumulator.update(batch.num_rows(), &group_by_values, &input_values)?;
 
         let schema = self.schema.arrow_schema();
         RecordBatch::try_new(schema.clone(), group_accumulator.output(&schema)?)

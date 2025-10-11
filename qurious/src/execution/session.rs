@@ -383,7 +383,8 @@ mod tests {
         println!("++++++++++++++");
         let batch = session
             .sql(
-                "select
+                "
+select
     s_acctbal,
     s_name,
     n_name,
@@ -426,11 +427,10 @@ order by
     n_name,
     s_name,
     p_partkey
-limit 10;",
+limit 10;
+",
             )
             .unwrap();
-
-        // let batch = session.sql("select avg(l_quantity) as count_order from lineitem")?;
 
         print_batches(&batch)?;
 

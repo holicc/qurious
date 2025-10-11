@@ -6,7 +6,7 @@ use crate::logical::plan::LogicalPlan;
 use crate::optimizer::rule::count_wildcard_rule::CountWildcardRule;
 use crate::optimizer::rule::eliminate_cross_join::EliminateCrossJoin;
 use crate::optimizer::rule::extract_equijoin_predicate::ExtractEquijoinPredicate;
-use crate::optimizer::rule::pushdown_filter_join::PushdownFilter;
+use crate::optimizer::rule::pushdown_filter::PushdownFilter;
 use crate::optimizer::rule::scalar_subquery_to_join::ScalarSubqueryToJoin;
 use crate::optimizer::rule::simplify_exprs::SimplifyExprs;
 use crate::optimizer::rule::type_coercion::TypeCoercion;

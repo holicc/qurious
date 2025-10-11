@@ -249,7 +249,7 @@ mod tests {
             LogicalPlanBuilder,
         },
         optimizer::rule::{
-            eliminate_cross_join::EliminateCrossJoin, pushdown_filter_join::PushdownFilter, ExtractEquijoinPredicate,
+            eliminate_cross_join::EliminateCrossJoin, pushdown_filter::PushdownFilter, ExtractEquijoinPredicate,
         },
         test_utils::{assert_after_optimizer, assert_after_optimizer_with_plan},
     };

@@ -37,8 +37,10 @@ impl OptimizerRule for EliminateCrossJoin {
         input.apply(|plan| {
             if let LogicalPlan::CrossJoin(cross_join) = plan {
                 all_corss_joins.push(cross_join);
+                return Ok(TreeNodeRecursion::Continue);
             }
-            Ok(TreeNodeRecursion::Continue)
+
+            Ok(TreeNodeRecursion::Stop)
         })?;
 
         if all_corss_joins.is_empty() {
@@ -297,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tpch_03() {
+    fn test_eliminate_nested_cross_join() {
         assert_after_optimizer(
             "    select
         l_orderkey,
