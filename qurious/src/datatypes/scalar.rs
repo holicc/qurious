@@ -2,10 +2,10 @@ use crate::error::{Error, Result};
 use arrow::{
     array::{
         new_null_array, Array, ArrayRef, ArrowPrimitiveType, BooleanArray, Decimal128Array, Decimal256Array,
-        Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, LargeStringArray, PrimitiveArray,
-        StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+        Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, IntervalMonthDayNanoArray,
+        LargeStringArray, PrimitiveArray, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
     },
-    datatypes::{i256, DataType, Field},
+    datatypes::{i256, DataType, Field, IntervalMonthDayNano, IntervalUnit},
 };
 use std::any::type_name;
 use std::{fmt::Display, sync::Arc};
@@ -99,6 +99,10 @@ pub enum ScalarValue {
     Decimal128(Option<i128>, u8, i8),
     /// 256bit decimal, using the i256 to represent the decimal, precision scale
     Decimal256(Option<i256>, u8, i8),
+    /// A triple of the number of elapsed months, days, and nanoseconds.
+    /// Months and days are encoded as 32-bit signed integers.
+    /// Nanoseconds is encoded as a 64-bit signed integer (no leap seconds).
+    IntervalMonthDayNano(Option<IntervalMonthDayNano>),
     Utf8(Option<String>),
 }
 
@@ -130,6 +134,11 @@ impl ScalarValue {
             ScalarValue::Utf8(_) => Field::new("utf8", DataType::Utf8, true),
             ScalarValue::Decimal128(_, p, s) => Field::new("decimal128", DataType::Decimal128(*p, *s), true),
             ScalarValue::Decimal256(_, p, s) => Field::new("decimal256", DataType::Decimal256(*p, *s), true),
+            ScalarValue::IntervalMonthDayNano(_) => Field::new(
+                "interval_month_day_nano",
+                DataType::Interval(IntervalUnit::MonthDayNano),
+                true,
+            ),
         }
     }
 
@@ -150,6 +159,7 @@ impl ScalarValue {
             ScalarValue::Utf8(_) => DataType::Utf8,
             ScalarValue::Decimal128(_, p, s) => DataType::Decimal128(*p, *s),
             ScalarValue::Decimal256(_, p, s) => DataType::Decimal256(*p, *s),
+            ScalarValue::IntervalMonthDayNano(_) => DataType::Interval(IntervalUnit::MonthDayNano),
         }
     }
 
@@ -173,6 +183,9 @@ impl ScalarValue {
             }
             ScalarValue::Decimal256(v, p, s) => {
                 Arc::new(build_decimal_array!(*v, Decimal256Array, num_row, *p, *s)) as ArrayRef
+            }
+            ScalarValue::IntervalMonthDayNano(v) => {
+                Arc::new(IntervalMonthDayNanoArray::from(vec![*v; num_row])) as ArrayRef
             }
         })
     }
@@ -275,6 +288,9 @@ impl Display for ScalarValue {
             ScalarValue::Decimal128(v, p, s) => format_decimal!(f, v, "Decimal128", p, s),
             ScalarValue::Decimal256(v, p, s) => format_decimal!(f, v, "Decimal256", p, s),
             ScalarValue::Utf8(v) => format_string!(f, v, "Utf8"),
+            ScalarValue::IntervalMonthDayNano(v) => {
+                format_string!(f, v.map(|v| format!("{:?}", v)), "IntervalMonthDayNano")
+            }
         }
     }
 }

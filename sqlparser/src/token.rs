@@ -83,6 +83,9 @@ pub enum Keyword {
     Hour,
     Minute,
     Second,
+
+    /// functions
+    Interval,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -195,6 +198,7 @@ impl TokenType {
             "delimiter" => TokenType::Keyword(Keyword::Delimiter),
             "show" => TokenType::Keyword(Keyword::Show),
             "tables" => TokenType::Keyword(Keyword::Tables),
+            "interval" => TokenType::Keyword(Keyword::Interval),
             // extract a field from a timestamp
             "extract" => TokenType::Keyword(Keyword::Extract),
             "year" => TokenType::Keyword(Keyword::Year),

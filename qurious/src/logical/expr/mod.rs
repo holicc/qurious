@@ -46,6 +46,7 @@ pub enum LogicalExpr {
     Like(Like),
     Negative(Box<LogicalExpr>),
     SubQuery(SubQuery),
+    Exists(Exists),
 }
 
 macro_rules! impl_logical_expr_methods {
@@ -83,6 +84,7 @@ impl_logical_expr_methods! {
 impl Display for LogicalExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            LogicalExpr::Exists(Exists { subquery, negated }) => write!(f, "{} EXISTS ({})", if *negated { "NOT" } else { "" }, subquery),
             LogicalExpr::Negative(e) => write!(f, "- {}", e),
             LogicalExpr::Literal(v) => write!(f, "{}", v),
             LogicalExpr::Wildcard => write!(f, "*"),
@@ -213,6 +215,7 @@ impl LogicalExpr {
             LogicalExpr::SortExpr(SortExpr { expr, .. }) | LogicalExpr::Negative(expr) => expr.data_type(schema),
             LogicalExpr::Like(_) | LogicalExpr::IsNull(_) | LogicalExpr::IsNotNull(_) => Ok(DataType::Boolean),
             LogicalExpr::SubQuery(subquery) => Ok(subquery.subquery.schema().fields[0].data_type().clone()),
+            LogicalExpr::Exists(_) => Ok(DataType::Boolean),
             _ => internal_err!("[{}] has no data type", self),
         }
     }
@@ -233,6 +236,12 @@ impl LogicalExpr {
 impl TransformNode for LogicalExpr {
     fn map_children<F: FnMut(Self) -> Result<Transformed<Self>>>(self, mut f: F) -> Result<Transformed<Self>> {
         Ok(match self {
+            LogicalExpr::Exists(Exists { subquery, negated }) => subquery.map_exprs(f)?.update(|subquery| {
+                LogicalExpr::Exists(Exists {
+                    subquery: Box::new(subquery),
+                    negated,
+                })
+            }),
             LogicalExpr::Alias(Alias { expr, name }) => f(*expr)?.update(|expr| {
                 LogicalExpr::Alias(Alias {
                     expr: Box::new(expr),
@@ -312,7 +321,11 @@ impl TransformNode for LogicalExpr {
             | LogicalExpr::IsNull(expr)
             | LogicalExpr::IsNotNull(expr)
             | LogicalExpr::Alias(Alias { expr, .. }) => vec![expr.as_ref()],
-            LogicalExpr::SubQuery(_) | LogicalExpr::Wildcard | LogicalExpr::Column(_) | LogicalExpr::Literal(_) => {
+            LogicalExpr::Exists(_)
+            | LogicalExpr::SubQuery(_)
+            | LogicalExpr::Wildcard
+            | LogicalExpr::Column(_)
+            | LogicalExpr::Literal(_) => {
                 vec![]
             }
             LogicalExpr::Like(like) => vec![like.expr.as_ref(), like.pattern.as_ref()],
@@ -334,6 +347,12 @@ pub(crate) fn get_expr_value(expr: LogicalExpr) -> Result<i64> {
         LogicalExpr::Literal(ScalarValue::Int64(Some(v))) => Ok(v),
         _ => Err(Error::InternalError(format!("Unexpected expression in"))),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Exists {
+    pub negated: bool,
+    pub subquery: Box<LogicalPlan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

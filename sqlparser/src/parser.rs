@@ -900,6 +900,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression_atom(&mut self) -> Result<Expression> {
+        let negated = self.next_if_token(TokenType::Keyword(Keyword::Not)).is_some();
         let token = self.next_token()?;
         let literal = token.literal.clone();
         match token.token_type {
@@ -919,7 +920,7 @@ impl<'a> Parser<'a> {
                     expr: Box::new(expr),
                 })
             }
-
+            TokenType::Keyword(Keyword::Interval) => self.parse_interval(),
             TokenType::Asterisk => Ok(ast::Expression::Identifier("*".into())),
             TokenType::Float => literal
                 .parse()
@@ -933,6 +934,7 @@ impl<'a> Parser<'a> {
             TokenType::Keyword(Keyword::True) => Ok(ast::Expression::Literal(ast::Literal::Boolean(true))),
             TokenType::Keyword(Keyword::False) => Ok(ast::Expression::Literal(ast::Literal::Boolean(false))),
             TokenType::Keyword(Keyword::Null) => Ok(ast::Expression::Literal(ast::Literal::Null)),
+            TokenType::Keyword(Keyword::Exists) => self.parse_exists_expr(negated),
             TokenType::LParen => {
                 let expr = self.parse_expression(0)?;
                 self.next_except(TokenType::RParen)?;
@@ -981,6 +983,30 @@ impl<'a> Parser<'a> {
             }
             _ => Err(Error::UnexpectedToken(token)),
         }
+    }
+
+    fn parse_exists_expr(&mut self, negated: bool) -> Result<Expression> {
+        self.next_except(TokenType::LParen)?;
+        let subquery = self.parse()?;
+        let Statement::Select(select) = subquery else {
+            return Err(Error::ParserError(format!(
+                "[parse_exists_expr] unexpected token {:?}",
+                self.peek()?
+            )));
+        };
+        self.next_except(TokenType::RParen)?;
+        Ok(Expression::Exists {
+            subquery: select,
+            negated,
+        })
+    }
+
+    fn parse_interval(&mut self) -> Result<Expression> {
+        let expr = self.parse_expression(0).map(Box::new)?;
+        Ok(Expression::Interval {
+            expr,
+            field: self.next_token()?.try_into()?,
+        })
     }
 
     fn parse_ident(&mut self) -> Result<Ident> {
@@ -1281,13 +1307,130 @@ mod tests {
         self, Assignment, BinaryOperator, CopyOption, CopySource, CopyTarget, DateTimeField, Expression,
         FunctionArgument, Ident, Select, SelectItem, Statement,
     };
-    use crate::datatype::DataType;
+    use crate::datatype::{DataType, IntervalFields};
     use crate::error::Result;
     use crate::parser::TableInfo;
 
     fn assert_stmt_eq(sql: &str, stmt: Statement) {
         let result = parse_stmt(sql).unwrap();
         assert_eq!(result, stmt, "Runing SQL: {}", sql);
+    }
+
+    #[test]
+    fn test_exists_expr() {
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE EXISTS (SELECT * FROM commits WHERE commits.user_id = users.id)",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: "users".to_owned(),
+                    alias: None,
+                }],
+                r#where: Some(Expression::Exists {
+                    subquery: Box::new(Select {
+                        with: None,
+                        distinct: None,
+                        columns: vec![SelectItem::Wildcard],
+                        from: vec![ast::From::Table {
+                            name: "commits".to_owned(),
+                            alias: None,
+                        }],
+                        r#where: Some(Expression::BinaryOperator(ast::BinaryOperator::Eq(
+                            Box::new(Expression::CompoundIdentifier(vec![
+                                Ident {
+                                    value: "commits".to_owned(),
+                                    quote_style: None,
+                                },
+                                Ident {
+                                    value: "user_id".to_owned(),
+                                    quote_style: None,
+                                },
+                            ])),
+                            Box::new(Expression::CompoundIdentifier(vec![
+                                Ident {
+                                    value: "users".to_owned(),
+                                    quote_style: None,
+                                },
+                                Ident {
+                                    value: "id".to_owned(),
+                                    quote_style: None,
+                                },
+                            ])),
+                        ))),
+                        group_by: None,
+                        having: None,
+                        order_by: None,
+                        limit: None,
+                        offset: None,
+                    }),
+                    negated: false,
+                }),
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT * FROM users WHERE NOT EXISTS (SELECT * FROM commits WHERE commits.user_id = users.id)",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: "users".to_owned(),
+                    alias: None,
+                }],
+                r#where: Some(Expression::Exists {
+                    subquery: Box::new(Select {
+                        with: None,
+                        distinct: None,
+                        columns: vec![SelectItem::Wildcard],
+                        from: vec![ast::From::Table {
+                            name: "commits".to_owned(),
+                            alias: None,
+                        }],
+                        r#where: Some(Expression::BinaryOperator(ast::BinaryOperator::Eq(
+                            Box::new(Expression::CompoundIdentifier(vec![
+                                Ident {
+                                    value: "commits".to_owned(),
+                                    quote_style: None,
+                                },
+                                Ident {
+                                    value: "user_id".to_owned(),
+                                    quote_style: None,
+                                },
+                            ])),
+                            Box::new(Expression::CompoundIdentifier(vec![
+                                Ident {
+                                    value: "users".to_owned(),
+                                    quote_style: None,
+                                },
+                                Ident {
+                                    value: "id".to_owned(),
+                                    quote_style: None,
+                                },
+                            ])),
+                        ))),
+                        group_by: None,
+                        having: None,
+                        order_by: None,
+                        limit: None,
+                        offset: None,
+                    }),
+                    negated: true,
+                }),
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
     }
 
     #[test]
@@ -1665,6 +1808,153 @@ mod tests {
                 )],
                 from: vec![],
                 r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+    }
+
+    #[test]
+    fn test_interval_function() {
+        assert_stmt_eq(
+            "SELECT interval '1' day as day",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::ExprWithAlias(
+                    Expression::Interval {
+                        expr: Box::new(Expression::Literal(ast::Literal::String("1".to_owned()))),
+                        field: IntervalFields::Day,
+                    },
+                    "day".to_owned(),
+                )],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT interval '1' month as month",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::ExprWithAlias(
+                    Expression::Interval {
+                        expr: Box::new(Expression::Literal(ast::Literal::String("1".to_owned()))),
+                        field: IntervalFields::Month,
+                    },
+                    "month".to_owned(),
+                )],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT interval '1' year as year",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::ExprWithAlias(
+                    Expression::Interval {
+                        expr: Box::new(Expression::Literal(ast::Literal::String("1".to_owned()))),
+                        field: IntervalFields::Year,
+                    },
+                    "year".to_owned(),
+                )],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT interval '1' hour as hour",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::ExprWithAlias(
+                    Expression::Interval {
+                        expr: Box::new(Expression::Literal(ast::Literal::String("1".to_owned()))),
+                        field: IntervalFields::Hour,
+                    },
+                    "hour".to_owned(),
+                )],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT interval '1' minute as minute",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::ExprWithAlias(
+                    Expression::Interval {
+                        expr: Box::new(Expression::Literal(ast::Literal::String("1".to_owned()))),
+                        field: IntervalFields::Minute,
+                    },
+                    "minute".to_owned(),
+                )],
+                from: vec![],
+                r#where: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            })),
+        );
+
+        assert_stmt_eq(
+            "SELECT * FROM orders WHERE o_orderdate < date '1993-07-01' + interval '3' month",
+            Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: "orders".to_owned(),
+                    alias: None,
+                }],
+                r#where: Some(Expression::BinaryOperator(ast::BinaryOperator::Lt(
+                    Box::new(Expression::Identifier(Ident {
+                        value: "o_orderdate".to_owned(),
+                        quote_style: None,
+                    })),
+                    Box::new(Expression::BinaryOperator(ast::BinaryOperator::Add(
+                        Box::new(Expression::TypedString {
+                            data_type: DataType::Date,
+                            value: "1993-07-01".to_owned(),
+                        }),
+                        Box::new(Expression::Interval {
+                            expr: Box::new(Expression::Literal(ast::Literal::String("3".to_owned()))),
+                            field: IntervalFields::Month,
+                        }),
+                    ))),
+                ))),
                 group_by: None,
                 having: None,
                 order_by: None,

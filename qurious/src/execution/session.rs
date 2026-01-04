@@ -98,6 +98,7 @@ impl ExecuteSession {
             LogicalPlan::Dml(stmt) => self.execute_dml(stmt),
             plan => {
                 let plan = self.optimizer.optimize(plan)?;
+                println!("plan: {}", crate::utils::format(&plan, 0));
                 self.planner.create_physical_plan(&plan)?.execute()
             }
         }
@@ -385,49 +386,26 @@ mod tests {
             .sql(
                 "
 select
-    s_acctbal,
-    s_name,
-    n_name,
-    p_partkey,
-    p_mfgr,
-    s_address,
-    s_phone,
-    s_comment
+    o_orderpriority,
+    count(*) as order_count
 from
-    part,
-    supplier,
-    partsupp,
-    nation,
-    region
+    orders
 where
-        p_partkey = ps_partkey
-  and s_suppkey = ps_suppkey
-  and p_size = 15
-  and p_type like '%BRASS'
-  and s_nationkey = n_nationkey
-  and n_regionkey = r_regionkey
-  and r_name = 'EUROPE'
-  and ps_supplycost = (
-    select
-        min(ps_supplycost)
-    from
-        partsupp,
-        supplier,
-        nation,
-        region
-    where
-            p_partkey = ps_partkey
-      and s_suppkey = ps_suppkey
-      and s_nationkey = n_nationkey
-      and n_regionkey = r_regionkey
-      and r_name = 'EUROPE'
-)
+        o_orderdate >= '1993-07-01'
+  and o_orderdate < date '1993-07-01' + interval '3' month
+  and exists (
+        select
+            *
+        from
+            lineitem
+        where
+                l_orderkey = o_orderkey
+          and l_commitdate < l_receiptdate
+    )
+group by
+    o_orderpriority
 order by
-    s_acctbal desc,
-    n_name,
-    s_name,
-    p_partkey
-limit 10;
+    o_orderpriority;
 ",
             )
             .unwrap();

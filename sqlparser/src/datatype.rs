@@ -1,5 +1,10 @@
 use std::fmt::Display;
 
+use crate::{
+    error::{Error, Result},
+    token::{Keyword, Token, TokenType},
+};
+
 /// A datatype
 #[derive(Clone, Copy, Debug, Hash, PartialEq)]
 pub enum DataType {
@@ -33,3 +38,45 @@ impl Display for DataType {
 }
 
 pub struct Number {}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq)]
+pub enum IntervalFields {
+    Year,
+    Month,
+    Day,
+    Hour,
+    Minute,
+    Second,
+}
+
+impl Display for IntervalFields {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IntervalFields::Year => write!(f, "Year"),
+            IntervalFields::Month => write!(f, "Month"),
+            IntervalFields::Day => write!(f, "Day"),
+            IntervalFields::Hour => write!(f, "Hour"),
+            IntervalFields::Minute => write!(f, "Minute"),
+            IntervalFields::Second => write!(f, "Second"),
+        }
+    }
+}
+
+impl TryInto<IntervalFields> for Token {
+    type Error = Error;
+
+    fn try_into(self) -> Result<IntervalFields> {
+        match self.token_type {
+            TokenType::Keyword(Keyword::Year) => Ok(IntervalFields::Year),
+            TokenType::Keyword(Keyword::Month) => Ok(IntervalFields::Month),
+            TokenType::Keyword(Keyword::Day) => Ok(IntervalFields::Day),
+            TokenType::Keyword(Keyword::Hour) => Ok(IntervalFields::Hour),
+            TokenType::Keyword(Keyword::Minute) => Ok(IntervalFields::Minute),
+            TokenType::Keyword(Keyword::Second) => Ok(IntervalFields::Second),
+            _ => Err(Error::ParserError(format!(
+                "invalid interval field: {:?}",
+                self.token_type
+            ))),
+        }
+    }
+}

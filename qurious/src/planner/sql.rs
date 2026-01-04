@@ -1,9 +1,15 @@
 use std::{collections::HashMap, sync::Arc};
 
-use arrow::datatypes::{Field, Schema, TimeUnit};
-use sqlparser::ast::{
-    Assignment, BinaryOperator, CopyOption, CopySource, CopyTarget, Cte, Expression, From, FunctionArgument, Ident,
-    Literal, Order, Select, SelectItem, Statement,
+use arrow::{
+    compute::kernels::cast_utils::{parse_interval_month_day_nano_config, IntervalParseConfig, IntervalUnit},
+    datatypes::{Field, Schema, TimeUnit},
+};
+use sqlparser::{
+    ast::{
+        Assignment, BinaryOperator, CopyOption, CopySource, CopyTarget, Cte, Expression, From, FunctionArgument, Ident,
+        Literal, Order, Select, SelectItem, Statement,
+    },
+    datatype::IntervalFields,
 };
 
 use crate::{
@@ -1015,7 +1021,25 @@ impl<'a> SqlQueryPlanner<'a> {
                 expr: Box::new(self.sql_to_expr(*left)?),
                 pattern: Box::new(self.sql_to_expr(*right)?),
             })),
+            Expression::Exists { subquery, negated } => Ok(LogicalExpr::Exists(Exists {
+                negated,
+                subquery: Box::new(self.new_context_scope(|planner| planner.select_to_plan(*subquery))?),
+            })),
+            Expression::Interval { expr, field } => self.interval_to_expr(*expr, field),
             _ => todo!("sql_to_expr: {:?}", expr),
+        }
+    }
+
+    fn interval_to_expr(&mut self, expr: Expression, field: IntervalFields) -> Result<LogicalExpr> {
+        match expr {
+            Expression::BinaryOperator(binary_op) => self.parse_binary_op(binary_op),
+            val => {
+                let interval_val = format!("{} {}", val, field);
+                let config = IntervalParseConfig::new(IntervalUnit::Second);
+                let val = parse_interval_month_day_nano_config(&interval_val, config)?;
+
+                Ok(LogicalExpr::Literal(ScalarValue::IntervalMonthDayNano(Some(val))))
+            }
         }
     }
 
@@ -1284,6 +1308,34 @@ mod tests {
     };
 
     use super::SqlQueryPlanner;
+
+    #[test]
+    fn test_interval() {
+        quick_test(
+            "SELECT INTERVAL '1' YEAR;",
+            "Projection: (IntervalMonthDayNano('IntervalMonthDayNano { months: 12, days: 0, nanoseconds: 0 }'))\n  Empty Relation\n",
+        );
+
+        quick_test(
+            "SELECT INTERVAL '1' MONTH;",
+            "Projection: (IntervalMonthDayNano('IntervalMonthDayNano { months: 1, days: 0, nanoseconds: 0 }'))\n  Empty Relation\n",
+        );
+
+        quick_test(
+            "SELECT INTERVAL '1' DAY;",
+            "Projection: (IntervalMonthDayNano('IntervalMonthDayNano { months: 0, days: 1, nanoseconds: 0 }'))\n  Empty Relation\n",
+        );
+
+        quick_test("SELECT DATE '1993-07-01' + INTERVAL '3' month", "Projection: (CAST(Utf8('1993-07-01') AS Date32) + IntervalMonthDayNano('IntervalMonthDayNano { months: 3, days: 0, nanoseconds: 0 }'))\n  Empty Relation\n");
+    }
+
+    #[test]
+    fn test_exists() {
+        quick_test(
+            "SELECT * FROM person WHERE EXISTS (SELECT * FROM other_tbl WHERE name = first_name)",
+            "",
+        );
+    }
 
     #[test]
     fn test_outer_field_reference() {

@@ -1,4 +1,7 @@
-use crate::{datatype::DataType, error::Error};
+use crate::{
+    datatype::{DataType, IntervalFields},
+    error::Error,
+};
 use std::fmt::{Display, Formatter};
 
 #[derive(Clone, PartialEq, Debug)]
@@ -670,6 +673,17 @@ pub enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    /// `INTERVAL <expr> <field>`
+    Interval {
+        expr: Box<Expression>,
+        field: IntervalFields,
+    },
+    /// An exists expression `[ NOT ] EXISTS(SELECT ...)`, used in expressions like
+    /// `WHERE [ NOT ] EXISTS (SELECT ...)`.
+    Exists {
+        subquery: Box<Select>,
+        negated: bool,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -796,6 +810,10 @@ impl Display for Expression {
             Expression::SubQuery(select) => write!(f, "({})", select),
             Expression::Like { negated, left, right } => {
                 write!(f, "{} {} LIKE {}", left, if *negated { "NOT" } else { "" }, right)
+            }
+            Expression::Interval { expr, field } => write!(f, "INTERVAL {} {}", expr, field),
+            Expression::Exists { subquery, negated } => {
+                write!(f, "{} EXISTS ({})", if *negated { "NOT" } else { "" }, subquery)
             }
         }
     }
