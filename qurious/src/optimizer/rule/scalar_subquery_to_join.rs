@@ -287,15 +287,29 @@ fn extract_subquery_exprs(
 
                     subqueries.push((subquery, subquery_alias.clone()));
 
-                    match scalar_expr {
-                        LogicalExpr::Alias(Alias { name, .. }) => Ok(Transformed::yes(LogicalExpr::Column(
-                            Column::new(name, subquery_alias.into(), false),
-                        ))),
-                        LogicalExpr::Column(col) => {
-                            Ok(Transformed::yes(LogicalExpr::Column(col.with_relation(subquery_alias))))
-                        }
-                        _ => todo!(),
-                    }
+                    // IMPORTANT: The column name we reference must match the actual output field name
+                    // produced by the subquery's projection schema (e.g. Literal uses "f64", while
+                    // BinaryExpr uses the expression string). So derive it from `field(...)` when needed.
+                    let col_name = match &scalar_expr {
+                        LogicalExpr::Alias(Alias { name, .. }) => name.clone(),
+                        LogicalExpr::Column(col) => col.name.clone(),
+                        other => match subqueries
+                            .last()
+                            .expect("[scalar_subquery_to_join] subquery is pushed above")
+                            .0
+                            .subquery
+                            .as_ref()
+                        {
+                            LogicalPlan::Projection(p) => other.field(p.input.as_ref())?.name().to_string(),
+                            _ => other.to_string(),
+                        },
+                    };
+
+                    Ok(Transformed::yes(LogicalExpr::Column(Column::new(
+                        col_name,
+                        subquery_alias.into(),
+                        false,
+                    ))))
                 }
                 _ => Ok(Transformed::no(expr)),
             }
@@ -365,6 +379,24 @@ mod tests {
                 "          Aggregate: group_expr=[], aggregat_expr=[MIN(orders.o_custkey)]",
                 "            TableScan: orders",
             ]
+        );
+    }
+
+    #[test]
+    fn test_scalar_subquery_output_is_expression() {
+        assert_after_optimizer(
+            "SELECT customer.c_custkey FROM customer WHERE customer.c_custkey < (SELECT MAX(orders.o_custkey) + 1 FROM orders)",
+            vec![Box::new(ScalarSubqueryToJoin::default())],
+            vec![
+                "Projection: (customer.c_custkey)",
+                "  Filter: customer.c_custkey < __scalar_sq_0.MAX(orders.o_custkey) + Int64(1)",
+                "    Left Join: Filter: Boolean(true)",
+                "      TableScan: customer",
+                "      SubqueryAlias: __scalar_sq_0",
+                "        Projection: (MAX(orders.o_custkey) + Int64(1))",
+                "          Aggregate: group_expr=[], aggregat_expr=[MAX(orders.o_custkey)]",
+                "            TableScan: orders",
+            ],
         );
     }
 

@@ -385,39 +385,36 @@ mod tests {
         // validate we actually have BRAZIL rows in the derived `all_nations` subquery.
         let debug = session.sql(
             "
-
 select
-    c_custkey,
-    c_name,
-    sum(l_extendedprice * (1 - l_discount)) as revenue,
-    c_acctbal,
-    n_name,
-    c_address,
-    c_phone,
-    c_comment
+    l_shipmode,
+    sum(case
+            when o_orderpriority = '1-URGENT'
+                or o_orderpriority = '2-HIGH'
+                then 1
+            else 0
+        end) as high_line_count,
+    sum(case
+            when o_orderpriority != '1-URGENT'
+                and o_orderpriority != '2-HIGH'
+                then 1
+            else 0
+        end) as low_line_count
 from
-    customer,
-    orders,
-    lineitem,
-    nation
+    lineitem
+        join
+    orders
+    on
+            l_orderkey = o_orderkey
 where
-        c_custkey = o_custkey
-  and l_orderkey = o_orderkey
-  and o_orderdate >= date '1993-10-01'
-  and o_orderdate < date '1994-01-01'
-  and l_returnflag = 'R'
-  and c_nationkey = n_nationkey
+        l_shipmode in ('MAIL', 'SHIP')
+  and l_commitdate < l_receiptdate
+  and l_shipdate < l_commitdate
+  and l_receiptdate >= date '1994-01-01'
+  and l_receiptdate < date '1995-01-01'
 group by
-    c_custkey,
-    c_name,
-    c_acctbal,
-    c_phone,
-    n_name,
-    c_address,
-    c_comment
+    l_shipmode
 order by
-    revenue desc
-limit 10;
+    l_shipmode;
 ",
         )?;
         print_batches(&debug)?;

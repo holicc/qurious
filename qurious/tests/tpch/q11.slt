@@ -1,0 +1,40 @@
+query IR
+select
+    ps_partkey,
+    sum(ps_supplycost * ps_availqty) as value
+from
+    partsupp,
+    supplier,
+    nation
+where
+    ps_suppkey = s_suppkey
+  and s_nationkey = n_nationkey
+  and n_name = 'GERMANY'
+group by
+    ps_partkey having
+    sum(ps_supplycost * ps_availqty) > (
+    select
+    sum(ps_supplycost * ps_availqty) * 0.0001
+    from
+    partsupp,
+    supplier,
+    nation
+    where
+    ps_suppkey = s_suppkey
+                  and s_nationkey = n_nationkey
+                  and n_name = 'GERMANY'
+    )
+order by
+    value desc
+limit 10;
+----
+1376 13271249.89
+788  9498648.06 
+1071 9388264.40 
+1768 9207199.75 
+1168 8881908.96 
+1084 8709494.16 
+1415 8471489.56 
+1338 8293841.12 
+124  8203209.30 
+1232 8111663.34 

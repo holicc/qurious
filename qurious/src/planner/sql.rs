@@ -1057,6 +1057,46 @@ impl<'a> SqlQueryPlanner<'a> {
                     Ok(and(gt_eq(expr.clone(), low), lt_eq(expr, high)))
                 }
             }
+            Expression::InList { field, list, negated } => {
+                // Rewrite `x IN (a, b, c)` to `(x = a) OR (x = b) OR (x = c)`.
+                // Rewrite `x NOT IN (a, b, c)` to `(x != a) AND (x != b) AND (x != c)`.
+                //
+                // This avoids introducing a new LogicalExpr variant while preserving SQL semantics
+                // (including NULL propagation via Arrow's Kleene AND/OR).
+                let field_expr = self.sql_to_expr(*field)?;
+                if list.is_empty() {
+                    return internal_err!("IN list cannot be empty");
+                }
+
+                let acc = list
+                    .into_iter()
+                    .map(|item| self.sql_to_expr(item))
+                    .map(|rhs| {
+                        rhs.map(|rhs| {
+                            if negated {
+                                not_eq(field_expr.clone(), rhs)
+                            } else {
+                                eq(field_expr.clone(), rhs)
+                            }
+                        })
+                    })
+                    .try_fold(None::<LogicalExpr>, |acc, cmp| -> Result<Option<LogicalExpr>> {
+                        let cmp = cmp?;
+                        Ok(Some(match acc {
+                            None => cmp,
+                            Some(prev) => {
+                                if negated {
+                                    and(prev, cmp)
+                                } else {
+                                    or(prev, cmp)
+                                }
+                            }
+                        }))
+                    })?
+                    .ok_or_else(|| Error::InternalError("IN list cannot be empty".to_string()))?;
+
+                Ok(acc)
+            }
             Expression::Case {
                 operand,
                 when_then,
@@ -1857,6 +1897,22 @@ order by
     p_partkey
 limit 10;",
             "Limit: fetch=10, skip=0\n  Sort: supplier.s_acctbal DESC, nation.n_name ASC, supplier.s_name ASC, part.p_partkey ASC\n    Projection: (supplier.s_acctbal, supplier.s_name, nation.n_name, part.p_partkey, part.p_mfgr, supplier.s_address, supplier.s_phone, supplier.s_comment)\n      Filter: part.p_partkey = partsupp.ps_partkey AND supplier.s_suppkey = partsupp.ps_suppkey AND part.p_size = Int64(15) AND part.p_type LIKE Utf8('%BRASS') AND supplier.s_nationkey = nation.n_nationkey AND nation.n_regionkey = region.r_regionkey AND region.r_name = Utf8('EUROPE') AND partsupp.ps_supplycost = (\n          Projection: (MIN(partsupp.ps_supplycost))\n            Aggregate: group_expr=[], aggregat_expr=[MIN(partsupp.ps_supplycost)]\n              Filter: part.p_partkey = partsupp.ps_partkey AND supplier.s_suppkey = partsupp.ps_suppkey AND supplier.s_nationkey = nation.n_nationkey AND nation.n_regionkey = region.r_regionkey AND region.r_name = Utf8('EUROPE')\n                CrossJoin\n                  CrossJoin\n                    CrossJoin\n                      TableScan: partsupp\n                      TableScan: supplier\n                    TableScan: nation\n                  TableScan: region\n)\n\n        CrossJoin\n          CrossJoin\n            CrossJoin\n              CrossJoin\n                TableScan: part\n                TableScan: supplier\n              TableScan: partsupp\n            TableScan: nation\n          TableScan: region\n")
+    }
+
+    #[test]
+    fn test_in_list_rewrite() {
+        quick_test(
+            "SELECT * FROM tbl WHERE tbl.name IN ('a','b')",
+            "Projection: (tbl.id, tbl.name, tbl.age)\n  Filter: tbl.name = Utf8('a') OR tbl.name = Utf8('b')\n    TableScan: tbl\n",
+        );
+    }
+
+    #[test]
+    fn test_not_in_list_rewrite() {
+        quick_test(
+            "SELECT * FROM tbl WHERE tbl.name NOT IN ('a','b')",
+            "Projection: (tbl.id, tbl.name, tbl.age)\n  Filter: tbl.name != Utf8('a') AND tbl.name != Utf8('b')\n    TableScan: tbl\n",
+        );
     }
 
     fn quick_test(sql: &str, expected: &str) {

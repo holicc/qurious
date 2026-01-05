@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use arrow::datatypes::{DataType, Schema};
 
+use crate::common::table_schema::TableSchema;
 use crate::common::transformed::{Transformed, TransformedResult};
 use crate::error::Result;
 use crate::logical::expr::alias::Alias;
 use crate::logical::expr::{AggregateExpr, BinaryExpr, CaseExpr, LogicalExpr};
-use crate::logical::plan::LogicalPlan;
+use crate::logical::plan::{Aggregate, EmptyRelation, Filter, LogicalPlan, Projection};
 use crate::optimizer::rule::rule_optimizer::OptimizerRule;
+use crate::utils::expr::exprs_to_fields;
 use crate::utils::merge_schema;
 use crate::utils::type_coercion::get_input_types;
 
@@ -19,8 +21,16 @@ impl OptimizerRule for TypeCoercion {
     }
 
     fn rewrite(&self, plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
-        if matches!(plan, LogicalPlan::TableScan(_)) {
-            return Ok(Transformed::no(plan));
+        // NOTE: PushdownFilter can move predicates into TableScan.filter. We must coerce those too
+        // (e.g. Date32 >= '1993-07-01' in TPC-H Q4).
+        if let LogicalPlan::TableScan(mut scan) = plan {
+            let Some(filter) = scan.filter.take() else {
+                return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
+            };
+            let schema = scan.schema();
+            let filter = type_coercion(&schema, filter).data()?;
+            scan.filter = Some(filter);
+            return Ok(Transformed::yes(LogicalPlan::TableScan(scan)));
         }
         let mut merged_schema = Arc::new(Schema::empty());
         let schema = plan.schema();
@@ -29,7 +39,77 @@ impl OptimizerRule for TypeCoercion {
             merged_schema = merge_schema(&schema, &input.schema()).map(Arc::new)?;
         }
 
-        plan.map_exprs(|expr| type_coercion(&merged_schema, expr))
+        // IMPORTANT: if we change expressions, we must rebuild the node schema so output field
+        // names/types stay consistent with the new expressions (otherwise physical planning fails
+        // when looking up fields by name).
+        match plan {
+            LogicalPlan::Projection(Projection {
+                schema: _,
+                input,
+                exprs,
+            }) => {
+                let exprs = exprs
+                    .into_iter()
+                    .map(|expr| type_coercion(&merged_schema, expr).data())
+                    .collect::<Result<Vec<_>>>()?;
+
+                // Build a "reference" plan for expression typing using the merged schema
+                // (important for tests and for cases where the immediate input schema may not
+                // contain all fields needed for type inference).
+                let ref_plan = LogicalPlan::EmptyRelation(EmptyRelation {
+                    produce_one_row: true,
+                    schema: merged_schema.clone(),
+                });
+
+                let mut field_qualifiers = vec![];
+                let mut fields = vec![];
+                for expr in &exprs {
+                    field_qualifiers.push(expr.qualified_name());
+                    fields.push(expr.field(&ref_plan)?);
+                }
+                let schema = Arc::new(TableSchema::new(field_qualifiers, Arc::new(Schema::new(fields))));
+
+                Ok(Transformed::yes(LogicalPlan::Projection(
+                    Projection::try_new_with_schema(*input, exprs, schema)?,
+                )))
+            }
+            LogicalPlan::Aggregate(Aggregate {
+                schema: _,
+                input,
+                group_expr,
+                aggr_expr,
+            }) => {
+                let group_expr = group_expr
+                    .into_iter()
+                    .map(|expr| type_coercion(&merged_schema, expr).data())
+                    .collect::<Result<Vec<_>>>()?;
+                let aggr_expr = aggr_expr
+                    .into_iter()
+                    .map(|expr| type_coercion(&merged_schema, expr).data())
+                    .collect::<Result<Vec<_>>>()?;
+
+                let ref_plan = LogicalPlan::EmptyRelation(EmptyRelation {
+                    produce_one_row: true,
+                    schema: merged_schema.clone(),
+                });
+
+                let mut qualified_fields = exprs_to_fields(&group_expr, &ref_plan)?;
+                qualified_fields.extend(exprs_to_fields(&aggr_expr, &ref_plan)?);
+                let schema = TableSchema::try_new(qualified_fields).map(Arc::new)?;
+
+                Ok(Transformed::yes(LogicalPlan::Aggregate(Aggregate {
+                    schema,
+                    input,
+                    group_expr,
+                    aggr_expr,
+                })))
+            }
+            LogicalPlan::Filter(Filter { input, expr }) => {
+                let expr = type_coercion(&merged_schema, expr).data()?;
+                Ok(Transformed::yes(LogicalPlan::Filter(Filter::try_new(*input, expr)?)))
+            }
+            _ => Ok(Transformed::no(plan)),
+        }
     }
 }
 
