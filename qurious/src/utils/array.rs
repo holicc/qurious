@@ -200,6 +200,8 @@ pub fn create_hashes<H: Hasher>(arrays: &[ArrayRef], hash_buffer: &mut Vec<H>) -
             DataType::Time32(TimeUnit::Millisecond) => hash_array!(Time32MillisecondArray, col, hash_buffer),
             DataType::Time64(TimeUnit::Microsecond) => hash_array!(Time64MicrosecondArray, col, hash_buffer),
             DataType::Time64(TimeUnit::Nanosecond) => hash_array!(Time64NanosecondArray, col, hash_buffer),
+            DataType::Decimal128(_, _) => hash_array!(Decimal128Array, col, hash_buffer),
+            DataType::Decimal256(_, _) => hash_array!(Decimal256Array, col, hash_buffer),
             _ => return internal_err!("Unsupported data type in hasher: {}", col.data_type()),
         }
     }

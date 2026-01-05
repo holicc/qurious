@@ -1,5 +1,6 @@
 mod aggregate;
 mod binary;
+mod case;
 mod cast;
 mod column;
 mod function;
@@ -12,6 +13,7 @@ mod subquery;
 
 pub use aggregate::{avg::*, count::*, max::*, min::*, sum::*, Accumulator, AggregateExpr};
 pub use binary::BinaryExpr;
+pub use case::CaseExpr;
 pub use cast::CastExpr;
 pub use column::Column;
 pub use function::*;

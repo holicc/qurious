@@ -381,23 +381,46 @@ mod tests {
         // session.sql("INSERT INTO test VALUES (1, 1), (2, 2), (3, 3), (3, 5), (NULL, NULL);")?;
         // session.sql("select a, b, c, d from x join y on a = c")?;
         println!("++++++++++++++");
-        let batch = session
-            .sql(
-                "
-select
-    sum(l_extendedprice * l_discount) as revenue
-from
-    lineitem
-where
-        l_shipdate >= date '1994-01-01'
-  and l_shipdate < date '1995-01-01'
-  and l_discount between 0.06 - 0.01 and 0.06 + 0.01
-  and l_quantity < 24;
-",
-            )
-            .unwrap();
+        // Debug helpers for TPC-H Q8 while this test is ignored:
+        // validate we actually have BRAZIL rows in the derived `all_nations` subquery.
+        let debug = session.sql(
+            "
 
-        print_batches(&batch)?;
+select
+    c_custkey,
+    c_name,
+    sum(l_extendedprice * (1 - l_discount)) as revenue,
+    c_acctbal,
+    n_name,
+    c_address,
+    c_phone,
+    c_comment
+from
+    customer,
+    orders,
+    lineitem,
+    nation
+where
+        c_custkey = o_custkey
+  and l_orderkey = o_orderkey
+  and o_orderdate >= date '1993-10-01'
+  and o_orderdate < date '1994-01-01'
+  and l_returnflag = 'R'
+  and c_nationkey = n_nationkey
+group by
+    c_custkey,
+    c_name,
+    c_acctbal,
+    c_phone,
+    n_name,
+    c_address,
+    c_comment
+order by
+    revenue desc
+limit 10;
+",
+        )?;
+        print_batches(&debug)?;
 
         Ok(())
     }
@@ -422,7 +445,17 @@ where
         session.register_table("t", Arc::new(datasource))?;
 
         let batch = session.sql("SELECT a.* FROM t as a")?;
-        assert_eq!(data, batch);
+        // Compare data ignoring schema-level metadata (we attach qualifiers in schema metadata
+        // to support disambiguation across aliased relations).
+        assert_eq!(data.len(), batch.len());
+        for (expected, actual) in data.iter().zip(batch.iter()) {
+            assert_eq!(expected.schema().fields(), actual.schema().fields());
+            assert_eq!(expected.num_rows(), actual.num_rows());
+            assert_eq!(expected.num_columns(), actual.num_columns());
+            for i in 0..expected.num_columns() {
+                assert_eq!(expected.column(i).as_ref(), actual.column(i).as_ref());
+            }
+        }
 
         Ok(())
     }

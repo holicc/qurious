@@ -10,6 +10,14 @@ use arrow::datatypes::{DataType, Field, FieldRef, Schema, SchemaRef};
 
 pub type TableSchemaRef = Arc<TableSchema>;
 
+/// Arrow schema metadata key used to preserve per-field qualifiers (table/alias) across planning stages.
+///
+/// This is needed because Arrow `Schema` fields are identified by name only, and we allow duplicate
+/// column names across different relations (e.g. `nation n1`, `nation n2` both have `n_name`).
+/// Physical planning must be able to map a `(relation, column_name)` to the correct field index.
+pub const FIELD_QUALIFIERS_META_KEY: &str = "qurious.field_qualifiers";
+const FIELD_QUALIFIERS_META_SEP: char = '\u{1f}'; // unit separator (unlikely to appear in names)
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TableSchema {
     pub schema: SchemaRef,
@@ -48,7 +56,24 @@ impl TableSchema {
     }
 
     pub fn arrow_schema(&self) -> SchemaRef {
-        self.schema.clone()
+        // Preserve qualifier information via Schema metadata so physical planning can disambiguate
+        // same-named fields from different relations.
+        let mut metadata = self.schema.metadata().clone();
+        let qualifiers = self
+            .field_qualifiers
+            .iter()
+            .map(|q| q.as_ref().map(|t| t.to_qualified_name()).unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(&FIELD_QUALIFIERS_META_SEP.to_string());
+        metadata.insert(FIELD_QUALIFIERS_META_KEY.to_string(), qualifiers);
+
+        let fields = self
+            .schema
+            .fields()
+            .iter()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>();
+        Arc::new(Schema::new_with_metadata(fields, metadata))
     }
 
     pub fn has_field(&self, qualifier: Option<&TableRelation>, name: &str) -> bool {

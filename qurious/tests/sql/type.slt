@@ -32,6 +32,30 @@ select v1 from t where v1 < date '2021-01-01';
 statement ok
 drop table t
 
+subtest IntervalBinaryExpr
+
+query T
+select date '1993-07-01' + interval '1' + '2' day;
+----
+1993-07-04
+
+subtest SimpleCaseExpr
+
+statement ok
+create table t_case(x int not null)
+
+statement ok
+insert into t_case values (1), (2)
+
+query T rowsort
+select case x when 1 then 'a' else 'b' end from t_case
+----
+a
+b
+
+statement ok
+drop table t_case
+
 # smallint
 statement ok
 create table t (a smallint not null);

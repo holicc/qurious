@@ -667,6 +667,15 @@ pub enum Expression {
         op: UnaryOperator,
         expr: Box<Expression>,
     },
+    /// `CASE [<operand>] WHEN <cond> THEN <result> [ ... ] [ ELSE <result> ] END`
+    ///
+    /// - If `operand` is None, this is a searched CASE (WHEN <bool-expr> THEN ...)
+    /// - If `operand` is Some(expr), this is a simple CASE (WHEN <expr> THEN ...)
+    Case {
+        operand: Option<Box<Expression>>,
+        when_then: Vec<(Expression, Expression)>,
+        else_expr: Option<Box<Expression>>,
+    },
     /// `[NOT] LIKE <pattern>`
     Like {
         negated: bool,
@@ -813,6 +822,23 @@ impl Display for Expression {
             Expression::IsNotNull(expression) => write!(f, "{} IS NOT NULL", expression),
             Expression::UnaryOperator { op, expr } => {
                 write!(f, "{}{}", op, expr)
+            }
+            Expression::Case {
+                operand,
+                when_then,
+                else_expr,
+            } => {
+                write!(f, "CASE")?;
+                if let Some(op) = operand {
+                    write!(f, " {}", op)?;
+                }
+                for (w, t) in when_then {
+                    write!(f, " WHEN {} THEN {}", w, t)?;
+                }
+                if let Some(e) = else_expr {
+                    write!(f, " ELSE {}", e)?;
+                }
+                write!(f, " END")
             }
             Expression::SubQuery(select) => write!(f, "({})", select),
             Expression::Like { negated, left, right } => {

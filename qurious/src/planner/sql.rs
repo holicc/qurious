@@ -681,6 +681,25 @@ impl<'a> SqlQueryPlanner<'a> {
 
                         (scan, alias)
                     }
+                    From::SubQuery { query, alias } => {
+                        let alias =
+                            alias.ok_or(Error::InternalError("SubQuery in FROM requires an alias".to_owned()))?;
+
+                        // Derived table subquery: plan it in an isolated scope (no outer references).
+                        let sub_plan = self.new_context_scope(|planner| match *query {
+                            Statement::Select(select) => planner.select_to_plan(*select),
+                            stmt => internal_err!("SubQuery in FROM only supports SELECT, got: {:?}", stmt),
+                        })?;
+
+                        // Alias the subquery output so outer query can reference `alias.col`.
+                        let aliased_plan = self.apply_table_alias(sub_plan, alias.clone())?;
+
+                        // Register the derived table (by its alias) into the current context for column resolution.
+                        let relation: TableRelation = alias.clone().into();
+                        self.add_relation(relation, aliased_plan.table_schema(), None)?;
+
+                        (aliased_plan, None)
+                    }
                     From::TableFunction { name, args, alias } => (self.table_func_to_plan(name, args)?, alias),
                     From::Join {
                         left,
@@ -708,7 +727,6 @@ impl<'a> SqlQueryPlanner<'a> {
                             None,
                         )
                     }
-                    _ => todo!("join type: [{:?}]", froms.remove(0)),
                 };
 
                 if let Some(alias) = alias {
@@ -1039,6 +1057,43 @@ impl<'a> SqlQueryPlanner<'a> {
                     Ok(and(gt_eq(expr.clone(), low), lt_eq(expr, high)))
                 }
             }
+            Expression::Case {
+                operand,
+                when_then,
+                else_expr,
+            } => {
+                let operand = operand.map(|op| self.sql_to_expr(*op)).transpose()?;
+
+                let when_then = if let Some(operand) = operand.clone() {
+                    // Simple CASE:
+                    //   CASE <operand> WHEN <expr> THEN <value> ... END
+                    // is equivalent to searched CASE:
+                    //   CASE WHEN <operand> = <expr> THEN <value> ... END
+                    //
+                    // Rewrite here (in logical planning) so the optimizer's type coercion can
+                    // properly align operand/when types (e.g. Decimal128 column vs Int literal).
+                    when_then
+                        .into_iter()
+                        .map(|(w, t)| Ok((eq(operand.clone(), self.sql_to_expr(w)?), self.sql_to_expr(t)?)))
+                        .collect::<Result<Vec<_>>>()?
+                } else {
+                    when_then
+                        .into_iter()
+                        .map(|(w, t)| Ok((self.sql_to_expr(w)?, self.sql_to_expr(t)?)))
+                        .collect::<Result<Vec<_>>>()?
+                };
+                let else_expr = else_expr
+                    .map(|e| self.sql_to_expr(*e))
+                    .transpose()?
+                    .unwrap_or(LogicalExpr::Literal(ScalarValue::Null));
+
+                Ok(LogicalExpr::Case(CaseExpr {
+                    // After rewriting simple CASE to searched CASE, operand is no longer needed.
+                    operand: None,
+                    when_then,
+                    else_expr: Box::new(else_expr),
+                }))
+            }
             Expression::Exists { subquery, negated } => Ok(LogicalExpr::Exists(Exists {
                 negated,
                 subquery: Box::new(self.new_context_scope(|planner| planner.select_to_plan(*subquery))?),
@@ -1049,16 +1104,78 @@ impl<'a> SqlQueryPlanner<'a> {
     }
 
     fn interval_to_expr(&mut self, expr: Expression, field: IntervalFields) -> Result<LogicalExpr> {
-        match expr {
-            Expression::BinaryOperator(binary_op) => self.parse_binary_op(binary_op),
-            val => {
-                let interval_val = format!("{} {}", val, field);
-                let config = IntervalParseConfig::new(IntervalUnit::Second);
-                let val = parse_interval_month_day_nano_config(&interval_val, config)?;
+        // We currently materialize INTERVAL as a scalar IntervalMonthDayNano literal.
+        // That means `expr` must be constant-foldable; if it isn't, we error out.
+        //
+        // Important: keep `field` even when `expr` is a BinaryOperator (e.g. `INTERVAL '1' + '2' DAY`).
+        let value = self.fold_interval_quantity(expr)?;
+        let interval_val = format!("{} {}", value, field);
+        let config = IntervalParseConfig::new(IntervalUnit::Second);
+        let val = parse_interval_month_day_nano_config(&interval_val, config)?;
 
-                Ok(LogicalExpr::Literal(ScalarValue::IntervalMonthDayNano(Some(val))))
+        Ok(LogicalExpr::Literal(ScalarValue::IntervalMonthDayNano(Some(val))))
+    }
+
+    /// Fold the numeric quantity part of an INTERVAL expression to an i64.
+    ///
+    /// Examples:
+    /// - `INTERVAL '3' MONTH` => 3
+    /// - `INTERVAL 1 + 2 DAY` => 3
+    /// - `INTERVAL '1' + '2' DAY` => 3
+    fn fold_interval_quantity(&mut self, expr: Expression) -> Result<i64> {
+        use sqlparser::ast::{BinaryOperator as B, Expression as E, Literal as L, UnaryOperator as U};
+
+        fn lit_to_i64(lit: L) -> Result<i64> {
+            match lit {
+                L::Int(i) => Ok(i),
+                L::Float(f) => {
+                    if f.fract() == 0.0 {
+                        Ok(f as i64)
+                    } else {
+                        internal_err!("INTERVAL quantity must be an integer, got {}", f)
+                    }
+                }
+                L::String(s) => s
+                    .parse::<i64>()
+                    .map_err(|e| Error::InternalError(format!("INTERVAL quantity must be an integer, got '{s}': {e}"))),
+                other => internal_err!("INTERVAL quantity must be numeric, got {}", other),
             }
         }
+
+        fn fold(expr: E) -> Result<i64> {
+            match expr {
+                E::Literal(lit) => lit_to_i64(lit),
+                E::UnaryOperator { op, expr } => match op {
+                    U::Plus => fold(*expr),
+                    U::Minus => fold(*expr).map(|v| -v),
+                    U::Not => internal_err!("INTERVAL quantity cannot use NOT"),
+                },
+                E::BinaryOperator(op) => match op {
+                    B::Add(l, r) => Ok(fold(*l)? + fold(*r)?),
+                    B::Sub(l, r) => Ok(fold(*l)? - fold(*r)?),
+                    B::Mul(l, r) => Ok(fold(*l)? * fold(*r)?),
+                    B::Div(l, r) => {
+                        let lhs = fold(*l)?;
+                        let rhs = fold(*r)?;
+                        if rhs == 0 {
+                            return internal_err!("INTERVAL quantity division by zero");
+                        }
+                        if lhs % rhs != 0 {
+                            return internal_err!(
+                                "INTERVAL quantity must be an integer; {} / {} is not integral",
+                                lhs,
+                                rhs
+                            );
+                        }
+                        Ok(lhs / rhs)
+                    }
+                    other => internal_err!("Unsupported INTERVAL quantity expression: {}", other),
+                },
+                other => internal_err!("Unsupported INTERVAL quantity expression: {}", other),
+            }
+        }
+
+        fold(expr)
     }
 
     fn handle_function(&self, name: &str, mut args: Vec<LogicalExpr>) -> Result<LogicalExpr> {
@@ -1623,6 +1740,14 @@ mod tests {
         FROM person FULL JOIN orders \
         ON person.age > 10",
             "Projection: (person.id, person.first_name)\n  Full Join: Filter: person.age > Int64(10)\n    TableScan: person\n    TableScan: orders\n",
+        );
+    }
+
+    #[test]
+    fn test_from_subquery_alias() {
+        quick_test(
+            "SELECT * FROM (SELECT * FROM person) xx",
+            "Projection: (xx.id, xx.name, xx.first_name, xx.age)\n  SubqueryAlias: xx\n    Projection: (person.id, person.name, person.first_name, person.age)\n      TableScan: person\n",
         );
     }
 

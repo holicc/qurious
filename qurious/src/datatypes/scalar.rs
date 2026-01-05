@@ -213,6 +213,18 @@ impl ScalarValue {
             DataType::LargeUtf8 => typed_cast!(array, index, LargeStringArray, Utf8),
             DataType::Decimal128(p, s) => typed_cast_decimal!(Decimal128Array, Decimal128, array, index, *p, *s),
             DataType::Decimal256(p, s) => typed_cast_decimal!(Decimal256Array, Decimal256, array, index, *p, *s),
+            DataType::Interval(IntervalUnit::MonthDayNano) => {
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<IntervalMonthDayNanoArray>()
+                    .ok_or_else(|| {
+                        Error::InternalError(format!(
+                            "could not cast value to {}",
+                            type_name::<IntervalMonthDayNanoArray>()
+                        ))
+                    })?;
+                Ok(ScalarValue::IntervalMonthDayNano(Some(arr.value(index))))
+            }
             _ => unimplemented!("data type {} not supported", array.data_type()),
         }
     }
@@ -257,6 +269,9 @@ impl TryFrom<&DataType> for ScalarValue {
             DataType::Float64 => Ok(ScalarValue::Float64(None)),
             DataType::Utf8 => Ok(ScalarValue::Utf8(None)),
             DataType::LargeUtf8 => Ok(ScalarValue::Utf8(None)),
+            DataType::Decimal128(p, s) => Ok(ScalarValue::Decimal128(None, *p, *s)),
+            DataType::Decimal256(p, s) => Ok(ScalarValue::Decimal256(None, *p, *s)),
+            DataType::Interval(IntervalUnit::MonthDayNano) => Ok(ScalarValue::IntervalMonthDayNano(None)),
             _ => unimplemented!("data type {} not supported", value),
         }
     }

@@ -2,6 +2,8 @@ use arrow::array::{ArrayRef, AsArray, BooleanArray, Datum};
 use arrow::compute::kernels::cmp::*;
 use arrow::compute::kernels::numeric::{add_wrapping, div, mul_wrapping, rem, sub_wrapping};
 use arrow::compute::{and_kleene, or_kleene};
+use arrow::compute::cast;
+use arrow::datatypes::DataType;
 use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatch;
 
@@ -49,7 +51,20 @@ impl PhysicalExpr for BinaryExpr {
             Operator::Add => add_wrapping(&l, &r).map_err(|e| arrow_err!(e)),
             Operator::Sub => sub_wrapping(&l, &r).map_err(|e| arrow_err!(e)),
             Operator::Mul => mul_wrapping(&l, &r).map_err(|e| arrow_err!(e)),
-            Operator::Div => div(&l, &r).map_err(|e| arrow_err!(e)),
+            Operator::Div => {
+                // Arrow's decimal division can behave like integer division depending on scale/precision,
+                // which breaks queries that rely on fractional ratios (e.g. TPC-H Q8).
+                // Perform division in Float64 when either side is decimal.
+                let is_decimal = matches!(l.data_type(), DataType::Decimal128(_, _) | DataType::Decimal256(_, _))
+                    || matches!(r.data_type(), DataType::Decimal128(_, _) | DataType::Decimal256(_, _));
+                if is_decimal {
+                    let lf = cast(l.as_ref(), &DataType::Float64).map_err(|e| arrow_err!(e))?;
+                    let rf = cast(r.as_ref(), &DataType::Float64).map_err(|e| arrow_err!(e))?;
+                    div(&lf, &rf).map_err(|e| arrow_err!(e))
+                } else {
+                    div(&l, &r).map_err(|e| arrow_err!(e))
+                }
+            }
             Operator::Mod => rem(&l, &r).map_err(|e| arrow_err!(e)),
         }
     }

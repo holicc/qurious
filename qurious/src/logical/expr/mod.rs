@@ -1,6 +1,7 @@
 mod aggregate;
 pub mod alias;
 mod binary;
+mod case;
 mod cast;
 mod column;
 mod function;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 
 pub use aggregate::{AggregateExpr, AggregateOperator};
 pub use binary::*;
+pub use case::CaseExpr;
 pub use cast::*;
 pub use column::*;
 pub use function::Function;
@@ -39,6 +41,7 @@ pub enum LogicalExpr {
     AggregateExpr(AggregateExpr),
     SortExpr(SortExpr),
     Cast(CastExpr),
+    Case(CaseExpr),
     Wildcard,
     Function(Function),
     IsNull(Box<LogicalExpr>),
@@ -75,6 +78,7 @@ impl_logical_expr_methods! {
     AggregateExpr,
     Alias,
     Cast,
+    Case,
     Function,
     IsNotNull,
     IsNull,
@@ -94,9 +98,10 @@ impl Display for LogicalExpr {
             LogicalExpr::AggregateExpr(aggregate_expr) => write!(f, "{aggregate_expr}",),
             LogicalExpr::SortExpr(sort_expr) => write!(f, "{sort_expr}",),
             LogicalExpr::Cast(cast_expr) => write!(f, "CAST({} AS {})", cast_expr.expr, cast_expr.data_type),
+            LogicalExpr::Case(case_expr) => write!(f, "{case_expr}"),
             LogicalExpr::Function(function) => write!(f, "{function}",),
             LogicalExpr::IsNull(logical_expr) => write!(f, "{} IS NULL", logical_expr),
-            LogicalExpr::IsNotNull(logical_expr) => write!(f, "{} IS NOT NULLni", logical_expr),
+            LogicalExpr::IsNotNull(logical_expr) => write!(f, "{} IS NOT NULL", logical_expr),
             LogicalExpr::SubQuery(subquery) => write!(f, "(\n{})\n", utils::format(&subquery.subquery, 5)),
             LogicalExpr::Like(like) => {
                 if like.negated {
@@ -172,9 +177,14 @@ impl LogicalExpr {
         match self {
             LogicalExpr::Column(_) => Ok(self.clone()),
             LogicalExpr::AggregateExpr(agg) => agg.as_column(),
-            LogicalExpr::Literal(_) | LogicalExpr::Wildcard | LogicalExpr::BinaryExpr(_) => Ok(LogicalExpr::Column(
-                Column::new(format!("{}", self), None::<TableRelation>, false),
-            )),
+            LogicalExpr::Literal(_)
+            | LogicalExpr::Wildcard
+            | LogicalExpr::BinaryExpr(_)
+            | LogicalExpr::Case(_) => Ok(LogicalExpr::Column(Column::new(
+                format!("{}", self),
+                None::<TableRelation>,
+                false,
+            ))),
             _ => Err(Error::InternalError(format!("Expect column, got {:?}", self))),
         }
     }
@@ -210,6 +220,7 @@ impl LogicalExpr {
             LogicalExpr::Literal(scalar_value) => Ok(scalar_value.data_type()),
             LogicalExpr::BinaryExpr(binary_expr) => binary_expr.get_result_type(schema),
             LogicalExpr::Cast(cast_expr) => Ok(cast_expr.data_type.clone()),
+            LogicalExpr::Case(case_expr) => case_expr.data_type(schema),
             LogicalExpr::Function(function) => Ok(function.func.return_type()),
             LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => op.infer_type(&expr.data_type(schema)?),
             LogicalExpr::SortExpr(SortExpr { expr, .. }) | LogicalExpr::Negative(expr) => expr.data_type(schema),
@@ -279,6 +290,25 @@ impl TransformNode for LogicalExpr {
                     data_type,
                 })
             }),
+            LogicalExpr::Case(CaseExpr {
+                operand,
+                when_then,
+                else_expr,
+            }) => {
+                let operand = operand
+                    .map(|op| f(*op).map(|t| t.data).map(Box::new))
+                    .transpose()?;
+                let when_then = when_then
+                    .into_iter()
+                    .map(|(w, t)| Ok((f(w)?.data, f(t)?.data)))
+                    .collect::<Result<Vec<_>>>()?;
+                let else_expr = f(*else_expr)?.data;
+                Transformed::yes(LogicalExpr::Case(CaseExpr {
+                    operand,
+                    when_then,
+                    else_expr: Box::new(else_expr),
+                }))
+            }
             LogicalExpr::Function(Function { func, args }) => {
                 let args = args
                     .into_iter()
@@ -329,6 +359,18 @@ impl TransformNode for LogicalExpr {
                 vec![]
             }
             LogicalExpr::Like(like) => vec![like.expr.as_ref(), like.pattern.as_ref()],
+            LogicalExpr::Case(case_expr) => {
+                let mut v = vec![];
+                if let Some(op) = &case_expr.operand {
+                    v.push(op.as_ref());
+                }
+                for (w, t) in &case_expr.when_then {
+                    v.push(w);
+                    v.push(t);
+                }
+                v.push(case_expr.else_expr.as_ref());
+                v
+            }
         };
 
         for expr in children {

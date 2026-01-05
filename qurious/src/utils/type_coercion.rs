@@ -95,9 +95,19 @@ fn coercion_types(lhs: &DataType, op: &Operator, rhs: &DataType) -> Result<Binar
             }
         }
 
-        Operator::Add | Operator::Sub | Operator::Mul | Operator::Div | Operator::Mod => try_coerce(lhs, op, rhs)
-            .or(decimal_coercion(lhs, op, rhs))
-            .or(numeric_coercion(lhs, rhs)),
+        Operator::Add | Operator::Sub | Operator::Mul | Operator::Div | Operator::Mod => {
+            // Decimal division should not behave like integer division (TPC-H Q8 relies on fractional results).
+            // Arrow's decimal division semantics can yield truncated decimals depending on scale/precision,
+            // so we coerce to Float64 here and let users cast back to DECIMAL if needed.
+            let is_decimal = |dt: &DataType| matches!(dt, Decimal128(_, _) | Decimal256(_, _));
+            if matches!(op, Operator::Div) && (is_decimal(lhs) || is_decimal(rhs)) {
+                return Ok(BinaryTypes::uniform(Float64));
+            }
+
+            try_coerce(lhs, op, rhs)
+                .or(decimal_coercion(lhs, op, rhs))
+                .or(numeric_coercion(lhs, rhs))
+        }
     }
 }
 

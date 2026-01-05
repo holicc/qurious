@@ -5,7 +5,7 @@ use arrow::datatypes::{DataType, Schema};
 use crate::common::transformed::{Transformed, TransformedResult};
 use crate::error::Result;
 use crate::logical::expr::alias::Alias;
-use crate::logical::expr::{AggregateExpr, BinaryExpr, LogicalExpr};
+use crate::logical::expr::{AggregateExpr, BinaryExpr, CaseExpr, LogicalExpr};
 use crate::logical::plan::LogicalPlan;
 use crate::optimizer::rule::rule_optimizer::OptimizerRule;
 use crate::utils::merge_schema;
@@ -43,6 +43,49 @@ fn type_coercion(schema: &Arc<Schema>, expr: LogicalExpr) -> Result<Transformed<
                 .map(LogicalExpr::BinaryExpr)
                 .map(Transformed::yes)
         }
+        LogicalExpr::Case(CaseExpr {
+            operand,
+            when_then,
+            else_expr,
+        }) => {
+            let operand = operand
+                .map(|op| type_coercion(schema, *op).data().map(Box::new))
+                .transpose()?;
+            let when_then = when_then
+                .into_iter()
+                .map(|(w, t)| Ok((type_coercion(schema, w).data()?, type_coercion(schema, t).data()?)))
+                .collect::<Result<Vec<_>>>()?;
+            let else_expr = type_coercion(schema, *else_expr).data()?;
+
+            // Coerce THEN/ELSE value expressions to a common type.
+            let mut value_types = vec![];
+            for (_, t) in &when_then {
+                value_types.push(t.data_type(schema)?);
+            }
+            value_types.push(else_expr.data_type(schema)?);
+
+            let target = coerce_case_value_type(&value_types);
+            let when_then = when_then
+                .into_iter()
+                .map(|(w, t)| {
+                    let cur = t.data_type(schema)?;
+                    let t = if cur != target { t.cast_to(&target) } else { t };
+                    Ok((w, t))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let else_cur = else_expr.data_type(schema)?;
+            let else_expr = if else_cur != target {
+                else_expr.cast_to(&target)
+            } else {
+                else_expr
+            };
+
+            Ok(Transformed::yes(LogicalExpr::Case(CaseExpr {
+                operand,
+                when_then,
+                else_expr: Box::new(else_expr),
+            })))
+        }
         LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => type_coercion(schema, *expr)?.map_data(|expr| {
             Ok(LogicalExpr::AggregateExpr(AggregateExpr {
                 op,
@@ -55,6 +98,55 @@ fn type_coercion(schema: &Arc<Schema>, expr: LogicalExpr) -> Result<Transformed<
         }
         _ => Ok(Transformed::no(expr)),
     }
+}
+
+fn coerce_case_value_type(types: &[DataType]) -> DataType {
+    use arrow::datatypes::DataType::*;
+
+    let mut has_decimal256 = false;
+    let mut dec_p: u8 = 0;
+    let mut dec_s: i8 = 0;
+    let mut has_f64 = false;
+    let mut has_f32 = false;
+    let mut has_i64 = false;
+    let mut has_int = false;
+
+    for t in types {
+        match t {
+            Decimal256(p, s) => {
+                has_decimal256 = true;
+                dec_p = dec_p.max(*p);
+                dec_s = dec_s.max(*s);
+            }
+            Decimal128(p, s) => {
+                dec_p = dec_p.max(*p);
+                dec_s = dec_s.max(*s);
+            }
+            Float64 => has_f64 = true,
+            Float32 => has_f32 = true,
+            Int64 => has_i64 = true,
+            Int8 | Int16 | Int32 | UInt8 | UInt16 | UInt32 | UInt64 => has_int = true,
+            Null => {}
+            other => return other.clone(),
+        }
+    }
+
+    if has_decimal256 {
+        return Decimal256(dec_p.max(1), dec_s);
+    }
+    if dec_p > 0 {
+        return Decimal128(dec_p, dec_s);
+    }
+    if has_f64 {
+        return Float64;
+    }
+    if has_f32 {
+        return Float32;
+    }
+    if has_i64 || has_int {
+        return Int64;
+    }
+    DataType::Null
 }
 
 fn coerce_binary_op(schema: &Arc<Schema>, expr: BinaryExpr) -> Result<BinaryExpr> {

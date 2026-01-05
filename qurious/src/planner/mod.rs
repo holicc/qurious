@@ -9,6 +9,7 @@ use arrow::{
 
 use crate::{
     arrow_err,
+    common::table_schema::FIELD_QUALIFIERS_META_KEY,
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
     internal_err,
@@ -45,7 +46,25 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalPlan::EmptyRelation(v) => self.physical_empty_relation(v),
             LogicalPlan::CrossJoin(j) => self.physical_plan_cross_join(j),
             LogicalPlan::Join(join) => self.physical_plan_join(join),
-            LogicalPlan::SubqueryAlias(SubqueryAlias { input, .. }) => self.create_physical_plan(input),
+            LogicalPlan::SubqueryAlias(SubqueryAlias { input, schema, .. }) => {
+                // Preserve alias qualification in the physical schema. This is required to
+                // correctly resolve columns like `n1.n_name` and `n2.n_name` when the same base
+                // table appears multiple times with different aliases.
+                let input_plan = self.create_physical_plan(input)?;
+                let input_schema = input_plan.schema();
+                let exprs = input_schema
+                    .fields()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| Ok(Arc::new(physical::expr::Column::new(f.name(), i)) as Arc<dyn PhysicalExpr>))
+                    .collect::<Result<Vec<_>>>()?;
+
+                Ok(Arc::new(physical::plan::Projection::new(
+                    schema.arrow_schema(),
+                    input_plan,
+                    exprs,
+                )))
+            }
             LogicalPlan::Sort(sort) => self.physical_plan_sort(sort),
             LogicalPlan::Limit(limit) => {
                 // Top-N optimization: LIMIT on top of ORDER BY only needs to sort up to (skip + fetch).
@@ -88,6 +107,32 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalExpr::Cast(c) => self.physical_expr_cast(input_schema, c),
             LogicalExpr::Alias(Alias { expr, .. }) => self.create_physical_expr(input_schema, expr),
             LogicalExpr::AggregateExpr(a) => self.create_physical_expr(input_schema, &a.as_column()?),
+            LogicalExpr::Case(case_expr) => {
+                let else_expr = self.create_physical_expr(input_schema, &case_expr.else_expr)?;
+                let when_then = case_expr
+                    .when_then
+                    .iter()
+                    .map(|(w, t)| {
+                        // Physical CASE only supports searched CASE (WHEN must be boolean).
+                        // If a simple CASE somehow makes it here (CASE <operand> WHEN <expr> ...),
+                        // rewrite it to `WHEN <operand> = <expr> ...` as a safeguard.
+                        let when_expr = if let Some(op) = &case_expr.operand {
+                            LogicalExpr::BinaryExpr(BinaryExpr::new(
+                                (**op).clone(),
+                                crate::datatypes::operator::Operator::Eq,
+                                w.clone(),
+                            ))
+                        } else {
+                            w.clone()
+                        };
+                        Ok((
+                            self.create_physical_expr(input_schema, &when_expr)?,
+                            self.create_physical_expr(input_schema, t)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Arc::new(physical::expr::CaseExpr::new(when_then, else_expr)) as Arc<dyn PhysicalExpr>)
+            }
             LogicalExpr::Function(f) => self.physical_expr_function(input_schema, f),
             LogicalExpr::IsNull(f) => self
                 .create_physical_expr(input_schema, f)
@@ -312,6 +357,25 @@ impl DefaultQueryPlanner {
 
     // Physical expression functions
     fn physical_expr_column(&self, schema: &SchemaRef, column: &Column) -> Result<Arc<dyn PhysicalExpr>> {
+        // Prefer qualified lookup when we have relation info and schema carries qualifier metadata.
+        if let (Some(rel), Some(qualifiers_str)) = (
+            column.relation.as_ref(),
+            schema.metadata().get(FIELD_QUALIFIERS_META_KEY),
+        ) {
+            let rel_name = rel.to_qualified_name();
+            let qualifiers: Vec<&str> = qualifiers_str.split('\u{1f}').collect();
+            if qualifiers.len() == schema.fields().len() {
+                if let Some((index, _)) = schema
+                    .fields()
+                    .iter()
+                    .enumerate()
+                    .find(|(i, f)| f.name() == &column.name && qualifiers[*i] == rel_name)
+                {
+                    return Ok(Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>);
+                }
+            }
+        }
+
         schema
             .index_of(&column.name)
             .map_err(|e| arrow_err!(e))

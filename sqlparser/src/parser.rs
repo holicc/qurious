@@ -947,6 +947,19 @@ impl<'a> Parser<'a> {
                     expr: Box::new(expr),
                 })
             }
+            TokenType::Keyword(Keyword::Cast) => {
+                // CAST(<expr> AS <data_type>)
+                self.next_except(TokenType::LParen)?;
+                let expr = self.parse_expression(0)?;
+                self.next_except(TokenType::Keyword(Keyword::As))?;
+                let data_type = self.parse_data_type()?;
+                self.next_except(TokenType::RParen)?;
+                Ok(Expression::Cast {
+                    expr: Box::new(expr),
+                    data_type,
+                })
+            }
+            TokenType::Keyword(Keyword::Case) => self.parse_case_expr(),
             TokenType::Keyword(Keyword::Interval) => self.parse_interval(),
             TokenType::Asterisk => Ok(ast::Expression::Identifier("*".into())),
             TokenType::Float => literal
@@ -1010,6 +1023,36 @@ impl<'a> Parser<'a> {
             }
             _ => Err(Error::UnexpectedToken(token)),
         }
+    }
+
+    fn parse_case_expr(&mut self) -> Result<Expression> {
+        // CASE [operand] WHEN cond THEN result ... [ELSE result] END
+        // Note: `CASE` token already consumed.
+        let mut operand: Option<Box<Expression>> = None;
+        if !matches!(self.peek()?.token_type, TokenType::Keyword(Keyword::When)) {
+            operand = Some(Box::new(self.parse_expression(0)?));
+        }
+
+        let mut when_then = vec![];
+        while self.next_if_token(TokenType::Keyword(Keyword::When)).is_some() {
+            let when_expr = self.parse_expression(0)?;
+            self.next_except(TokenType::Keyword(Keyword::Then))?;
+            let then_expr = self.parse_expression(0)?;
+            when_then.push((when_expr, then_expr));
+        }
+
+        let else_expr = if self.next_if_token(TokenType::Keyword(Keyword::Else)).is_some() {
+            Some(Box::new(self.parse_expression(0)?))
+        } else {
+            None
+        };
+
+        self.next_except(TokenType::Keyword(Keyword::End))?;
+        Ok(Expression::Case {
+            operand,
+            when_then,
+            else_expr,
+        })
     }
 
     fn parse_exists_expr(&mut self, negated: bool) -> Result<Expression> {
@@ -4618,6 +4661,43 @@ mod tests {
                     low: Box::new(ast::Expression::Literal(ast::Literal::Int(1))),
                     high: Box::new(ast::Expression::Literal(ast::Literal::Int(3))),
                 }),
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_parse_cast_and_case_expression() {
+        let stmt = parse_stmt("SELECT CAST(CASE WHEN a = 1 THEN 2 ELSE 0 END AS decimal(12,2)) FROM t").unwrap();
+
+        assert_eq!(
+            stmt,
+            ast::Statement::Select(Box::new(Select {
+                with: None,
+                distinct: None,
+                columns: vec![SelectItem::UnNamedExpr(ast::Expression::Cast {
+                    expr: Box::new(ast::Expression::Case {
+                        operand: None,
+                        when_then: vec![(
+                            ast::Expression::BinaryOperator(BinaryOperator::Eq(
+                                Box::new(ast::Expression::Identifier("a".into())),
+                                Box::new(ast::Expression::Literal(ast::Literal::Int(1))),
+                            )),
+                            ast::Expression::Literal(ast::Literal::Int(2)),
+                        )],
+                        else_expr: Some(Box::new(ast::Expression::Literal(ast::Literal::Int(0)))),
+                    }),
+                    data_type: DataType::Decimal(Some(12), Some(2)),
+                })],
+                from: vec![ast::From::Table {
+                    name: "t".to_owned(),
+                    alias: None
+                }],
+                r#where: None,
                 group_by: None,
                 having: None,
                 order_by: None,

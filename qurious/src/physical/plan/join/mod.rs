@@ -10,6 +10,7 @@ pub use cross_join::CrossJoin;
 pub use hash_join::*;
 pub use nest_loop_join::*;
 
+use crate::common::table_schema::FIELD_QUALIFIERS_META_KEY;
 use crate::error::Result;
 use crate::utils::batch::build_batch_from_indices;
 use crate::{common::join_type::JoinType, physical::expr::PhysicalExpr};
@@ -32,7 +33,19 @@ pub(crate) fn build_join_schema(left: &Schema, right: &Schema, join_type: &JoinT
             .map(|(index, f)| (Arc::new(f.as_ref().clone()), (index, JoinSide::Left)));
 
         let (fields, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = left_fields.unzip();
-        return (Arc::new(fields.finish()), column_indices);
+        let schema = fields.finish();
+
+        // Preserve qualifier metadata for left-only output.
+        let mut metadata = left.metadata().clone();
+        if let Some(q) = left.metadata().get(FIELD_QUALIFIERS_META_KEY) {
+            metadata.insert(FIELD_QUALIFIERS_META_KEY.to_string(), q.clone());
+        }
+
+        let schema = Schema::new_with_metadata(
+            schema.fields().iter().map(|f| f.as_ref().clone()).collect::<Vec<_>>(),
+            metadata,
+        );
+        return (Arc::new(schema), column_indices);
     }
 
     let (left_nullable, right_nullable) = match join_type {
@@ -66,8 +79,47 @@ pub(crate) fn build_join_schema(left: &Schema, right: &Schema, join_type: &JoinT
         .map(|(index, f)| (f, (index, JoinSide::Right)));
 
     let (fields, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = left_fields.chain(right_fields).unzip();
+    let schema = fields.finish();
 
-    (Arc::new(fields.finish()), column_indices)
+    // Preserve per-field qualifiers (stored in Schema metadata) for the concatenated schema.
+    let sep = '\u{1f}';
+    let fallback = |len: usize| vec![""; len];
+
+    let left_q = left
+        .metadata()
+        .get(FIELD_QUALIFIERS_META_KEY)
+        .cloned()
+        .unwrap_or_else(|| sep.to_string().repeat(left.fields().len().saturating_sub(1)));
+    let mut left_parts = left_q.split(sep).collect::<Vec<_>>();
+    if left_parts.len() != left.fields().len() {
+        left_parts = fallback(left.fields().len());
+    }
+
+    let right_q = right
+        .metadata()
+        .get(FIELD_QUALIFIERS_META_KEY)
+        .cloned()
+        .unwrap_or_else(|| sep.to_string().repeat(right.fields().len().saturating_sub(1)));
+    let mut right_parts = right_q.split(sep).collect::<Vec<_>>();
+    if right_parts.len() != right.fields().len() {
+        right_parts = fallback(right.fields().len());
+    }
+
+    let combined = left_parts
+        .into_iter()
+        .chain(right_parts.into_iter())
+        .collect::<Vec<_>>()
+        .join(&sep.to_string());
+
+    let mut metadata = left.metadata().clone();
+    metadata.insert(FIELD_QUALIFIERS_META_KEY.to_string(), combined);
+
+    let schema = Schema::new_with_metadata(
+        schema.fields().iter().map(|f| f.as_ref().clone()).collect::<Vec<_>>(),
+        metadata,
+    );
+
+    (Arc::new(schema), column_indices)
 }
 
 pub(crate) fn apply_join_filter_to_indices(

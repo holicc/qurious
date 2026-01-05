@@ -4,6 +4,7 @@ use arrow::{
 };
 
 use crate::{
+    common::table_schema::FIELD_QUALIFIERS_META_KEY,
     error::{Error, Result},
     physical::plan::PhysicalPlan,
     utils::array::repeat_array,
@@ -61,14 +62,52 @@ pub struct CrossJoin {
 
 impl CrossJoin {
     pub fn new(left: Arc<dyn PhysicalPlan>, right: Arc<dyn PhysicalPlan>) -> Self {
-        let schema = Schema::new(
-            left.schema()
-                .fields()
-                .iter()
-                .chain(right.schema().fields().iter())
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
+        let left_schema = left.schema();
+        let right_schema = right.schema();
+
+        let fields = left_schema
+            .fields()
+            .iter()
+            .chain(right_schema.fields().iter())
+            .cloned()
+            .collect::<Vec<_>>();
+
+        // Preserve per-field qualifiers (stored in Schema metadata) across schema concatenation.
+        // This is required so physical column lookup can disambiguate same-named columns coming
+        // from different relations (e.g. `nation n1` and `nation n2`).
+        let mut metadata = left_schema.metadata().clone();
+
+        let sep = '\u{1f}';
+        let fallback = |len: usize| vec![""; len];
+
+        let left_q = left_schema
+            .metadata()
+            .get(FIELD_QUALIFIERS_META_KEY)
+            .cloned()
+            .unwrap_or_else(|| sep.to_string().repeat(left_schema.fields().len().saturating_sub(1)));
+        let mut left_parts = left_q.split(sep).collect::<Vec<_>>();
+        if left_parts.len() != left_schema.fields().len() {
+            left_parts = fallback(left_schema.fields().len());
+        }
+
+        let right_q = right_schema
+            .metadata()
+            .get(FIELD_QUALIFIERS_META_KEY)
+            .cloned()
+            .unwrap_or_else(|| sep.to_string().repeat(right_schema.fields().len().saturating_sub(1)));
+        let mut right_parts = right_q.split(sep).collect::<Vec<_>>();
+        if right_parts.len() != right_schema.fields().len() {
+            right_parts = fallback(right_schema.fields().len());
+        }
+
+        let combined = left_parts
+            .into_iter()
+            .chain(right_parts.into_iter())
+            .collect::<Vec<_>>()
+            .join(&sep.to_string());
+        metadata.insert(FIELD_QUALIFIERS_META_KEY.to_string(), combined);
+
+        let schema = Schema::new_with_metadata(fields, metadata);
         Self {
             left,
             right,
