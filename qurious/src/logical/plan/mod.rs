@@ -27,7 +27,7 @@ use arrow::datatypes::SchemaRef;
 
 use super::expr::{Column, LogicalExpr};
 use crate::common::table_relation::TableRelation;
-use crate::common::table_schema::TableSchemaRef;
+use crate::common::table_schema::{TableSchema, TableSchemaRef};
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult, TreeNodeContainer, TreeNodeRecursion};
 use crate::error::Result;
 
@@ -116,23 +116,8 @@ impl LogicalPlan {
         }
     }
 
-    // FIXME: remove this method when table schema is implemented
     pub fn schema(&self) -> SchemaRef {
-        match self {
-            LogicalPlan::Projection(p) => p.schema(),
-            LogicalPlan::Filter(f) => f.schema(),
-            LogicalPlan::Aggregate(a) => a.schema().arrow_schema(),
-            LogicalPlan::TableScan(t) => t.schema(),
-            LogicalPlan::EmptyRelation(e) => e.schema.clone(),
-            LogicalPlan::CrossJoin(s) => s.schema(),
-            LogicalPlan::SubqueryAlias(s) => s.schema(),
-            LogicalPlan::Join(j) => j.schema(),
-            LogicalPlan::Sort(s) => s.schema(),
-            LogicalPlan::Limit(l) => l.schema(),
-            LogicalPlan::Ddl(d) => d.schema(),
-            LogicalPlan::Dml(d) => d.schema(),
-            LogicalPlan::Values(v) => v.schema.clone(),
-        }
+        self.table_schema().arrow_schema()
     }
 
     pub fn table_schema(&self) -> TableSchemaRef {
@@ -144,7 +129,12 @@ impl LogicalPlan {
             LogicalPlan::Projection(p) => p.schema.clone(),
             LogicalPlan::Join(j) => j.schema.clone(),
             LogicalPlan::Aggregate(a) => a.schema.clone(),
-            _ => todo!("[{}] not implement table_schema", self),
+            LogicalPlan::Sort(s) => s.input.table_schema(),
+            LogicalPlan::Limit(l) => l.input.table_schema(),
+            LogicalPlan::EmptyRelation(e) => Arc::new(TableSchema::from(e.schema.clone())),
+            LogicalPlan::Values(v) => Arc::new(TableSchema::from(v.schema.clone())),
+            LogicalPlan::Ddl(d) => Arc::new(TableSchema::from(d.schema())),
+            LogicalPlan::Dml(d) => Arc::new(TableSchema::from(d.schema())),
         }
     }
 
