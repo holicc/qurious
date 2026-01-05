@@ -1150,7 +1150,17 @@ impl<'a> SqlQueryPlanner<'a> {
         // Important: keep `field` even when `expr` is a BinaryOperator (e.g. `INTERVAL '1' + '2' DAY`).
         let value = self.fold_interval_quantity(expr)?;
         let interval_val = format!("{} {}", value, field);
-        let config = IntervalParseConfig::new(IntervalUnit::Second);
+        // IMPORTANT: the parse unit must match the interval field being parsed.
+        // We store the result as IntervalMonthDayNano, but Arrow's parser still needs the
+        // correct base unit to interpret the textual interval accurately.
+        let config = IntervalParseConfig::new(match field {
+            IntervalFields::Year => IntervalUnit::Year,
+            IntervalFields::Month => IntervalUnit::Month,
+            IntervalFields::Day => IntervalUnit::Day,
+            IntervalFields::Hour => IntervalUnit::Hour,
+            IntervalFields::Minute => IntervalUnit::Minute,
+            IntervalFields::Second => IntervalUnit::Second,
+        });
         let val = parse_interval_month_day_nano_config(&interval_val, config)?;
 
         Ok(LogicalExpr::Literal(ScalarValue::IntervalMonthDayNano(Some(val))))
