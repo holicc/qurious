@@ -47,11 +47,21 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalPlan::Join(join) => self.physical_plan_join(join),
             LogicalPlan::SubqueryAlias(SubqueryAlias { input, .. }) => self.create_physical_plan(input),
             LogicalPlan::Sort(sort) => self.physical_plan_sort(sort),
-            LogicalPlan::Limit(limit) => Ok(Arc::new(physical::plan::Limit::new(
-                self.create_physical_plan(&limit.input)?,
-                limit.fetch,
-                limit.skip,
-            ))),
+            LogicalPlan::Limit(limit) => {
+                // Top-N optimization: LIMIT on top of ORDER BY only needs to sort up to (skip + fetch).
+                // We push that down into the physical Sort using Arrow's lexsort_to_indices(limit=...).
+                if let (Some(fetch), LogicalPlan::Sort(sort)) = (limit.fetch, limit.input.as_ref()) {
+                    let top_n = fetch.saturating_add(limit.skip);
+                    let sorted = self.physical_plan_sort_with_limit(sort, Some(top_n))?;
+                    Ok(Arc::new(physical::plan::Limit::new(sorted, limit.fetch, limit.skip)))
+                } else {
+                    Ok(Arc::new(physical::plan::Limit::new(
+                        self.create_physical_plan(&limit.input)?,
+                        limit.fetch,
+                        limit.skip,
+                    )))
+                }
+            }
             LogicalPlan::Values(Values { values, schema }) => values
                 .iter()
                 .map(|exprs| {
@@ -273,6 +283,10 @@ impl DefaultQueryPlanner {
     }
 
     fn physical_plan_sort(&self, sort: &Sort) -> Result<Arc<dyn PhysicalPlan>> {
+        self.physical_plan_sort_with_limit(sort, None)
+    }
+
+    fn physical_plan_sort_with_limit(&self, sort: &Sort, limit: Option<usize>) -> Result<Arc<dyn PhysicalPlan>> {
         let input = self.create_physical_plan(&sort.input)?;
         sort.exprs
             .iter()
@@ -285,7 +299,7 @@ impl DefaultQueryPlanner {
                 Ok(physical::plan::PhyscialSortExpr::new(expr, options))
             })
             .collect::<Result<_>>()
-            .map(|exprs| Arc::new(physical::plan::Sort::new(exprs, input)) as Arc<dyn PhysicalPlan>)
+            .map(|exprs| Arc::new(physical::plan::Sort::new_with_limit(exprs, input, limit)) as Arc<dyn PhysicalPlan>)
     }
 }
 

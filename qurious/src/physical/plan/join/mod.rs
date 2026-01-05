@@ -23,11 +23,24 @@ pub(crate) fn need_produce_result_in_final(join_type: &JoinType) -> bool {
 }
 
 pub(crate) fn build_join_schema(left: &Schema, right: &Schema, join_type: &JoinType) -> (SchemaRef, Vec<ColumnIndex>) {
+    // Left Semi/Anti joins only return left side columns
+    if matches!(join_type, JoinType::LeftSemi | JoinType::LeftAnti) {
+        let left_fields = left
+            .fields()
+            .iter()
+            .enumerate()
+            .map(|(index, f)| (Arc::new(f.as_ref().clone()), (index, JoinSide::Left)));
+
+        let (fields, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = left_fields.unzip();
+        return (Arc::new(fields.finish()), column_indices);
+    }
+
     let (left_nullable, right_nullable) = match join_type {
         JoinType::Left => (false, true),
         JoinType::Right => (true, false),
         JoinType::Inner => (false, false),
         JoinType::Full => (true, true),
+        JoinType::LeftSemi | JoinType::LeftAnti => unreachable!(), // handled above
     };
 
     let with_nullable = |nullable| -> Box<dyn FnMut(&Arc<Field>) -> Field> {
@@ -101,6 +114,10 @@ pub(crate) fn adjust_indices_by_join_type(
             Ok((left_indices, right_indices))
         }
         JoinType::Right | JoinType::Full => adjust_right_indices(left_indices, right_indices, right_rows),
+        JoinType::LeftSemi | JoinType::LeftAnti => {
+            // Semi/Anti joins only return left side, so we just return the left indices
+            Ok((left_indices, right_indices))
+        }
     }
 }
 

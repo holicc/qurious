@@ -357,7 +357,7 @@ mod tests {
             "SELECT * FROM users, repos WHERE users.id = repos.owner_id AND users.id = 10",
             vec![Box::new(PushdownFilter)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Filter: users.id = repos.owner_id",
                 "    Inner Join:",
                 "      TableScan: users, full_filter=[users.id = Int64(10)]",
@@ -372,7 +372,7 @@ mod tests {
             "SELECT * FROM users, repos WHERE users.id = repos.owner_id AND users.id = 10",
             vec![Box::new(EliminateCrossJoin), Box::new(PushdownFilter)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Inner Join: On: (users.id, repos.owner_id)",
                 "    TableScan: users, full_filter=[users.id = Int64(10)]",
                 "    TableScan: repos, full_filter=[repos.owner_id = Int64(10)]",

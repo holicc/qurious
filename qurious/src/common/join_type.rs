@@ -6,6 +6,8 @@ pub enum JoinType {
     Right,
     Inner,
     Full,
+    LeftSemi,
+    LeftAnti,
 }
 
 impl Display for JoinType {
@@ -15,6 +17,8 @@ impl Display for JoinType {
             JoinType::Right => write!(f, "Right Join"),
             JoinType::Inner => write!(f, "Inner Join"),
             JoinType::Full => write!(f, "Full Join"),
+            JoinType::LeftSemi => write!(f, "Left Semi Join"),
+            JoinType::LeftAnti => write!(f, "Left Anti Join"),
         }
     }
 }

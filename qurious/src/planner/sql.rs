@@ -1105,8 +1105,8 @@ impl<'a> SqlQueryPlanner<'a> {
                     return internal_err!("SELECT * with no tables specified is not valid");
                 }
 
-                let mut cols = plan.table_schema().columns();
-                cols.sort();
+                let cols = plan.table_schema().columns();
+                // Keep schema order (CREATE TABLE / datasource order) for `SELECT *`.
                 Ok(cols.into_iter().map(LogicalExpr::Column).collect())
             }
             SelectItem::QualifiedWildcard(idents) => {
@@ -1313,27 +1313,27 @@ mod tests {
     fn test_interval() {
         quick_test(
             "SELECT INTERVAL '1' YEAR;",
-            "Projection: (IntervalMonthDayNano('IntervalMonthDayNano { months: 12, days: 0, nanoseconds: 0 }'))\n  Empty Relation\n",
+            "Projection: (interval(months=12, days=0, nanoseconds=0))\n  Empty Relation\n",
         );
 
         quick_test(
             "SELECT INTERVAL '1' MONTH;",
-            "Projection: (IntervalMonthDayNano('IntervalMonthDayNano { months: 1, days: 0, nanoseconds: 0 }'))\n  Empty Relation\n",
+            "Projection: (interval(months=1, days=0, nanoseconds=0))\n  Empty Relation\n",
         );
 
         quick_test(
             "SELECT INTERVAL '1' DAY;",
-            "Projection: (IntervalMonthDayNano('IntervalMonthDayNano { months: 0, days: 1, nanoseconds: 0 }'))\n  Empty Relation\n",
+            "Projection: (interval(months=0, days=1, nanoseconds=0))\n  Empty Relation\n",
         );
 
-        quick_test("SELECT DATE '1993-07-01' + INTERVAL '3' month", "Projection: (CAST(Utf8('1993-07-01') AS Date32) + IntervalMonthDayNano('IntervalMonthDayNano { months: 3, days: 0, nanoseconds: 0 }'))\n  Empty Relation\n");
+        quick_test("SELECT DATE '1993-07-01' + INTERVAL '3' month", "Projection: (CAST(Utf8('1993-07-01') AS Date32) + interval(months=3, days=0, nanoseconds=0))\n  Empty Relation\n");
     }
 
     #[test]
     fn test_exists() {
         quick_test(
             "SELECT * FROM person WHERE EXISTS (SELECT * FROM other_tbl WHERE name = first_name)",
-            "",
+            "Projection: (person.id, person.name, person.first_name, person.age)\n  Filter:  EXISTS (Projection: (other_tbl.id, other_tbl.name, other_tbl.age))\n    TableScan: person\n",
         );
     }
 
@@ -1341,15 +1341,15 @@ mod tests {
     fn test_outer_field_reference() {
         quick_test(
             "SELECT * FROM person WHERE id = (SELECT MIN(id) FROM other_tbl WHERE name = first_name)",
-            "Projection: (person.age, person.first_name, person.id, person.name)\n  Filter: person.id = (\n          Projection: (MIN(other_tbl.id))\n            Aggregate: group_expr=[], aggregat_expr=[MIN(other_tbl.id)]\n              Filter: other_tbl.name = person.first_name\n                TableScan: other_tbl\n)\n\n    TableScan: person\n",
+            "Projection: (person.id, person.name, person.first_name, person.age)\n  Filter: person.id = (\n          Projection: (MIN(other_tbl.id))\n            Aggregate: group_expr=[], aggregat_expr=[MIN(other_tbl.id)]\n              Filter: other_tbl.name = person.first_name\n                TableScan: other_tbl\n)\n\n    TableScan: person\n",
         );
 
-        quick_test("SELECT * FROM person WHERE id = (SELECT MIN(id) FROM tbl)", "Projection: (person.age, person.first_name, person.id, person.name)\n  Filter: person.id = (\n          Projection: (MIN(tbl.id))\n            Aggregate: group_expr=[], aggregat_expr=[MIN(tbl.id)]\n              TableScan: tbl\n)\n\n    TableScan: person\n");
+        quick_test("SELECT * FROM person WHERE id = (SELECT MIN(id) FROM tbl)", "Projection: (person.id, person.name, person.first_name, person.age)\n  Filter: person.id = (\n          Projection: (MIN(tbl.id))\n            Aggregate: group_expr=[], aggregat_expr=[MIN(tbl.id)]\n              TableScan: tbl\n)\n\n    TableScan: person\n");
     }
 
     #[test]
     fn test_sub_query() {
-        quick_test("SELECT * FROM tbl WHERE tbl.id = (SELECT other_tbl.id FROM other_tbl LIMIT 1)", "Projection: (tbl.age, tbl.id, tbl.name)\n  Filter: tbl.id = (\n          Limit: fetch=1, skip=0\n            Projection: (other_tbl.id)\n              TableScan: other_tbl\n)\n\n    TableScan: tbl\n");
+        quick_test("SELECT * FROM tbl WHERE tbl.id = (SELECT other_tbl.id FROM other_tbl LIMIT 1)", "Projection: (tbl.id, tbl.name, tbl.age)\n  Filter: tbl.id = (\n          Limit: fetch=1, skip=0\n            Projection: (other_tbl.id)\n              TableScan: other_tbl\n)\n\n    TableScan: tbl\n");
     }
 
     #[test]
@@ -1394,7 +1394,7 @@ mod tests {
         // insert the result of a query into a table
         quick_test(
             "INSERT INTO tbl SELECT * FROM other_tbl;",
-            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (CAST(age AS Int32) AS id, CAST(id AS Utf8) AS name, CAST(name AS Int32) AS age)\n    Projection: (other_tbl.age, other_tbl.id, other_tbl.name)\n      TableScan: other_tbl\n",
+            "Dml: op=[Insert Into] table=[tbl]\n  Projection: (CAST(id AS Int32) AS id, CAST(name AS Utf8) AS name, CAST(age AS Int32) AS age)\n    Projection: (other_tbl.id, other_tbl.name, other_tbl.age)\n      TableScan: other_tbl\n",
         );
         // insert values into the "i" column, inserting the default value into other columns
         quick_test(
@@ -1447,12 +1447,12 @@ mod tests {
         // create a table from a CSV file using AUTO-DETECT (i.e., automatically detecting column names and types)
         quick_test(
             "CREATE TABLE t1 AS SELECT * FROM read_csv('./tests/testdata/file/case1.csv');", 
-    "CreateMemoryTable: [t1]\n  Projection: (tmp_table(b563e59).id, tmp_table(b563e59).location, tmp_table(b563e59).name)\n    TableScan: tmp_table(b563e59)\n"
+    "CreateMemoryTable: [t1]\n  Projection: (tmp_table(b563e59).id, tmp_table(b563e59).name, tmp_table(b563e59).location)\n    TableScan: tmp_table(b563e59)\n"
         );
         // omit 'SELECT *'
         quick_test(
             "CREATE TABLE t1 AS FROM read_csv('./tests/testdata/file/case1.csv');", 
-            "CreateMemoryTable: [t1]\n  Projection: (tmp_table(b563e59).id, tmp_table(b563e59).location, tmp_table(b563e59).name)\n    TableScan: tmp_table(b563e59)\n"
+            "CreateMemoryTable: [t1]\n  Projection: (tmp_table(b563e59).id, tmp_table(b563e59).name, tmp_table(b563e59).location)\n    TableScan: tmp_table(b563e59)\n"
         );
     }
 
@@ -1460,7 +1460,7 @@ mod tests {
     fn test_read_parquet() {
         quick_test(
             "select * from read_parquet('./tests/testdata/file/case2.parquet') where counter_id = '1'",
-            "Projection: (tmp_table(17b774f).counter_id, tmp_table(17b774f).currency, tmp_table(17b774f).market, tmp_table(17b774f).type)\n  Filter: tmp_table(17b774f).counter_id = Utf8('1')\n    TableScan: tmp_table(17b774f)\n",
+            "Projection: (tmp_table(17b774f).counter_id, tmp_table(17b774f).market, tmp_table(17b774f).type, tmp_table(17b774f).currency)\n  Filter: tmp_table(17b774f).counter_id = Utf8('1')\n    TableScan: tmp_table(17b774f)\n",
         );
     }
 
@@ -1468,7 +1468,7 @@ mod tests {
     fn test_read_csv() {
         quick_test(
             "SELECT * FROM read_csv('./tests/testdata/file/case1.csv')",
-            "Projection: (tmp_table(b563e59).id, tmp_table(b563e59).location, tmp_table(b563e59).name)\n  TableScan: tmp_table(b563e59)\n",
+            "Projection: (tmp_table(b563e59).id, tmp_table(b563e59).name, tmp_table(b563e59).location)\n  TableScan: tmp_table(b563e59)\n",
         );
     }
 
@@ -1513,12 +1513,12 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person",
-            "Projection: (person.age, person.first_name, person.id, person.name)\n  TableScan: person\n",
+            "Projection: (person.id, person.name, person.first_name, person.age)\n  TableScan: person\n",
         );
 
         quick_test(
             "SELECT *,id FROM person",
-            "Projection: (person.age, person.first_name, person.id, person.name, person.id)\n  TableScan: person\n",
+            "Projection: (person.id, person.name, person.first_name, person.age, person.id)\n  TableScan: person\n",
         );
 
         quick_test(
@@ -1541,12 +1541,12 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person WHERE id = 2",
-            "Projection: (person.age, person.first_name, person.id, person.name)\n  Filter: person.id = Int64(2)\n    TableScan: person\n",
+            "Projection: (person.id, person.name, person.first_name, person.age)\n  Filter: person.id = Int64(2)\n    TableScan: person\n",
         );
 
         quick_test(
             "SELECT * FROM person as t WHERE t.id = 2",
-            "Projection: (t.age, t.first_name, t.id, t.name)\n  Filter: t.id = Int64(2)\n    SubqueryAlias: t\n      TableScan: person\n",
+            "Projection: (t.id, t.name, t.first_name, t.age)\n  Filter: t.id = Int64(2)\n    SubqueryAlias: t\n      TableScan: person\n",
         );
     }
 
@@ -1564,7 +1564,7 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person,b,a",
-            "Projection: (person.age, person.first_name, a.id, b.id, person.id, a.name, b.name, person.name)\n  CrossJoin\n    CrossJoin\n      TableScan: person\n      TableScan: b\n    TableScan: a\n",
+            "Projection: (person.id, person.name, person.first_name, person.age, b.id, b.name, a.id, a.name)\n  CrossJoin\n    CrossJoin\n      TableScan: person\n      TableScan: b\n    TableScan: a\n",
         );
 
         quick_test("SELECT id FROM person,b", "Internal Error: Column \"id\" is ambiguous");
@@ -1576,7 +1576,7 @@ mod tests {
 
         quick_test(
             "SELECT * FROM person as p,a WHERE p.id = 1",
-            "Projection: (p.age, p.first_name, a.id, p.id, a.name, p.name)\n  Filter: p.id = Int64(1)\n    CrossJoin\n      SubqueryAlias: p\n        TableScan: person\n      TableScan: a\n",
+            "Projection: (p.id, p.name, p.first_name, p.age, a.id, a.name)\n  Filter: p.id = Int64(1)\n    CrossJoin\n      SubqueryAlias: p\n        TableScan: person\n      TableScan: a\n",
         );
 
         quick_test(
@@ -1612,7 +1612,7 @@ mod tests {
     fn test_with() {
         quick_test(
             "WITH t1 AS (SELECT * FROM person) SELECT * FROM t1",
-            "Projection: (t1.age, t1.first_name, t1.id, t1.name)\n  SubqueryAlias: t1\n    Projection: (person.age, person.first_name, person.id, person.name)\n      TableScan: person\n",
+            "Projection: (t1.id, t1.name, t1.first_name, t1.age)\n  SubqueryAlias: t1\n    Projection: (person.id, person.name, person.first_name, person.age)\n      TableScan: person\n",
         );
     }
 
@@ -1629,7 +1629,7 @@ mod tests {
 
         quick_test("SELECT name, COUNT(*) FROM person GROUP BY name", "Projection: (person.name, COUNT(*))\n  Aggregate: group_expr=[person.name], aggregat_expr=[COUNT(*)]\n    TableScan: person\n");
 
-        quick_test("SELECT * FROM person GROUP BY name", "Internal Error: column [person.age] must appear in the GROUP BY clause or be used in an aggregate function, validate columns: [person.name]");
+        quick_test("SELECT * FROM person GROUP BY name", "Internal Error: column [person.id] must appear in the GROUP BY clause or be used in an aggregate function, validate columns: [person.name]");
     }
 
     #[test]

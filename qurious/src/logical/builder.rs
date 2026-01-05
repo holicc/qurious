@@ -177,6 +177,10 @@ fn build_join_schema(join_type: JoinType, left: &TableSchemaRef, right: &TableSc
             .into_iter()
             .chain(nullify_fields(right_fields))
             .collect(),
+        // Left Semi/Anti joins only return left side columns
+        JoinType::LeftSemi | JoinType::LeftAnti => {
+            left_fields.map(|(a, b)| (a.cloned(), b.clone())).collect::<Vec<_>>()
+        }
     };
 
     TableSchema::try_new(qualified_fields).map(Arc::new)
@@ -210,7 +214,7 @@ mod tests {
         assert_plan(
             "SELECT * FROM users a JOIN repos b ON a.id = b.owner_id",
             vec![
-                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "Projection: (a.id, a.name, a.email, b.id, b.name, b.owner_id)",
                 "  Inner Join: Filter: a.id = b.owner_id",
                 "    SubqueryAlias: a",
                 "      TableScan: users",
@@ -225,7 +229,7 @@ mod tests {
         assert_plan(
             "SELECT * FROM users a LEFT JOIN repos b ON a.id = b.owner_id",
             vec![
-                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "Projection: (a.id, a.name, a.email, b.id, b.name, b.owner_id)",
                 "  Left Join: Filter: a.id = b.owner_id",
                 "    SubqueryAlias: a",
                 "      TableScan: users",
@@ -240,7 +244,7 @@ mod tests {
         assert_plan(
             "SELECT * FROM users a RIGHT JOIN repos b ON a.id = b.owner_id",
             vec![
-                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "Projection: (b.id, b.name, b.owner_id, a.id, a.name, a.email)",
                 "  Right Join: Filter: a.id = b.owner_id",
                 "    SubqueryAlias: a",
                 "      TableScan: users",
@@ -255,7 +259,7 @@ mod tests {
         assert_plan(
             "SELECT * FROM users a FULL JOIN repos b ON a.id = b.owner_id",
             vec![
-                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "Projection: (a.id, a.name, a.email, b.id, b.name, b.owner_id)",
                 "  Full Join: Filter: a.id = b.owner_id",
                 "    SubqueryAlias: a",
                 "      TableScan: users",
@@ -270,7 +274,7 @@ mod tests {
         assert_plan(
             "SELECT * FROM users a JOIN repos b ON a.id = b.owner_id WHERE a.name = 'test'",
             vec![
-                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "Projection: (a.id, a.name, a.email, b.id, b.name, b.owner_id)",
                 "  Filter: a.name = Utf8('test')",
                 "    Inner Join: Filter: a.id = b.owner_id",
                 "      SubqueryAlias: a",
@@ -286,7 +290,7 @@ mod tests {
         assert_plan(
             "SELECT * FROM users a JOIN repos b ON a.id = b.owner_id AND a.name = b.name",
             vec![
-                "Projection: (a.email, a.id, b.id, a.name, b.name, b.owner_id)",
+                "Projection: (a.id, a.name, a.email, b.id, b.name, b.owner_id)",
                 "  Inner Join: Filter: a.id = b.owner_id AND a.name = b.name",
                 "    SubqueryAlias: a",
                 "      TableScan: users",

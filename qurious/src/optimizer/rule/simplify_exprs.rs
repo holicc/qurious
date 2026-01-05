@@ -103,7 +103,7 @@ mod tests {
             "SELECT * FROM users WHERE id = 1 AND name = 'John' AND false",
             vec![Box::new(SimplifyExprs)],
             vec![
-                "Projection: (users.email, users.id, users.name)",
+                "Projection: (users.id, users.name, users.email)",
                 "  Filter: Boolean(false)",
                 "    TableScan: users",
             ],
@@ -116,7 +116,7 @@ mod tests {
             "SELECT * FROM users WHERE id = 1 + 1",
             vec![Box::new(SimplifyExprs)],
             vec![
-                "Projection: (users.email, users.id, users.name)",
+                "Projection: (users.id, users.name, users.email)",
                 "  Filter: users.id = Int64(2)",
                 "    TableScan: users",
             ],

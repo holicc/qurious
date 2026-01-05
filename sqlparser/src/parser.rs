@@ -900,12 +900,27 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression_atom(&mut self) -> Result<Expression> {
-        let negated = self.next_if_token(TokenType::Keyword(Keyword::Not)).is_some();
         let token = self.next_token()?;
         let literal = token.literal.clone();
         match token.token_type {
             TokenType::Keyword(Keyword::Select) => {
                 self.parse_select().map(|query| Expression::SubQuery(Box::new(query)))
+            }
+            TokenType::Keyword(Keyword::Not) => {
+                // `NOT` can either be part of `NOT EXISTS (...)` (handled via the Exists node with
+                // a dedicated negated flag), or it can be a general unary operator.
+                if self.next_if_token(TokenType::Keyword(Keyword::Exists)).is_some() {
+                    self.parse_exists_expr(true)
+                } else {
+                    Ok(Expression::UnaryOperator {
+                        op: ast::UnaryOperator::Not,
+                        // NOT has lower precedence than comparison operators, but higher than AND/OR.
+                        // Parsing the RHS at precedence 2 yields:
+                        // - `NOT a = b` => `NOT (a = b)`
+                        // - `NOT a AND b` => `(NOT a) AND b`
+                        expr: Box::new(self.parse_expression(2)?),
+                    })
+                }
             }
             TokenType::Keyword(Keyword::Extract) => {
                 self.next_except(TokenType::LParen)?;
@@ -934,7 +949,7 @@ impl<'a> Parser<'a> {
             TokenType::Keyword(Keyword::True) => Ok(ast::Expression::Literal(ast::Literal::Boolean(true))),
             TokenType::Keyword(Keyword::False) => Ok(ast::Expression::Literal(ast::Literal::Boolean(false))),
             TokenType::Keyword(Keyword::Null) => Ok(ast::Expression::Literal(ast::Literal::Null)),
-            TokenType::Keyword(Keyword::Exists) => self.parse_exists_expr(negated),
+            TokenType::Keyword(Keyword::Exists) => self.parse_exists_expr(false),
             TokenType::LParen => {
                 let expr = self.parse_expression(0)?;
                 self.next_except(TokenType::RParen)?;
@@ -1431,6 +1446,32 @@ mod tests {
                 offset: None,
             })),
         );
+    }
+
+    #[test]
+    fn test_not_is_not_silently_dropped_for_interval_or_literals() -> Result<()> {
+        // Regression test: `NOT` must not be unconditionally consumed and discarded.
+        // It should either negate EXISTS via the Exists node, or become a unary operator.
+        assert_eq!(
+            parse_expr("NOT INTERVAL '1' DAY")?,
+            Expression::UnaryOperator {
+                op: ast::UnaryOperator::Not,
+                expr: Box::new(Expression::Interval {
+                    expr: Box::new(Expression::Literal(ast::Literal::String("1".to_owned()))),
+                    field: crate::datatype::IntervalFields::Day,
+                }),
+            }
+        );
+
+        assert_eq!(
+            parse_expr("NOT TRUE")?,
+            Expression::UnaryOperator {
+                op: ast::UnaryOperator::Not,
+                expr: Box::new(Expression::Literal(ast::Literal::Boolean(true))),
+            }
+        );
+
+        Ok(())
     }
 
     #[test]

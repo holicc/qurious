@@ -248,9 +248,18 @@ impl HashJoinExec {
             adjust_indices_by_join_type(left_indices, right_indices, right_batch.num_rows(), &self.join_type)?;
 
         // update visited indices bitmap
+        // For LeftSemi/LeftAnti, we mark matched rows as visited so we can emit a distinct set of
+        // left rows (EXISTS/NOT EXISTS semantics) during the final build-side processing.
         left_indices.iter().flatten().for_each(|idx| {
             left_data.visited_indices_bitmap.set_bit(idx as usize, true);
         });
+
+        // Semi/Anti joins must not return one row per match: they return a subset of the left side
+        // with DISTINCT left rows. We therefore emit nothing during probing and finalize using the
+        // visited bitmap.
+        if matches!(self.join_type, JoinType::LeftSemi | JoinType::LeftAnti) {
+            return Ok(RecordBatch::new_empty(self.schema.clone()));
+        }
 
         // build probe matched batch
         build_batch_from_indices(
@@ -266,7 +275,9 @@ impl HashJoinExec {
     }
 
     fn process_unmatched_build_batch(&self, left_data: &JoinLeftData) -> Result<Option<RecordBatch>> {
-        if self.join_type == JoinType::Right || self.join_type == JoinType::Inner {
+        // LeftAnti should process unmatched rows (return unmatched left rows)
+        // LeftSemi should skip unmatched rows (only matched rows are returned)
+        if matches!(self.join_type, JoinType::Right | JoinType::Inner | JoinType::LeftSemi) {
             return Ok(None);
         }
 
@@ -299,6 +310,36 @@ impl HashJoinExec {
         .map(Option::Some)
         .map_err(|e| Error::InternalError(format!("Failed to build unmatched build batch: {}", e)))
     }
+
+    fn process_left_semi_build_batch(&self, left_data: &JoinLeftData) -> Result<RecordBatch> {
+        let mut left_indices = UInt64Builder::new();
+        let mut right_indices = UInt32Builder::new();
+
+        for idx in 0..left_data.batch.num_rows() {
+            if left_data.visited_indices_bitmap.get_bit(idx) {
+                left_indices.append_value(idx as u64);
+                right_indices.append_null();
+            }
+        }
+
+        let (left_indices, right_indices): (UInt64Array, UInt32Array) = (
+            downcast_array(&left_indices.finish()),
+            downcast_array(&right_indices.finish()),
+        );
+
+        let empty_right_batch = RecordBatch::new_empty(self.right.schema());
+
+        build_batch_from_indices(
+            &self.schema,
+            &self.column_indices,
+            &left_data.batch,
+            &empty_right_batch,
+            &left_indices,
+            &right_indices,
+            &JoinSide::Left,
+        )
+        .map_err(|e| Error::InternalError(format!("Failed to build left semi batch: {}", e)))
+    }
 }
 
 impl PhysicalPlan for HashJoinExec {
@@ -323,7 +364,16 @@ impl PhysicalPlan for HashJoinExec {
             hash_buffer.clear();
             hash_buffer.resize(right_batch.num_rows(), DefaultHasher::default());
 
-            result_batches.push(self.process_probe_batch(&right_on, &right_batch, &mut left_data, &mut hash_buffer)?);
+            let probe_batch = self.process_probe_batch(&right_on, &right_batch, &mut left_data, &mut hash_buffer)?;
+            // Filter out empty batches (e.g., LeftAnti returns empty batches for matched rows)
+            if probe_batch.num_rows() > 0 {
+                result_batches.push(probe_batch);
+            }
+        }
+
+        if self.join_type == JoinType::LeftSemi {
+            result_batches.push(self.process_left_semi_build_batch(&left_data)?);
+            return Ok(result_batches);
         }
 
         if let Some(unmatched_build_batch) = self.process_unmatched_build_batch(&left_data)? {
@@ -833,5 +883,33 @@ mod tests {
         let hash_values = vec![100, 200, 100];
         hashmap2.update(hash_values.iter().enumerate(), 0);
         assert!(!hashmap2.is_distinct());
+    }
+
+    #[test]
+    fn test_hash_join_left_semi_distinct_left_rows() {
+        let left = build_table_scan_i32(vec![("a1", vec![1, 2, 3]), ("k1", vec![10, 20, 30])]);
+        // Two matching rows on the right for k1=10 should still return the left row only once.
+        let right = build_table_scan_i32(vec![("k2", vec![10, 10, 999]), ("b2", vec![1, 2, 3])]);
+
+        let join = HashJoinExec::try_new(
+            left,
+            right,
+            JoinType::LeftSemi,
+            vec![(Arc::new(Column::new("k1", 1)), Arc::new(Column::new("k2", 0)))],
+            None,
+        )
+        .unwrap();
+
+        let result = join.execute().unwrap();
+        assert_batch_eq(
+            &result,
+            vec![
+                "+----+----+",
+                "| a1 | k1 |",
+                "+----+----+",
+                "| 1  | 10 |",
+                "+----+----+",
+            ],
+        );
     }
 }

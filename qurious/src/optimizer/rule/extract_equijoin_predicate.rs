@@ -116,7 +116,7 @@ mod tests {
             "SELECT * FROM users INNER JOIN repos ON users.id = repos.owner_id WHERE users.id = repos.id AND users.name = 'test'",
             vec![Box::new(ExtractEquijoinPredicate)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Filter: users.id = repos.id AND users.name = Utf8('test')",
                 "    Inner Join: On: (users.id, repos.owner_id)",
                 "      TableScan: users",
@@ -131,7 +131,7 @@ mod tests {
             "SELECT * FROM users INNER JOIN repos ON users.id > repos.owner_id WHERE users.name = 'test' AND repos.name = 'repo'",
             vec![Box::new(ExtractEquijoinPredicate)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Filter: users.name = Utf8('test') AND repos.name = Utf8('repo')",
                 "    Inner Join: Filter: users.id > repos.owner_id",
                 "      TableScan: users",
@@ -146,7 +146,7 @@ mod tests {
             "SELECT * FROM users INNER JOIN repos ON users.id = repos.owner_id AND users.name = repos.name WHERE users.id = repos.id AND users.email = 'test@example.com'",
             vec![Box::new(ExtractEquijoinPredicate)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Filter: users.id = repos.id AND users.email = Utf8('test@example.com')",
                 "    Inner Join: On: (users.id, repos.owner_id), (users.name, repos.name)",
                 "      TableScan: users",

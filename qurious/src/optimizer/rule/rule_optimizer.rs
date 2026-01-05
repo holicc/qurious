@@ -4,6 +4,7 @@ use crate::common::transformed::{TransformNode, Transformed, TransformedResult};
 use crate::error::Result;
 use crate::logical::plan::LogicalPlan;
 use crate::optimizer::rule::count_wildcard_rule::CountWildcardRule;
+use crate::optimizer::rule::decorrelate_predicate_subquery::DecorrelatePredicateSubquery;
 use crate::optimizer::rule::eliminate_cross_join::EliminateCrossJoin;
 use crate::optimizer::rule::extract_equijoin_predicate::ExtractEquijoinPredicate;
 use crate::optimizer::rule::pushdown_filter::PushdownFilter;
@@ -30,6 +31,7 @@ impl RuleBaseOptimizer {
                 Box::new(TypeCoercion),
                 Box::new(SimplifyExprs),
                 Box::new(ScalarSubqueryToJoin::default()),
+                Box::new(DecorrelatePredicateSubquery::default()),
                 Box::new(EliminateCrossJoin),
                 Box::new(ExtractEquijoinPredicate),
                 Box::new(PushdownFilter),

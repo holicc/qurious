@@ -36,18 +36,47 @@ impl BinaryTypes {
 
 fn coercion_types(lhs: &DataType, op: &Operator, rhs: &DataType) -> Result<BinaryTypes> {
     match op {
-        Operator::And
-        | Operator::Or
-        | Operator::Eq
-        | Operator::NotEq
-        | Operator::Gt
-        | Operator::GtEq
-        | Operator::Lt
-        | Operator::LtEq => Ok(BinaryTypes {
+        Operator::And | Operator::Or => Ok(BinaryTypes {
             lhs: lhs.clone(),
             rhs: rhs.clone(),
             ret: DataType::Boolean,
         }),
+
+        // Comparisons: coerce operands to compatible types when possible
+        Operator::Eq | Operator::NotEq | Operator::Gt | Operator::GtEq | Operator::Lt | Operator::LtEq => {
+            // Special-case implicit date/timestamp comparisons against string literals.
+            // TPC-H and many SQL dialects allow: date_col >= '1993-07-01'
+            // Our planner represents '1993-07-01' as Utf8, so we need to cast it to Date32.
+            match (lhs, rhs) {
+                (Date32, Utf8) | (Utf8, Date32) => Ok(BinaryTypes {
+                    lhs: Date32,
+                    rhs: Date32,
+                    ret: DataType::Boolean,
+                }),
+                (Timestamp(_, _), Utf8) | (Utf8, Timestamp(_, _)) => Ok(BinaryTypes {
+                    lhs: lhs.clone(),
+                    rhs: rhs.clone(),
+                    ret: DataType::Boolean,
+                }),
+                // Decimal comparisons against integral types: cast integral to decimal with scale 0.
+                (Decimal128(_, _), Int8 | Int16 | Int32 | Int64) => Ok(BinaryTypes {
+                    lhs: lhs.clone(),
+                    rhs: coerce_numeric_type_to_decimal(rhs)?,
+                    ret: DataType::Boolean,
+                }),
+                (Int8 | Int16 | Int32 | Int64, Decimal128(_, _)) => Ok(BinaryTypes {
+                    lhs: coerce_numeric_type_to_decimal(lhs)?,
+                    rhs: rhs.clone(),
+                    ret: DataType::Boolean,
+                }),
+                // Fallback: keep as-is (may error later if Arrow can't compare them)
+                _ => Ok(BinaryTypes {
+                    lhs: lhs.clone(),
+                    rhs: rhs.clone(),
+                    ret: DataType::Boolean,
+                }),
+            }
+        }
 
         Operator::Add | Operator::Sub | Operator::Mul | Operator::Div | Operator::Mod => try_coerce(lhs, op, rhs)
             .or(decimal_coercion(lhs, op, rhs))

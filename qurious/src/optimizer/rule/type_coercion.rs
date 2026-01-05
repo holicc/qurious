@@ -482,4 +482,34 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_date_comparison_with_string_literal_is_cast() -> Result<()> {
+        // date_col >= '1993-07-01' should become date_col >= CAST('1993-07-01' AS Date32)
+        let schema = Arc::new(Schema::new(vec![Field::new("date_col", DataType::Date32, false)]));
+        let expr = LogicalExpr::BinaryExpr(BinaryExpr {
+            left: Box::new(LogicalExpr::Column(Column::new(
+                "date_col",
+                None::<TableRelation>,
+                false,
+            ))),
+            op: Operator::GtEq,
+            right: Box::new(LogicalExpr::Literal(ScalarValue::Utf8(Some("1993-07-01".to_string())))),
+        });
+        let plan = LogicalPlan::Projection(Projection {
+            exprs: vec![expr],
+            input: Box::new(LogicalPlan::EmptyRelation(EmptyRelation {
+                produce_one_row: true,
+                schema: Arc::new(Schema::empty()),
+            })),
+            schema: Arc::new(TableSchema::new(vec![], schema)),
+        });
+
+        assert_analyzed_plan_eq(
+            plan,
+            "Projection: (date_col >= CAST(Utf8('1993-07-01') AS Date32))\n  Empty Relation\n",
+        );
+
+        Ok(())
+    }
 }

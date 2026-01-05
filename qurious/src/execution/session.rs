@@ -98,7 +98,6 @@ impl ExecuteSession {
             LogicalPlan::Dml(stmt) => self.execute_dml(stmt),
             plan => {
                 let plan = self.optimizer.optimize(plan)?;
-                println!("plan: {}", crate::utils::format(&plan, 0));
                 self.planner.create_physical_plan(&plan)?.execute()
             }
         }
@@ -445,11 +444,11 @@ order by
         execute_and_assert(
             "SELECT * FROM read_csv('./tests/testdata/file/case1.csv')",
             vec![
-                "+----+---------------+--------------------+",
-                "| id | location      | name               |",
-                "+----+---------------+--------------------+",
-                "| 1  | China BeiJing | BeiJing University |",
-                "+----+---------------+--------------------+",
+                "+----+--------------------+---------------+",
+                "| id | name               | location      |",
+                "+----+--------------------+---------------+",
+                "| 1  | BeiJing University | China BeiJing |",
+                "+----+--------------------+---------------+",
             ],
         );
     }
@@ -475,11 +474,11 @@ order by
         execute_and_assert(
             "SELECT * FROM read_parquet('./tests/testdata/file/case2.parquet') limit 1",
             vec![
-                "+------------+----------+--------+-------+",
-                "| counter_id | currency | market | type  |",
-                "+------------+----------+--------+-------+",
-                "| ST/SZ/001  | HKD      | SZ     | STOCK |",
-                "+------------+----------+--------+-------+",
+                "+------------+--------+-------+----------+",
+                "| counter_id | market | type  | currency |",
+                "+------------+--------+-------+----------+",
+                "| ST/SZ/001  | SZ     | STOCK | HKD      |",
+                "+------------+--------+-------+----------+",
             ],
         );
     }

@@ -214,7 +214,7 @@ mod tests {
             "SELECT * FROM users, repos WHERE users.id = repos.owner_id AND users.id = 10",
             vec![Box::new(EliminateCrossJoin)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Filter: users.id = Int64(10)",
                 "    Inner Join: On: (users.id, repos.owner_id)",
                 "      TableScan: users",
@@ -229,7 +229,7 @@ mod tests {
             "SELECT * FROM users, repos WHERE users.id = repos.owner_id OR users.id = 10",
             vec![Box::new(EliminateCrossJoin)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Filter: users.id = repos.owner_id OR users.id = Int64(10)",
                 "    CrossJoin",
                 "      TableScan: users",
@@ -244,7 +244,7 @@ mod tests {
             "SELECT * FROM users, repos WHERE (users.id = repos.owner_id and users.name < 'a') AND (users.id = repos.owner_id and users.name = 'b')",
             vec![Box::new(EliminateCrossJoin)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Filter: users.name < Utf8('a') AND users.name = Utf8('b')",
                 "    Inner Join: On: (users.id, repos.owner_id)",
                 "      TableScan: users",
@@ -259,7 +259,7 @@ mod tests {
             "SELECT * FROM users, repos WHERE (users.id = repos.owner_id and users.name < 'a') OR (users.id = repos.owner_id and users.name = 'b')",
             vec![Box::new(EliminateCrossJoin)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Filter: users.name < Utf8('a') OR users.name = Utf8('b')",
                 "    Inner Join: On: (users.id, repos.owner_id)",
                 "      TableScan: users",
@@ -274,7 +274,7 @@ mod tests {
             "SELECT * FROM users, repos WHERE (users.id = repos.owner_id and users.name < 'a') OR (users.id = repos.id and users.name = 'b')",
             vec![Box::new(EliminateCrossJoin)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Filter: users.id = repos.owner_id AND users.name < Utf8('a') OR users.id = repos.id AND users.name = Utf8('b')",
                 "    CrossJoin",
                 "      TableScan: users",
@@ -289,7 +289,7 @@ mod tests {
             "SELECT * FROM users, repos WHERE (users.id = repos.owner_id and users.name < 'a') OR (users.id = repos.owner_id OR users.name = 'b')",
             vec![Box::new(EliminateCrossJoin)],
             vec![
-                "Projection: (users.email, repos.id, users.id, repos.name, users.name, repos.owner_id)",
+                "Projection: (users.id, users.name, users.email, repos.id, repos.name, repos.owner_id)",
                 "  Filter: users.id = repos.owner_id AND users.name < Utf8('a') OR users.id = repos.owner_id OR users.name = Utf8('b')",
                 "    CrossJoin",
                 "      TableScan: users",

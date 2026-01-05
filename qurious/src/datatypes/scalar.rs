@@ -288,9 +288,14 @@ impl Display for ScalarValue {
             ScalarValue::Decimal128(v, p, s) => format_decimal!(f, v, "Decimal128", p, s),
             ScalarValue::Decimal256(v, p, s) => format_decimal!(f, v, "Decimal256", p, s),
             ScalarValue::Utf8(v) => format_string!(f, v, "Utf8"),
-            ScalarValue::IntervalMonthDayNano(v) => {
-                format_string!(f, v.map(|v| format!("{:?}", v)), "IntervalMonthDayNano")
-            }
+            ScalarValue::IntervalMonthDayNano(v) => match v {
+                Some(val) => write!(
+                    f,
+                    "interval(months={}, days={}, nanoseconds={})",
+                    val.months, val.days, val.nanoseconds
+                ),
+                None => write!(f, "interval(null)"),
+            },
         }
     }
 }
