@@ -58,15 +58,32 @@ fn coercion_types(lhs: &DataType, op: &Operator, rhs: &DataType) -> Result<Binar
                     rhs: rhs.clone(),
                     ret: DataType::Boolean,
                 }),
-                // Decimal comparisons against integral types: cast integral to decimal with scale 0.
-                (Decimal128(_, _), Int8 | Int16 | Int32 | Int64) => Ok(BinaryTypes {
-                    lhs: lhs.clone(),
-                    rhs: coerce_numeric_type_to_decimal(rhs)?,
+                // Decimal comparisons against integral types: cast the integral side to the SAME decimal
+                // precision/scale as the decimal side. Arrow doesn't allow comparing decimals with differing
+                // precision/scale (e.g. Decimal128(15,2) < Decimal128(20,0)).
+                (Decimal128(p, s), Int8 | Int16 | Int32 | Int64) => Ok(BinaryTypes {
+                    lhs: DataType::Decimal128(*p, *s),
+                    rhs: DataType::Decimal128(*p, *s),
                     ret: DataType::Boolean,
                 }),
-                (Int8 | Int16 | Int32 | Int64, Decimal128(_, _)) => Ok(BinaryTypes {
-                    lhs: coerce_numeric_type_to_decimal(lhs)?,
-                    rhs: rhs.clone(),
+                (Int8 | Int16 | Int32 | Int64, Decimal128(p, s)) => Ok(BinaryTypes {
+                    lhs: DataType::Decimal128(*p, *s),
+                    rhs: DataType::Decimal128(*p, *s),
+                    ret: DataType::Boolean,
+                }),
+                // Decimal comparisons against float types: cast float to the same decimal type as the decimal side.
+                //
+                // This is important for predicates like:
+                //   decimal_col BETWEEN 0.06 - 0.01 AND 0.06 + 0.01
+                // where the RHS is parsed as Float64 literals.
+                (Decimal128(p, s), Float32 | Float64) => Ok(BinaryTypes {
+                    lhs: DataType::Decimal128(*p, *s),
+                    rhs: DataType::Decimal128(*p, *s),
+                    ret: DataType::Boolean,
+                }),
+                (Float32 | Float64, Decimal128(p, s)) => Ok(BinaryTypes {
+                    lhs: DataType::Decimal128(*p, *s),
+                    rhs: DataType::Decimal128(*p, *s),
                     ret: DataType::Boolean,
                 }),
                 // Fallback: keep as-is (may error later if Arrow can't compare them)

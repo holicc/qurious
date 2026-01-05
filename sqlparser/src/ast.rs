@@ -673,6 +673,13 @@ pub enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    /// `[ NOT ] BETWEEN <low> AND <high>`
+    Between {
+        negated: bool,
+        expr: Box<Expression>,
+        low: Box<Expression>,
+        high: Box<Expression>,
+    },
     /// `INTERVAL <expr> <field>`
     Interval {
         expr: Box<Expression>,
@@ -810,6 +817,21 @@ impl Display for Expression {
             Expression::SubQuery(select) => write!(f, "({})", select),
             Expression::Like { negated, left, right } => {
                 write!(f, "{} {} LIKE {}", left, if *negated { "NOT" } else { "" }, right)
+            }
+            Expression::Between {
+                negated,
+                expr,
+                low,
+                high,
+            } => {
+                write!(
+                    f,
+                    "{} {} BETWEEN {} AND {}",
+                    expr,
+                    if *negated { "NOT" } else { "" },
+                    low,
+                    high
+                )
             }
             Expression::Interval { expr, field } => write!(f, "INTERVAL {} {}", expr, field),
             Expression::Exists { subquery, negated } => {

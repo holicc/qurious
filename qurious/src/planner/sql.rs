@@ -1021,6 +1021,24 @@ impl<'a> SqlQueryPlanner<'a> {
                 expr: Box::new(self.sql_to_expr(*left)?),
                 pattern: Box::new(self.sql_to_expr(*right)?),
             })),
+            Expression::Between {
+                negated,
+                expr,
+                low,
+                high,
+            } => {
+                let expr = self.sql_to_expr(*expr)?;
+                let low = self.sql_to_expr(*low)?;
+                let high = self.sql_to_expr(*high)?;
+
+                if negated {
+                    // `expr NOT BETWEEN low AND high`  ==>  (expr < low) OR (expr > high)
+                    Ok(or(lt(expr.clone(), low), gt(expr, high)))
+                } else {
+                    // `expr BETWEEN low AND high`  ==>  (expr >= low) AND (expr <= high)
+                    Ok(and(gt_eq(expr.clone(), low), lt_eq(expr, high)))
+                }
+            }
             Expression::Exists { subquery, negated } => Ok(LogicalExpr::Exists(Exists {
                 negated,
                 subquery: Box::new(self.new_context_scope(|planner| planner.select_to_plan(*subquery))?),

@@ -875,6 +875,18 @@ impl<'a> Parser<'a> {
                     left: Box::new(lhs),
                     right: self.parse_expression(infix.precedence()).map(Box::new)?,
                 },
+                InfixOperator::Between => {
+                    let low = self.parse_expression(infix.precedence())?;
+                    self.next_except(TokenType::Keyword(Keyword::And))?;
+                    let high = self.parse_expression(infix.precedence())?;
+
+                    Expression::Between {
+                        negated,
+                        expr: Box::new(lhs),
+                        low: Box::new(low),
+                        high: Box::new(high),
+                    }
+                }
                 InfixOperator::In => self.parse_in_expr(lhs, negated)?,
                 InfixOperator::DoubleColon => self.parse_data_type().map(|dt| Expression::Cast {
                     expr: Box::new(lhs),
@@ -1253,6 +1265,7 @@ enum InfixOperator {
     And,
     Or,
     In,
+    Between,
     DoubleColon,
     Is,
     Like,
@@ -1275,6 +1288,7 @@ impl Operator for InfixOperator {
             TokenType::Keyword(Keyword::And) => Some(InfixOperator::And),
             TokenType::Keyword(Keyword::Or) => Some(InfixOperator::Or),
             TokenType::Keyword(Keyword::In) => Some(InfixOperator::In),
+            TokenType::Keyword(Keyword::Between) => Some(InfixOperator::Between),
             TokenType::Keyword(Keyword::Is) => Some(InfixOperator::Is),
             TokenType::Keyword(Keyword::Like) => Some(InfixOperator::Like),
             _ => None,
@@ -1285,7 +1299,7 @@ impl Operator for InfixOperator {
         match self {
             InfixOperator::Or => 1,
             InfixOperator::And => 2,
-            InfixOperator::Eq | InfixOperator::NotEq | InfixOperator::Like => 3,
+            InfixOperator::Eq | InfixOperator::NotEq | InfixOperator::Like | InfixOperator::Between => 3,
             InfixOperator::Gt | InfixOperator::Gte | InfixOperator::Lt | InfixOperator::Lte => 4,
             InfixOperator::Add | InfixOperator::Sub => 5,
             InfixOperator::Mul | InfixOperator::Div => 6,
@@ -4582,6 +4596,35 @@ mod tests {
         for test in tests {
             assert_eq!(parse_expr(test.0).unwrap(), test.1, "test expression: {}", test.0)
         }
+    }
+
+    #[test]
+    fn test_parse_between_expression() {
+        let stmt = parse_stmt("SELECT * FROM tbl WHERE id BETWEEN 1 AND 3").unwrap();
+
+        assert_eq!(
+            stmt,
+            ast::Statement::Select(Box::new(ast::Select {
+                with: None,
+                distinct: None,
+                columns: vec![ast::SelectItem::Wildcard],
+                from: vec![ast::From::Table {
+                    name: "tbl".to_owned(),
+                    alias: None
+                }],
+                r#where: Some(ast::Expression::Between {
+                    negated: false,
+                    expr: Box::new(ast::Expression::Identifier("id".into())),
+                    low: Box::new(ast::Expression::Literal(ast::Literal::Int(1))),
+                    high: Box::new(ast::Expression::Literal(ast::Literal::Int(3))),
+                }),
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+                offset: None,
+            }))
+        );
     }
 
     fn parse_stmt(input: &str) -> Result<Statement> {
