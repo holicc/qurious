@@ -53,14 +53,17 @@ impl<'a> Lexer<'a> {
                     Token::new(TokenType::Bang, literal, self.location())
                 }
             }
-            '<' => {
-                if self.peek_char() == &'=' {
+            '<' => match *self.peek_char() {
+                '=' => {
                     self.read_char();
                     Token::new(TokenType::Lte, "<=".to_owned(), self.location())
-                } else {
-                    Token::new(TokenType::Lt, literal, self.location())
                 }
-            }
+                '>' => {
+                    self.read_char();
+                    Token::new(TokenType::NotEq, "<>".to_owned(), self.location())
+                }
+                _ => Token::new(TokenType::Lt, literal, self.location()),
+            },
             '>' => {
                 if self.peek_char() == &'=' {
                     self.read_char();
@@ -220,7 +223,8 @@ mod tests {
 
     #[test]
     fn test_single_char_token() {
-        let input = "=-+(){},;*/<>!?:";
+        // `<` and `>` are spaced apart on purpose: adjacent `<>` lexes as a single NotEq token.
+        let input = "=-+(){},;*/< >!?:";
         let tests = vec![
             (TokenType::Eq, "="),
             (TokenType::Minus, "-"),
@@ -249,12 +253,13 @@ mod tests {
 
     #[test]
     fn test_two_char_token() {
-        let input = "=!=<=>=::";
+        let input = "=!=<=>=<>::";
         let tests = vec![
             (TokenType::Eq, "="),
             (TokenType::NotEq, "!="),
             (TokenType::Lte, "<="),
             (TokenType::Gte, ">="),
+            (TokenType::NotEq, "<>"),
             (TokenType::DoubleColon, "::"),
             (TokenType::EOF, ""),
         ];

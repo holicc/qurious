@@ -703,6 +703,8 @@ impl<'a> Parser<'a> {
         if token.token_type != TokenType::Keyword(Keyword::Join) {
             self.lexer.next();
         }
+        // `OUTER` is optional noise in `LEFT/RIGHT/FULL [OUTER] JOIN`
+        self.next_if_token(TokenType::Keyword(Keyword::Outer));
         // consumer next keyword token 'join'
         self.next_except(TokenType::Keyword(Keyword::Join))?;
 
@@ -3519,6 +3521,50 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_outer_join() {
+        // `OUTER` is optional noise: `LEFT OUTER JOIN` must parse the same as `LEFT JOIN`.
+        for (sql, expected) in [
+            ("left outer join", ast::JoinType::Left),
+            ("right outer join", ast::JoinType::Right),
+            ("full outer join", ast::JoinType::Full),
+            ("left join", ast::JoinType::Left),
+            ("full join", ast::JoinType::Full),
+        ] {
+            let stmt = parse_stmt(&format!("select * from users u {sql} users u2 on u.id = u2.id;")).unwrap();
+
+            assert_eq!(
+                stmt,
+                ast::Statement::Select(Box::new(Select {
+                    with: None,
+                    order_by: None,
+                    limit: None,
+                    offset: None,
+                    distinct: None,
+                    having: None,
+                    columns: vec![SelectItem::Wildcard],
+                    from: vec![ast::From::Join {
+                        join_type: expected,
+                        left: Box::new(ast::From::Table {
+                            name: String::from("users"),
+                            alias: Some(String::from("u")),
+                        }),
+                        right: Box::new(ast::From::Table {
+                            name: String::from("users"),
+                            alias: Some(String::from("u2")),
+                        }),
+                        on: Some(ast::Expression::BinaryOperator(ast::BinaryOperator::Eq(
+                            Box::new(ast::Expression::CompoundIdentifier(vec!["u".into(), "id".into()])),
+                            Box::new(ast::Expression::CompoundIdentifier(vec!["u2".into(), "id".into()])),
+                        ))),
+                    }],
+                    r#where: None,
+                    group_by: None,
+                }))
+            );
+        }
+    }
+
+    #[test]
     fn test_parse_order_by() {
         assert_stmt_eq(
             "SELECT * FROM users ORDER BY id;",
@@ -4505,6 +4551,13 @@ mod tests {
             (
                 "1 = 1",
                 Expression::BinaryOperator(ast::BinaryOperator::Eq(
+                    Box::new(Expression::Literal(ast::Literal::Int(1))),
+                    Box::new(Expression::Literal(ast::Literal::Int(1))),
+                )),
+            ),
+            (
+                "1 <> 1",
+                Expression::BinaryOperator(ast::BinaryOperator::NotEq(
                     Box::new(Expression::Literal(ast::Literal::Int(1))),
                     Box::new(Expression::Literal(ast::Literal::Int(1))),
                 )),

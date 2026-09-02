@@ -59,6 +59,7 @@ pub enum Keyword {
     Right,
     Full,
     Cross,
+    Outer,
     /// Copy statement keywords
     Copy,
     To,
@@ -204,6 +205,7 @@ impl TokenType {
             "right" => TokenType::Keyword(Keyword::Right),
             "full" => TokenType::Keyword(Keyword::Full),
             "cross" => TokenType::Keyword(Keyword::Cross),
+            "outer" => TokenType::Keyword(Keyword::Outer),
             "null" => TokenType::Keyword(Keyword::Null),
             "copy" => TokenType::Keyword(Keyword::Copy),
             "to" => TokenType::Keyword(Keyword::To),
@@ -242,7 +244,7 @@ impl TokenType {
             "." => TokenType::Period,
             "<=" => TokenType::Lte,
             ">=" => TokenType::Gte,
-            "!=" => TokenType::NotEq,
+            "!=" | "<>" => TokenType::NotEq,
             _ => TokenType::Ident,
         }
     }
