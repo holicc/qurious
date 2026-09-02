@@ -779,9 +779,14 @@ impl<'a> Parser<'a> {
         self.next_except(TokenType::LParen)?;
 
         if self.next_if_token(TokenType::Keyword(Keyword::Select)).is_some() {
+            let query = self.parse_select_statement()?;
+            // The subquery's closing paren must be consumed here; leaving it in the stream makes
+            // the enclosing statement stop early and silently drop its remaining clauses.
+            self.next_except(TokenType::RParen)?;
+
             Ok(Expression::InSubQuery {
                 field: Box::new(lhs),
-                query: Box::new(self.parse_select_statement()?),
+                query: Box::new(query),
                 negated,
             })
         } else {

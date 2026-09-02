@@ -1138,6 +1138,37 @@ impl<'a> SqlQueryPlanner<'a> {
                 negated,
                 subquery: Box::new(self.new_context_scope(|planner| planner.select_to_plan(*subquery))?),
             })),
+            Expression::InSubQuery { field, query, negated } => {
+                // Rewrite `x [NOT] IN (<subquery>)` into `[NOT] EXISTS (<subquery> WHERE <sq_col> = x)`
+                // so it reuses the EXISTS decorrelation into a Left Semi/Anti join.
+                //
+                // NOTE: this gives `NOT IN` the semantics of an anti join, which differs from
+                // standard SQL when the subquery yields NULL (SQL evaluates the whole predicate to
+                // UNKNOWN, so no row qualifies; an anti join keeps the outer row instead).
+                let Statement::Select(subquery) = *query else {
+                    return internal_err!("IN subquery must be a SELECT statement");
+                };
+
+                // Plan the probe expression in the *current* scope so it binds to the outer
+                // relations, then mark its columns as outer references: that is what the
+                // decorrelation rule looks for when lifting the predicate into the join condition.
+                let probe = mark_as_outer_ref(self.sql_to_expr(*field)?)?;
+                let subquery = self.new_context_scope(|planner| planner.select_to_plan(*subquery))?;
+
+                let mut output_columns = subquery.table_schema().columns();
+                if output_columns.len() != 1 {
+                    return internal_err!(
+                        "IN subquery must return exactly one column, but it returns {}",
+                        output_columns.len()
+                    );
+                }
+                let predicate = eq(LogicalExpr::Column(output_columns.remove(0)), probe);
+
+                Ok(LogicalExpr::Exists(Exists {
+                    negated,
+                    subquery: Box::new(LogicalPlanBuilder::filter(subquery, predicate)?),
+                }))
+            }
             Expression::Interval { expr, field } => self.interval_to_expr(*expr, field),
             expr => internal_err!("sql_to_expr: unsupported expression: {expr:?}"),
         }
@@ -1342,6 +1373,21 @@ pub(crate) fn parse_file_path(args: &mut Vec<FunctionArgument>) -> Result<String
             ))
         }
     }
+}
+
+/// Mark every column referenced by `expr` as an outer reference.
+///
+/// Used when an expression planned in the outer query is moved into a subquery's predicate,
+/// so the decorrelation rules can recognize it as correlated.
+fn mark_as_outer_ref(expr: LogicalExpr) -> Result<LogicalExpr> {
+    expr.transform_down(|expr| match expr {
+        LogicalExpr::Column(column) => Ok(Transformed::yes(LogicalExpr::Column(Column {
+            is_outer_ref: true,
+            ..column
+        }))),
+        _ => Ok(Transformed::no(expr)),
+    })
+    .data()
 }
 
 pub(crate) fn parse_csv_options(mut args: Vec<FunctionArgument>) -> Result<CsvReadOptions> {
