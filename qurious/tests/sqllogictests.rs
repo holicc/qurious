@@ -8,11 +8,13 @@ use itertools::Either;
 use qurious::arrow_err;
 use qurious::error::{Error, Result};
 use qurious::execution::session::ExecuteSession;
+use qurious::internal_err;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use sqllogictest::{AsyncDB, DBOutput, DefaultColumnType};
 use std::env;
 use std::fs::read_dir;
 use std::iter::once;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 
 const TEST_SQL_DIR: &str = "./tests/sql/";
@@ -27,19 +29,59 @@ fn main() -> Result<()> {
         .parse::<bool>()
         .unwrap_or_default();
 
-    read_test_files(TEST_SQL_DIR, include_tpch)?
+    // Run every file even if earlier ones fail, so a single failure does not hide the rest.
+    // `run_file` can also panic (e.g. a `todo!()` for unsupported SQL); catching that keeps one
+    // bad case from aborting the whole process and discarding the other files' results.
+    let mut failures: Vec<(PathBuf, String)> = read_test_files(TEST_SQL_DIR, include_tpch)?
         .into_par_iter()
         .map(make_test_session)
-        .try_for_each(|session| {
-            let session = session?;
-            let mut runner = sqllogictest::Runner::new(|| async { Ok(&session) });
+        .filter_map(|session| {
+            let session = match session {
+                Ok(session) => session,
+                Err(e) => return Some((PathBuf::new(), e.to_string())),
+            };
+            let path = session.path.clone();
 
-            runner.run_file(session.path.clone()).map_err(|e| {
-                log::error!("{e}");
+            let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
+                let mut runner = sqllogictest::Runner::new(|| async { Ok(&session) });
+                runner.run_file(session.path.clone())
+            }));
 
-                Error::InternalError(format!("case [{}] failed.", session.path.display()))
-            })
+            match outcome {
+                Ok(Ok(())) => None,
+                Ok(Err(e)) => Some((path, e.to_string())),
+                Err(panic) => Some((path, format!("panicked: {}", panic_message(&panic)))),
+            }
         })
+        .collect();
+
+    if failures.is_empty() {
+        return Ok(());
+    }
+
+    failures.sort_by(|(a, _), (b, _)| a.cmp(b));
+    for (path, reason) in &failures {
+        log::error!("case [{}] failed: {reason}", path.display());
+        eprintln!("\n=== FAILED: {} ===\n{reason}", path.display());
+    }
+
+    internal_err!(
+        "{} of the sqllogictest case(s) failed: {}",
+        failures.len(),
+        failures
+            .iter()
+            .map(|(path, _)| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> String {
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_else(|| "<non-string panic payload>".to_string())
 }
 
 fn make_test_session(path: PathBuf) -> Result<TestSession> {
