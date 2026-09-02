@@ -184,7 +184,7 @@ impl<'a> SqlQueryPlanner<'a> {
                     planner.copy_from_plan(source, target, options)
                 }
             }
-            _ => todo!(),
+            stmt => internal_err!("unsupported statement: {stmt:?}"),
         }
     }
 }
@@ -318,7 +318,7 @@ impl<'a> SqlQueryPlanner<'a> {
         _target: CopyTarget,
         _options: Vec<CopyOption>,
     ) -> Result<LogicalPlan> {
-        todo!()
+        internal_err!("COPY TO is not supported yet")
     }
 
     fn copy_from_plan(
@@ -767,7 +767,7 @@ impl<'a> SqlQueryPlanner<'a> {
 
                 (relation, provider)
             }
-            _ => todo!(),
+            _ => return internal_err!("unsupported table function: {name}"),
         };
 
         LogicalPlanBuilder::scan(table_name, provider, None).map(|builder| builder.build())
@@ -1021,9 +1021,9 @@ impl<'a> SqlQueryPlanner<'a> {
             Expression::IsNotNull(expr) => self
                 .sql_to_expr(*expr)
                 .map(|expr| LogicalExpr::IsNotNull(Box::new(expr))),
-            Expression::UnaryOperator { op, expr } => self.sql_to_expr(*expr).map(|expr| match op {
-                sqlparser::ast::UnaryOperator::Minus => LogicalExpr::Negative(Box::new(expr)),
-                _ => todo!("UnaryOperator: {:?}", expr),
+            Expression::UnaryOperator { op, expr } => self.sql_to_expr(*expr).and_then(|expr| match op {
+                sqlparser::ast::UnaryOperator::Minus => Ok(LogicalExpr::Negative(Box::new(expr))),
+                op => internal_err!("unsupported unary operator: {op:?}"),
             }),
             Expression::SubQuery(sub_query) => self.new_context_scope(|planner| {
                 let subquery = planner.select_to_plan(*sub_query)?;
@@ -1139,7 +1139,7 @@ impl<'a> SqlQueryPlanner<'a> {
                 subquery: Box::new(self.new_context_scope(|planner| planner.select_to_plan(*subquery))?),
             })),
             Expression::Interval { expr, field } => self.interval_to_expr(*expr, field),
-            _ => todo!("sql_to_expr: {:?}", expr),
+            expr => internal_err!("sql_to_expr: unsupported expression: {expr:?}"),
         }
     }
 
@@ -1385,7 +1385,7 @@ pub(crate) fn parse_csv_options(mut args: Vec<FunctionArgument>) -> Result<CsvRe
                         .map_err(|e| Error::InternalError(format!("Parse CsvOptions error, {}", e)))
                 })?
             }
-            "columns" => todo!(),
+            "columns" => return internal_err!("the `columns` option of read_csv is not supported yet"),
             _ => {
                 return Err(Error::InternalError(format!(
                     "Unknown option {} for read_csv function",

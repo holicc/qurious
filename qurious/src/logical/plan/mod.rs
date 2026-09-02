@@ -29,7 +29,8 @@ use super::expr::{Column, LogicalExpr};
 use crate::common::table_relation::TableRelation;
 use crate::common::table_schema::{TableSchema, TableSchemaRef};
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult, TreeNodeContainer, TreeNodeRecursion};
-use crate::error::Result;
+use crate::error::{Error, Result};
+use crate::internal_err;
 
 #[macro_export]
 macro_rules! impl_logical_plan {
@@ -74,7 +75,7 @@ impl LogicalPlan {
     pub fn head_output_expr(&self) -> Result<Option<LogicalExpr>> {
         match self {
             LogicalPlan::Projection(p) => Ok(p.exprs.first().cloned()),
-            _ => todo!("[{}] not implement head_output_expr", self),
+            plan => internal_err!("head_output_expr is not implemented for [{plan}]"),
         }
     }
 
