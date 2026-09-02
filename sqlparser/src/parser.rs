@@ -3526,6 +3526,39 @@ mod tests {
     }
 
     #[test]
+    fn test_in_subquery_does_not_swallow_following_clauses() {
+        // parse_in_expr used to leave the subquery's closing paren in the stream, which made the
+        // enclosing statement stop early and silently drop everything after it.
+        let stmt = parse_stmt("select a from t1 where a in (select x from t2) group by a order by a limit 3;").unwrap();
+
+        let ast::Statement::Select(select) = stmt else {
+            panic!("expected a SELECT statement");
+        };
+
+        assert!(matches!(select.r#where, Some(ast::Expression::InSubQuery { .. })));
+        assert_eq!(
+            select.group_by,
+            Some(vec![ast::Expression::Identifier("a".into())]),
+            "GROUP BY was dropped"
+        );
+        assert_eq!(
+            select.order_by,
+            Some(vec![(ast::Expression::Identifier("a".into()), ast::Order::Asc)]),
+            "ORDER BY was dropped"
+        );
+        assert_eq!(
+            select.limit,
+            Some(ast::Expression::Literal(ast::Literal::Int(3))),
+            "LIMIT was dropped"
+        );
+    }
+
+    #[test]
+    fn test_in_subquery_requires_closing_paren() {
+        assert!(parse_stmt("select a from t1 where a in (select x from t2").is_err());
+    }
+
+    #[test]
     fn test_parse_outer_join() {
         // `OUTER` is optional noise: `LEFT OUTER JOIN` must parse the same as `LEFT JOIN`.
         for (sql, expected) in [

@@ -124,3 +124,42 @@ select v1, v2, v3, v4, v5 from a join b on v1 = v3 and v2 = v4 and v1 < v5;
 ----
 3   3   3   3   4
 1   1   1   1   5
+
+# Non-equi conditions in the ON clause must survive into the join filter.
+# `using_columns` used to skip Like/Case/Cast/Function, so the filter's intermediate
+# schema came out empty and planning failed with `Valid fields: []`.
+statement ok
+create table nj_x(a int, b varchar);
+
+statement ok
+create table nj_y(c int, d varchar);
+
+statement ok
+insert into nj_x values (1, 'aa'), (2, 'bb'), (3, 'cc');
+
+statement ok
+insert into nj_y values (1, 'keep'), (2, 'zzz'), (4, 'keep');
+
+query ITIT
+select a, b, c, d from nj_x join nj_y on a = c and d not like '%z%' order by a;
+----
+1 aa 1 keep
+
+query ITIT
+select a, b, c, d from nj_x left join nj_y on a = c and d not like '%z%' order by a;
+----
+1 aa 1 keep
+2 bb NULL NULL
+3 cc NULL NULL
+
+query II
+select a, c from nj_x left join nj_y on a = c and (case when d = 'keep' then 1 else 0 end) = 1 order by a;
+----
+1 1
+2 NULL
+3 NULL
+
+query II
+select a, c from nj_x join nj_y on a = c and cast(d as varchar) not like '%z%' order by a;
+----
+1 1

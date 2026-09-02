@@ -88,7 +88,9 @@ impl_logical_expr_methods! {
 impl Display for LogicalExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LogicalExpr::Exists(Exists { subquery, negated }) => write!(f, "{} EXISTS ({})", if *negated { "NOT" } else { "" }, subquery),
+            LogicalExpr::Exists(Exists { subquery, negated }) => {
+                write!(f, "{} EXISTS ({})", if *negated { "NOT" } else { "" }, subquery)
+            }
             LogicalExpr::Negative(e) => write!(f, "- {}", e),
             LogicalExpr::Literal(v) => write!(f, "{}", v),
             LogicalExpr::Wildcard => write!(f, "*"),
@@ -133,30 +135,13 @@ impl LogicalExpr {
         .data()
     }
 
+    /// Every column referenced anywhere in this expression, owned.
+    ///
+    /// Delegates to [`Self::column_refs`] so the traversal covers every expression kind.
+    /// Missing a kind here silently yields an incomplete column set, which shows up much later
+    /// as an empty schema (e.g. when building a join filter's intermediate schema).
     pub fn using_columns(&self) -> HashSet<Column> {
-        let mut columns = HashSet::new();
-        let mut stack = vec![self];
-
-        while let Some(expr) = stack.pop() {
-            match expr {
-                LogicalExpr::Column(a) => {
-                    columns.insert(a.clone());
-                }
-                LogicalExpr::Alias(a) => {
-                    stack.push(&a.expr);
-                }
-                LogicalExpr::BinaryExpr(binary_op) => {
-                    stack.push(&binary_op.left);
-                    stack.push(&binary_op.right);
-                }
-                LogicalExpr::AggregateExpr(ag) => {
-                    stack.push(&ag.expr);
-                }
-                _ => {}
-            }
-        }
-
-        columns
+        self.column_refs().into_iter().cloned().collect()
     }
 
     pub fn cast_to(self, data_type: &DataType) -> LogicalExpr {
@@ -177,14 +162,9 @@ impl LogicalExpr {
         match self {
             LogicalExpr::Column(_) => Ok(self.clone()),
             LogicalExpr::AggregateExpr(agg) => agg.as_column(),
-            LogicalExpr::Literal(_)
-            | LogicalExpr::Wildcard
-            | LogicalExpr::BinaryExpr(_)
-            | LogicalExpr::Case(_) => Ok(LogicalExpr::Column(Column::new(
-                format!("{}", self),
-                None::<TableRelation>,
-                false,
-            ))),
+            LogicalExpr::Literal(_) | LogicalExpr::Wildcard | LogicalExpr::BinaryExpr(_) | LogicalExpr::Case(_) => Ok(
+                LogicalExpr::Column(Column::new(format!("{}", self), None::<TableRelation>, false)),
+            ),
             _ => Err(Error::InternalError(format!("Expect column, got {:?}", self))),
         }
     }
@@ -295,9 +275,7 @@ impl TransformNode for LogicalExpr {
                 when_then,
                 else_expr,
             }) => {
-                let operand = operand
-                    .map(|op| f(*op).map(|t| t.data).map(Box::new))
-                    .transpose()?;
+                let operand = operand.map(|op| f(*op).map(|t| t.data).map(Box::new)).transpose()?;
                 let when_then = when_then
                     .into_iter()
                     .map(|(w, t)| Ok((f(w)?.data, f(t)?.data)))
@@ -429,5 +407,73 @@ impl LogicalExpr {
 
     pub fn gt(self, other: LogicalExpr) -> LogicalExpr {
         binary_expr(self, Operator::Gt, other)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logical::expr::case::CaseExpr;
+
+    /// `using_columns` used to hand-roll its own traversal that only knew about `Column`,
+    /// `Alias`, `BinaryExpr` and `AggregateExpr`. Every other expression kind returned no
+    /// columns at all, which surfaced far away as an empty join-filter schema.
+    #[test]
+    fn using_columns_descends_into_every_expression_kind() {
+        let cases: Vec<(&str, LogicalExpr)> = vec![
+            ("column", col("a")),
+            ("alias", col("a").alias("x")),
+            ("binary", col("a").eq(col("b"))),
+            (
+                "like",
+                LogicalExpr::Like(Like {
+                    negated: true,
+                    expr: Box::new(col("a")),
+                    pattern: Box::new(LogicalExpr::Literal("%z%".into())),
+                }),
+            ),
+            ("cast", col("a").cast_to(&DataType::Int64)),
+            ("is_null", LogicalExpr::IsNull(Box::new(col("a")))),
+            ("is_not_null", LogicalExpr::IsNotNull(Box::new(col("a")))),
+            ("negative", LogicalExpr::Negative(Box::new(col("a")))),
+            (
+                "case",
+                LogicalExpr::Case(CaseExpr {
+                    operand: None,
+                    when_then: vec![(col("a").eq(LogicalExpr::Literal(1i64.into())), col("b"))],
+                    else_expr: Box::new(LogicalExpr::Literal(ScalarValue::Null)),
+                }),
+            ),
+        ];
+
+        for (name, expr) in cases {
+            let columns = expr.using_columns();
+            assert!(
+                !columns.is_empty(),
+                "using_columns() returned nothing for the `{name}` expression: {expr}"
+            );
+            assert!(
+                columns.contains(&Column::new("a", None::<TableRelation>, false)),
+                "using_columns() missed column `a` in the `{name}` expression: {expr}, got {columns:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn using_columns_agrees_with_column_refs() {
+        // The two are the same query with different ownership; they must never diverge.
+        let expr = LogicalExpr::Like(Like {
+            negated: true,
+            expr: Box::new(col("a").cast_to(&DataType::Utf8)),
+            pattern: Box::new(col("b")),
+        });
+
+        let mut owned = expr.using_columns().into_iter().collect::<Vec<_>>();
+        let mut borrowed = expr.column_refs().into_iter().cloned().collect::<Vec<_>>();
+        owned.sort();
+        borrowed.sort();
+
+        assert_eq!(owned, borrowed);
+        assert_eq!(owned.len(), 2);
     }
 }

@@ -437,6 +437,40 @@ mod tests {
     }
 
     #[test]
+    fn test_in_subquery_becomes_semi_join() {
+        // `IN (subquery)` is desugared to EXISTS in the planner; pin the resulting join shape so a
+        // regression cannot silently fall back to a cross join (still correct, but unusably slow).
+        assert_after_optimizer(
+            "SELECT * FROM customer WHERE customer.c_custkey IN (SELECT orders.o_custkey FROM orders)",
+            vec![Box::new(DecorrelatePredicateSubquery::default())],
+            vec![
+                "Projection: (customer.c_custkey, customer.c_name, customer.c_address, customer.c_nationkey, customer.c_phone, customer.c_acctbal, customer.c_mktsegment, customer.c_comment, customer.c_rev)",
+                "  Left Semi Join: On: (customer.c_custkey, __predicate_sq_0.o_custkey)",
+                "    TableScan: customer",
+                "    SubqueryAlias: __predicate_sq_0",
+                "      Projection: (orders.o_custkey)",
+                "        TableScan: orders",
+            ],
+        );
+    }
+
+    #[test]
+    fn test_not_in_subquery_becomes_anti_join() {
+        assert_after_optimizer(
+            "SELECT * FROM customer WHERE customer.c_custkey NOT IN (SELECT orders.o_custkey FROM orders)",
+            vec![Box::new(DecorrelatePredicateSubquery::default())],
+            vec![
+                "Projection: (customer.c_custkey, customer.c_name, customer.c_address, customer.c_nationkey, customer.c_phone, customer.c_acctbal, customer.c_mktsegment, customer.c_comment, customer.c_rev)",
+                "  Left Anti Join: On: (customer.c_custkey, __predicate_sq_0.o_custkey)",
+                "    TableScan: customer",
+                "    SubqueryAlias: __predicate_sq_0",
+                "      Projection: (orders.o_custkey)",
+                "        TableScan: orders",
+            ],
+        );
+    }
+
+    #[test]
     fn test_exists_swapped_eq_sides_still_becomes_join_on() {
         // correlated predicate is written as: outer = subquery
         assert_after_optimizer(
