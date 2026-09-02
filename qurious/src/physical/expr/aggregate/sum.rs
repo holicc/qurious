@@ -98,7 +98,10 @@ impl<T: ArrowNumericType> Accumulator for SumAccumulator<T> {
                     _ => internal_err!("[sum] Unsupported data type: {}", T::DATA_TYPE),
                 }
             }
-            None => ScalarValue::try_from(T::DATA_TYPE),
+            // No values accumulated. This must report the declared return type, not
+            // `T::DATA_TYPE`: for decimals the latter is arrow's placeholder `Decimal128(38, 10)`,
+            // which would not match the schema this aggregate's field was built from.
+            None => ScalarValue::try_from(&self.data_type),
         }
     }
 }

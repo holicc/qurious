@@ -41,8 +41,6 @@ use self::alias::Alias;
 struct Context {
     ctes: HashMap<String, LogicalPlan>,
     relations: HashMap<TableRelation, TableSchemaRef>,
-    /// table alias -> original table name
-    table_aliase: HashMap<String, TableRelation>,
     columns_alias: HashMap<String, LogicalExpr>,
 }
 
@@ -191,15 +189,14 @@ impl<'a> SqlQueryPlanner<'a> {
 
 // functions for Context
 impl<'a> SqlQueryPlanner<'a> {
-    fn add_relation(&mut self, relation: TableRelation, schema: TableSchemaRef, alias: Option<String>) -> Result<()> {
+    /// Register a relation for column resolution in the current scope.
+    ///
+    /// Aliased relations are registered under their alias, so there is no separate alias table:
+    /// the key here is always the qualifier that columns will actually resolve to.
+    fn add_relation(&mut self, relation: TableRelation, schema: TableSchemaRef) -> Result<()> {
         let context = self.current_context();
-        context.relations.insert(relation.clone(), schema);
-
-        if let Some(alias) = alias {
-            if context.table_aliase.contains_key(&alias) {
-                return internal_err!("Table alias {} already exists", alias);
-            }
-            context.table_aliase.insert(alias, relation);
+        if context.relations.insert(relation.clone(), schema).is_some() {
+            return internal_err!("Relation {} is already in scope", relation.to_qualified_name());
         }
 
         Ok(())
@@ -270,12 +267,8 @@ impl<'a> SqlQueryPlanner<'a> {
     /// return (exists, is_outer_ref)
     fn check_column_exists(&self, column_name: &str, table: &TableRelation) -> Option<(bool, bool)> {
         self.contexts.iter().rev().enumerate().find_map(|(i, ctx)| {
-            let table_name = table.to_qualified_name();
-            // check if the table has an alias
-            let table_name = ctx.table_aliase.get(&table_name).unwrap_or(table);
-
-            ctx.relations.get(&table_name).and_then(|schema| {
-                if schema.has_field(Some(&table_name), column_name) {
+            ctx.relations.get(table).and_then(|schema| {
+                if schema.has_field(Some(table), column_name) {
                     Some((true, i > 0))
                 } else {
                     None
@@ -288,8 +281,7 @@ impl<'a> SqlQueryPlanner<'a> {
     fn find_relation(&self, table: &TableRelation) -> Option<(TableRelation, bool)> {
         self.contexts.iter().rev().enumerate().find_map(|(i, ctx)| {
             // if the table has an alias, return the alias
-            (ctx.table_aliase.contains_key(&table.to_qualified_name()) || ctx.relations.contains_key(table))
-                .then(|| (table.clone(), i > 0))
+            ctx.relations.contains_key(table).then(|| (table.clone(), i > 0))
         })
     }
 
@@ -387,7 +379,6 @@ impl<'a> SqlQueryPlanner<'a> {
         self.add_relation(
             relation.clone(),
             TableSchema::try_from_qualified_schema(relation.clone(), table_schema.clone()).map(Arc::new)?,
-            None,
         )?;
 
         let input = LogicalPlanBuilder::scan(relation.clone(), table_source, None)
@@ -439,7 +430,6 @@ impl<'a> SqlQueryPlanner<'a> {
         self.add_relation(
             relation.clone(),
             TableSchema::try_from_qualified_schema(relation.clone(), table_schema.clone()).map(Arc::new)?,
-            None,
         )?;
 
         let plan = LogicalPlanBuilder::scan(relation.clone(), table_source, None)?.build();
@@ -677,9 +667,25 @@ impl<'a> SqlQueryPlanner<'a> {
                             LogicalPlanBuilder::scan(relation.clone(), source, None)?.build()
                         };
 
-                        self.add_relation(relation, scan.table_schema(), alias.clone())?;
+                        match alias {
+                            // An aliased table is reachable only by its alias, and the
+                            // `SubqueryAlias` re-qualifies its schema, so register it under the
+                            // alias exactly like a derived table. Registering the base name
+                            // instead makes unqualified columns resolve to `base_table.col`,
+                            // which gives both sides of a self-join the same qualifier and leaves
+                            // them indistinguishable to the optimizer.
+                            Some(alias) => {
+                                let aliased = self.apply_table_alias(scan, alias.clone())?;
+                                self.add_relation(alias.into(), aliased.table_schema())?;
 
-                        (scan, alias)
+                                (aliased, None)
+                            }
+                            None => {
+                                self.add_relation(relation, scan.table_schema())?;
+
+                                (scan, None)
+                            }
+                        }
                     }
                     From::SubQuery { query, alias } => {
                         let alias =
@@ -696,7 +702,7 @@ impl<'a> SqlQueryPlanner<'a> {
 
                         // Register the derived table (by its alias) into the current context for column resolution.
                         let relation: TableRelation = alias.clone().into();
-                        self.add_relation(relation, aliased_plan.table_schema(), None)?;
+                        self.add_relation(relation, aliased_plan.table_schema())?;
 
                         (aliased_plan, None)
                     }
@@ -762,7 +768,6 @@ impl<'a> SqlQueryPlanner<'a> {
                 self.add_relation(
                     relation.clone(),
                     TableSchema::try_from_qualified_schema(relation.clone(), provider.schema())?.into(),
-                    None,
                 )?;
 
                 (relation, provider)
@@ -1712,9 +1717,22 @@ mod tests {
 
     #[test]
     fn test_select_column() {
+        // An alias replaces the table name, so the base name is no longer in scope.
+        // Postgres and sqlite both reject this too.
         quick_test(
             "SELECT person.id,a.name as c FROM person as a",
-            "Projection: (person.id, a.name AS c)\n  SubqueryAlias: a\n    TableScan: person\n",
+            "Internal Error: Column [\"id\"] not found in table [\"person\"] or table not exists",
+        );
+
+        quick_test(
+            "SELECT a.id,a.name as c FROM person as a",
+            "Projection: (a.id, a.name AS c)\n  SubqueryAlias: a\n    TableScan: person\n",
+        );
+
+        // unqualified columns resolve to the alias, matching the SubqueryAlias below them
+        quick_test(
+            "SELECT id,name FROM person as a",
+            "Projection: (a.id, a.name)\n  SubqueryAlias: a\n    TableScan: person\n",
         );
 
         quick_test(

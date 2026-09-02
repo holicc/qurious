@@ -113,7 +113,10 @@ impl<T: DecimalType + ArrowNumericType> Accumulator for DecimalAvgAccumulator<T>
             }
         }
 
-        ScalarValue::try_from(T::DATA_TYPE)
+        // Nothing accumulated (or the value did not fit the target precision): report a NULL of
+        // the declared target type. `T::DATA_TYPE` would be arrow's placeholder
+        // `Decimal128(38, 10)`, which does not match the schema built from this aggregate.
+        ScalarValue::try_from(&T::TYPE_CONSTRUCTOR(self.target_precision, self.target_scale))
     }
 }
 

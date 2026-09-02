@@ -162,9 +162,19 @@ impl LogicalExpr {
         match self {
             LogicalExpr::Column(_) => Ok(self.clone()),
             LogicalExpr::AggregateExpr(agg) => agg.as_column(),
-            LogicalExpr::Literal(_) | LogicalExpr::Wildcard | LogicalExpr::BinaryExpr(_) | LogicalExpr::Case(_) => Ok(
-                LogicalExpr::Column(Column::new(format!("{}", self), None::<TableRelation>, false)),
-            ),
+            // These all name their output field after their own `Display`, so referring to them by
+            // that name resolves against the schema an Aggregate builds from them. `Cast` is
+            // deliberately absent: `CastExpr::field` names its field after the *inner* expression,
+            // so a column named `CAST(x AS T)` would not match.
+            LogicalExpr::Literal(_)
+            | LogicalExpr::Wildcard
+            | LogicalExpr::BinaryExpr(_)
+            | LogicalExpr::Case(_)
+            | LogicalExpr::Function(_) => Ok(LogicalExpr::Column(Column::new(
+                format!("{}", self),
+                None::<TableRelation>,
+                false,
+            ))),
             _ => Err(Error::InternalError(format!("Expect column, got {:?}", self))),
         }
     }

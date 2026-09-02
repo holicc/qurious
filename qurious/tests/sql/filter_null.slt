@@ -34,3 +34,28 @@ select * from t where v1 > 1
 
 statement ok
 drop table t
+
+# `IS NOT NULL` must not swallow the clauses that follow it: parse_keywords used to match only
+# the `NOT` and leave `NULL` in the stream, which silently dropped GROUP BY / ORDER BY / LIMIT.
+statement ok
+create table nn(a int, b varchar);
+
+statement ok
+insert into nn values (1, 'x'), (2, NULL), (3, 'x'), (4, 'y');
+
+query TI
+select b, count(*) from nn where b is not null group by b order by b;
+----
+x 2
+y 1
+
+query I
+select a from nn where b is not null order by a desc limit 2;
+----
+4
+3
+
+query I
+select a from nn where b is null order by a;
+----
+2

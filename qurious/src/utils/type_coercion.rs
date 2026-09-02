@@ -8,6 +8,7 @@ use arrow::{
     array::new_empty_array,
     compute::kernels::numeric::{add_wrapping, div, mul_wrapping, rem, sub_wrapping},
     datatypes::DataType::{self, *},
+    datatypes::DECIMAL128_MAX_PRECISION,
 };
 
 pub fn get_input_types(lhs: &DataType, op: &Operator, rhs: &DataType) -> Result<(DataType, DataType)> {
@@ -58,6 +59,18 @@ fn coercion_types(lhs: &DataType, op: &Operator, rhs: &DataType) -> Result<Binar
                     rhs: rhs.clone(),
                     ret: DataType::Boolean,
                 }),
+                // Two decimals with differing precision/scale: widen both to a common decimal that
+                // can hold either side. Without this they reach Arrow unchanged and it refuses to
+                // compare them, which is what `decimal_col < (SELECT avg(decimal_col) ...)` hits
+                // because AVG widens the scale.
+                (Decimal128(p1, s1), Decimal128(p2, s2)) => {
+                    let dt = common_decimal128(*p1, *s1, *p2, *s2);
+                    Ok(BinaryTypes {
+                        lhs: dt.clone(),
+                        rhs: dt,
+                        ret: DataType::Boolean,
+                    })
+                }
                 // Decimal comparisons against integral types: cast the integral side to the SAME decimal
                 // precision/scale as the decimal side. Arrow doesn't allow comparing decimals with differing
                 // precision/scale (e.g. Decimal128(15,2) < Decimal128(20,0)).
@@ -153,6 +166,19 @@ fn decimal_coercion(lhs: &DataType, op: &Operator, rhs: &DataType) -> Result<Bin
     try_coerce(&lhs, op, &rhs)
 }
 
+/// The narrowest `Decimal128` that can represent any value of both inputs.
+///
+/// Keeps the larger scale and enough integral digits for the wider of the two, so neither side
+/// loses information when cast. Precision saturates at `DECIMAL128_MAX_PRECISION`.
+fn common_decimal128(p1: u8, s1: i8, p2: u8, s2: i8) -> DataType {
+    let scale = s1.max(s2);
+    // Integral digits on each side, i.e. precision excluding the fractional part.
+    let integral = (p1 as i16 - s1 as i16).max(p2 as i16 - s2 as i16);
+    let precision = (integral + scale as i16).clamp(1, DECIMAL128_MAX_PRECISION as i16) as u8;
+
+    Decimal128(precision, scale)
+}
+
 fn coerce_numeric_type_to_decimal(dt: &DataType) -> Result<DataType> {
     match dt {
         Int8 => Ok(Decimal128(3, 0)),
@@ -160,5 +186,35 @@ fn coerce_numeric_type_to_decimal(dt: &DataType) -> Result<DataType> {
         Int32 => Ok(Decimal128(10, 0)),
         Int64 => Ok(Decimal128(20, 0)),
         _ => internal_err!("can not coerce type: {dt} to decimal"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn common_decimal128_keeps_scale_and_integral_digits() {
+        // Decimal128(15,2) has 13 integral digits, Decimal128(19,6) has 13 as well.
+        assert_eq!(common_decimal128(15, 2, 19, 6), Decimal128(19, 6));
+        assert_eq!(common_decimal128(19, 6, 15, 2), Decimal128(19, 6));
+        // identical inputs are unchanged
+        assert_eq!(common_decimal128(15, 2, 15, 2), Decimal128(15, 2));
+        // the wider integral part wins, the larger scale is kept
+        assert_eq!(common_decimal128(10, 0, 8, 4), Decimal128(14, 4));
+        // precision saturates instead of overflowing
+        assert_eq!(common_decimal128(38, 0, 38, 10), Decimal128(38, 10));
+    }
+
+    #[test]
+    fn comparing_decimals_of_different_scale_coerces_both_sides() {
+        let (lhs, rhs) = get_input_types(&Decimal128(15, 2), &Operator::Lt, &Decimal128(19, 6)).unwrap();
+        assert_eq!(lhs, Decimal128(19, 6));
+        assert_eq!(rhs, Decimal128(19, 6));
+
+        // an already-matching pair needs no widening
+        let (lhs, rhs) = get_input_types(&Decimal128(15, 2), &Operator::Eq, &Decimal128(15, 2)).unwrap();
+        assert_eq!(lhs, Decimal128(15, 2));
+        assert_eq!(rhs, Decimal128(15, 2));
     }
 }

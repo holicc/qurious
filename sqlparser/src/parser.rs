@@ -900,15 +900,16 @@ impl<'a> Parser<'a> {
                     data_type: dt,
                 })?,
                 InfixOperator::Is => {
-                    if self.parse_keywords(&[Keyword::Null]) {
-                        Expression::IsNull(Box::new(lhs))
-                    } else if self.parse_keywords(&[Keyword::Not, Keyword::Null]) {
+                    // `IS [NOT] NULL`: the `NOT` is optional but `NULL` is then mandatory, so both
+                    // have to be consumed here. Leaving `NULL` in the stream would make the
+                    // enclosing statement stop early and silently drop its remaining clauses.
+                    let is_negated = self.next_if_token(TokenType::Keyword(Keyword::Not)).is_some();
+                    self.next_except(TokenType::Keyword(Keyword::Null))?;
+
+                    if is_negated {
                         Expression::IsNotNull(Box::new(lhs))
                     } else {
-                        return Err(Error::ParserError(format!(
-                            "[parse_expression] unexpected token {:?}",
-                            self.peek()?
-                        )));
+                        Expression::IsNull(Box::new(lhs))
                     }
                 }
                 _ => infix.build(lhs, self.parse_expression(infix.precedence())?)?,
@@ -966,6 +967,7 @@ impl<'a> Parser<'a> {
                     data_type,
                 })
             }
+            TokenType::Keyword(Keyword::Substring) => self.parse_substring_expr(),
             TokenType::Keyword(Keyword::Case) => self.parse_case_expr(),
             TokenType::Keyword(Keyword::Interval) => self.parse_interval(),
             TokenType::Asterisk => Ok(ast::Expression::Identifier("*".into())),
@@ -1060,6 +1062,34 @@ impl<'a> Parser<'a> {
             when_then,
             else_expr,
         })
+    }
+
+    /// `SUBSTRING(<expr> FROM <start> [FOR <length>])`, and the equivalent
+    /// `SUBSTRING(<expr>, <start> [, <length>])`.
+    ///
+    /// Both spellings produce the same plain function call, so the engine only needs one
+    /// `substring` implementation.
+    fn parse_substring_expr(&mut self) -> Result<Expression> {
+        self.next_except(TokenType::LParen)?;
+
+        let mut args = vec![self.parse_expression(0)?];
+
+        // `FROM` and `,` are interchangeable separators here, as are `FOR` and `,`.
+        if self.next_if_token(TokenType::Keyword(Keyword::From)).is_some()
+            || self.next_if_token(TokenType::Comma).is_some()
+        {
+            args.push(self.parse_expression(0)?);
+
+            if self.next_if_token(TokenType::Keyword(Keyword::For)).is_some()
+                || self.next_if_token(TokenType::Comma).is_some()
+            {
+                args.push(self.parse_expression(0)?);
+            }
+        }
+
+        self.next_except(TokenType::RParen)?;
+
+        Ok(Expression::Function("substring".to_owned(), args))
     }
 
     fn parse_exists_expr(&mut self, negated: bool) -> Result<Expression> {
@@ -1159,15 +1189,6 @@ impl<'a> Parser<'a> {
             }
             _ => Err(Error::UnexpectedToken(token)),
         }
-    }
-
-    fn parse_keywords(&mut self, keywords: &[Keyword]) -> bool {
-        for &keyword in keywords {
-            if self.next_if_token(TokenType::Keyword(keyword)).is_some() {
-                return true;
-            }
-        }
-        false
     }
 
     fn next_token(&mut self) -> Result<Token> {
@@ -3522,6 +3543,101 @@ mod tests {
                 r#where: None,
                 group_by: None,
             }))
+        );
+    }
+
+    #[test]
+    fn test_is_not_null_does_not_swallow_following_clauses() {
+        // `parse_keywords(&[Not, Null])` returned true after matching only `NOT`, leaving `NULL`
+        // in the stream, which made the enclosing statement drop every clause after the WHERE.
+        let stmt = parse_stmt("select v from s where v is not null group by v order by v limit 1;").unwrap();
+        let ast::Statement::Select(select) = stmt else {
+            panic!("expected a SELECT statement");
+        };
+
+        assert_eq!(
+            select.r#where,
+            Some(ast::Expression::IsNotNull(Box::new(ast::Expression::Identifier(
+                "v".into()
+            ))))
+        );
+        assert_eq!(
+            select.group_by,
+            Some(vec![ast::Expression::Identifier("v".into())]),
+            "GROUP BY was dropped"
+        );
+        assert_eq!(
+            select.order_by,
+            Some(vec![(ast::Expression::Identifier("v".into()), ast::Order::Asc)]),
+            "ORDER BY was dropped"
+        );
+        assert_eq!(
+            select.limit,
+            Some(ast::Expression::Literal(ast::Literal::Int(1))),
+            "LIMIT was dropped"
+        );
+    }
+
+    #[test]
+    fn test_is_null_requires_the_null_keyword() {
+        assert!(parse_stmt("select v from s where v is not 1;").is_err());
+        assert!(parse_stmt("select v from s where v is;").is_err());
+    }
+
+    #[test]
+    fn test_parse_substring() {
+        let expr = |args: Vec<Expression>| ast::Expression::Function("substring".to_owned(), args);
+        let phone = || ast::Expression::Identifier("c_phone".into());
+        let int = |v: i64| ast::Expression::Literal(ast::Literal::Int(v));
+
+        // `FROM`/`FOR` and `,` are interchangeable, and both spellings must produce the same call.
+        for sql in [
+            "SELECT substring(c_phone from 1 for 2) FROM customer",
+            "SELECT substring(c_phone, 1, 2) FROM customer",
+        ] {
+            let stmt = parse_stmt(sql).unwrap();
+            let ast::Statement::Select(select) = stmt else {
+                panic!("expected a SELECT statement");
+            };
+            assert_eq!(
+                select.columns,
+                vec![SelectItem::UnNamedExpr(expr(vec![phone(), int(1), int(2)]))],
+                "unexpected parse for: {sql}"
+            );
+        }
+
+        // the length is optional in both spellings
+        for sql in [
+            "SELECT substring(c_phone from 3) FROM customer",
+            "SELECT substring(c_phone, 3) FROM customer",
+        ] {
+            let stmt = parse_stmt(sql).unwrap();
+            let ast::Statement::Select(select) = stmt else {
+                panic!("expected a SELECT statement");
+            };
+            assert_eq!(
+                select.columns,
+                vec![SelectItem::UnNamedExpr(expr(vec![phone(), int(3)]))],
+                "unexpected parse for: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_substring_in_predicate_keeps_following_clauses() {
+        let stmt = parse_stmt(
+            "select substring(a from 1 for 2) as p from t where substring(a from 1 for 2) = 'ab' group by p",
+        )
+        .unwrap();
+        let ast::Statement::Select(select) = stmt else {
+            panic!("expected a SELECT statement");
+        };
+
+        assert!(select.r#where.is_some(), "WHERE was dropped");
+        assert_eq!(
+            select.group_by,
+            Some(vec![ast::Expression::Identifier("p".into())]),
+            "GROUP BY was dropped"
         );
     }
 

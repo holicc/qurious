@@ -1,0 +1,70 @@
+statement ok
+create table s(id int, v varchar);
+
+statement ok
+insert into s values (1, 'abcdef'), (2, '13-123-4567'), (3, NULL);
+
+# `FROM ... FOR ...` and the comma form are the same call
+query T
+select substring(v from 2 for 3) from s where id = 1;
+----
+bcd
+
+query T
+select substring(v, 2, 3) from s where id = 1;
+----
+bcd
+
+# the length is optional
+query T
+select substring(v from 2) from s where id = 1;
+----
+bcdef
+
+# SQL-standard positions: `length` counts from `start`, so positions below 1 consume part of it
+query T
+select substring(v from 0 for 2) from s where id = 1;
+----
+a
+
+query T
+select substring(v from -1 for 4) from s where id = 1;
+----
+ab
+
+# a negative start is not "from the end", unlike sqlite's substr
+query T
+select substring(v from -10 for 3) from s where id = 1;
+----
+(empty)
+
+query T
+select substring(v from 4 for 10) from s where id = 1;
+----
+def
+
+query T
+select substring(v from 10 for 2) from s where id = 1;
+----
+(empty)
+
+# NULL input yields NULL
+query T
+select substring(v from 1 for 2) from s where id = 3;
+----
+NULL
+
+statement error negative substring length
+select substring(v from 1 for -1) from s;
+
+# usable in a predicate and as a GROUP BY key
+query T
+select substring(v from 1 for 2) from s where substring(v from 1 for 2) = '13';
+----
+13
+
+query TI rowsort
+select substring(v from 1 for 1) as p, count(*) from s where v is not null group by p;
+----
+1 1
+a 1

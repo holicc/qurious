@@ -286,7 +286,9 @@ mod tests {
             "SELECT id, name FROM users a WHERE a.id = 1",
             vec![Box::new(PushdownFilter)],
             vec![
-                "Projection: (users.id, users.name)",
+                // `id`/`name` are unqualified in the SQL and resolve to the alias, which is what
+                // the SubqueryAlias below them actually produces.
+                "Projection: (a.id, a.name)",
                 "  SubqueryAlias: a",
                 "    TableScan: users, full_filter=[users.id = Int64(1)]",
             ],

@@ -1,4 +1,5 @@
 pub mod datetime;
+pub mod string;
 
 use crate::error::Result;
 use arrow::array::ArrayRef;
@@ -6,6 +7,7 @@ use arrow::datatypes::DataType;
 use datetime::extract::DatetimeExtract;
 use std::fmt::Debug;
 use std::sync::Arc;
+use string::substring::Substring;
 
 pub trait UserDefinedFunction: Debug + Send + Sync {
     /// the name of the function
@@ -21,5 +23,5 @@ pub trait UserDefinedFunction: Debug + Send + Sync {
 }
 
 pub fn all_builtin_functions() -> Vec<Arc<dyn UserDefinedFunction>> {
-    vec![Arc::new(DatetimeExtract)]
+    vec![Arc::new(DatetimeExtract), Arc::new(Substring)]
 }

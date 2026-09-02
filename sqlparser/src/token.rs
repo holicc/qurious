@@ -94,6 +94,8 @@ pub enum Keyword {
 
     /// functions
     Interval,
+    Substring,
+    For,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -215,6 +217,8 @@ impl TokenType {
             "show" => TokenType::Keyword(Keyword::Show),
             "tables" => TokenType::Keyword(Keyword::Tables),
             "interval" => TokenType::Keyword(Keyword::Interval),
+            "substring" => TokenType::Keyword(Keyword::Substring),
+            "for" => TokenType::Keyword(Keyword::For),
             // extract a field from a timestamp
             "extract" => TokenType::Keyword(Keyword::Extract),
             "year" => TokenType::Keyword(Keyword::Year),

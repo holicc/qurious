@@ -1,0 +1,61 @@
+statement ok
+create table d(k int, q decimal(15,2), e decimal(15,2));
+
+statement ok
+create table dk(pk int, tag varchar);
+
+statement ok
+insert into d values (1, 10.50, 100.00), (1, 20.25, 200.00), (2, 30.75, 300.00), (2, 5.00, 50.00);
+
+statement ok
+insert into dk values (1, 'x'), (2, 'x');
+
+# Comparing a decimal column against a scalar subquery: AVG widens the scale, so the two sides
+# have different precision/scale and must be coerced to a common decimal. Arrow refuses to compare
+# Decimal128(15,2) with Decimal128(19,6) directly.
+query R
+select q from d where q < (select avg(q) from d) order by q;
+----
+5.00
+10.50
+
+# same, correlated through a second relation
+query R
+select q from d, dk where pk = k and q < (select avg(q) from d where k = pk) order by q;
+----
+5.00
+10.50
+
+query R
+select q from d, dk where pk = k and q < (select 0.2 * avg(q) from d where k = pk) order by q;
+----
+
+# An aggregate that accumulates nothing must still report its declared type. SUM/AVG used to fall
+# back to arrow's placeholder Decimal128(38,10), which then failed to match the output schema.
+query R
+select sum(e) from d where q < 0;
+----
+NULL
+
+query R
+select avg(q) from d where q < 0;
+----
+NULL
+
+query R
+select sum(e) / 7.0 from d where q < 0;
+----
+NULL
+
+# the same shape as above, but reached through a scalar subquery filter that matches no rows
+query R
+select sum(e) from d, dk where pk = k and q < (select 0.2 * avg(q) from d where k = pk);
+----
+NULL
+
+# grouped sums still carry the declared type
+query IR
+select k, sum(e) from d group by k order by k;
+----
+1 300.00
+2 350.00

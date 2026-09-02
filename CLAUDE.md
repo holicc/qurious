@@ -54,7 +54,7 @@ DDL/DML statements bypass the optimizer and are handled directly by `ExecuteSess
 Primary test surface is [sqllogictest](https://github.com/risinglightdb/sqllogictest-rs) files, not Rust unit tests:
 
 - `qurious/tests/sql/*.slt` — feature tests, run in parallel by [sqllogictests.rs](qurious/tests/sqllogictests.rs) (custom harness, `harness = false`).
-- `qurious/tests/tpch/*.slt` — TPC-H queries (q1–q15, q19 so far); skipped unless `INCLUDE_TPCH=true`. `tpch.slt` globs `q*.slt`, so a new `qN.slt` is picked up automatically.
+- `qurious/tests/tpch/*.slt` — TPC-H queries (q1–q17, q19, q22 so far); skipped unless `INCLUDE_TPCH=true`. `tpch.slt` globs `q*.slt`, so a new `qN.slt` is picked up automatically.
 - Unit tests live inline in `#[cfg(test)]` modules; helpers in `src/test_utils.rs` (`sql_to_plan`, `build_mem_datasource!`).
 
 ```bash
