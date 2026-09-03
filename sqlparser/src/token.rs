@@ -138,6 +138,11 @@ pub enum TokenType {
 }
 
 impl TokenType {
+    /// Classify a word as a keyword, or `Ident` if it is not one.
+    ///
+    /// Only ever called with a word the lexer read via `read_literal`, i.e. `[A-Za-z][A-Za-z0-9_]*`.
+    /// Operators and delimiters are produced directly by the lexer and never reach here, so listing
+    /// them would be dead code that reads as though it were live.
     pub fn lookup_ident(ident: &str) -> TokenType {
         match ident.to_lowercase().as_str() {
             "select" => TokenType::Keyword(Keyword::Select),
@@ -227,28 +232,6 @@ impl TokenType {
             "hour" => TokenType::Keyword(Keyword::Hour),
             "minute" => TokenType::Keyword(Keyword::Minute),
             "second" => TokenType::Keyword(Keyword::Second),
-            // delimiters
-            "(" => TokenType::LParen,
-            ")" => TokenType::RParen,
-            "{" => TokenType::LBrace,
-            "}" => TokenType::RBrace,
-            "[" => TokenType::LSquareBrace,
-            "]" => TokenType::RSquareBrace,
-            "," => TokenType::Comma,
-            ";" => TokenType::Semicolon,
-            ":" => TokenType::Colon,
-            "+" => TokenType::Plus,
-            "-" => TokenType::Minus,
-            "*" => TokenType::Asterisk,
-            "/" => TokenType::Slash,
-            "<" => TokenType::Lt,
-            ">" => TokenType::Gt,
-            "=" => TokenType::Eq,
-            "!" => TokenType::Bang,
-            "." => TokenType::Period,
-            "<=" => TokenType::Lte,
-            ">=" => TokenType::Gte,
-            "!=" | "<>" => TokenType::NotEq,
             _ => TokenType::Ident,
         }
     }
