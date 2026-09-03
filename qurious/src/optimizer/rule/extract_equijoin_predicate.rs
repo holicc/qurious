@@ -77,16 +77,23 @@ fn extract_equijoin_predicates(
                         op: Operator::Eq,
                         right,
                     }));
+                } else if check_all_columns_from_schema(&left_columns, &left_schema)
+                    && check_all_columns_from_schema(&right_columns, &right_schema)
+                {
+                    equijoins.push((*left, *right));
+                } else if check_all_columns_from_schema(&right_columns, &left_schema)
+                    && check_all_columns_from_schema(&left_columns, &right_schema)
+                {
+                    equijoins.push((*right, *left));
                 } else {
-                    if check_all_columns_from_schema(&left_columns, &left_schema)
-                        && check_all_columns_from_schema(&right_columns, &right_schema)
-                    {
-                        equijoins.push((*left, *right));
-                    } else if check_all_columns_from_schema(&right_columns, &left_schema)
-                        && check_all_columns_from_schema(&left_columns, &right_schema)
-                    {
-                        equijoins.push((*right, *left));
-                    }
+                    // Not an equijoin across the two inputs (e.g. both sides reference the same
+                    // input). Keep it as a filter -- dropping it here turns the join into a cross
+                    // product and silently returns extra rows.
+                    filters.push(LogicalExpr::BinaryExpr(BinaryExpr {
+                        left,
+                        op: Operator::Eq,
+                        right,
+                    }));
                 }
             }
             _ => filters.push(expr),

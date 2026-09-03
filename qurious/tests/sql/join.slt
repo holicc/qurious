@@ -163,3 +163,60 @@ query II
 select a, c from nj_x join nj_y on a = c and cast(d as varchar) not like '%z%' order by a;
 ----
 1 1
+
+# A join's ON condition may reference a column of the *right* half of a composite left input, and
+# that column may share its name with one on the left half. TableSchema::has_field used to look at
+# only the first field with a given name, so it reported that `on_pt.pk` was not in the left input;
+# the equijoin extraction then discarded the predicate entirely and the join became a cross
+# product, silently returning extra rows rather than failing.
+statement ok
+create table on_li(pk int, qty int);
+
+statement ok
+create table on_pt(pk int, brand varchar);
+
+statement ok
+insert into on_li values (1,100),(1,100),(1,100),(1,5),(2,80),(2,80),(2,4),(2,4);
+
+statement ok
+insert into on_pt values (1,'B23'),(2,'B23');
+
+query II rowsort
+select on_li.pk, g.t from on_li join on_pt on on_li.pk = on_pt.pk
+  join (select pk as gpk, sum(qty) as t from on_li group by pk) g on on_pt.pk = g.gpk;
+----
+1 305
+1 305
+1 305
+1 305
+2 168
+2 168
+2 168
+2 168
+
+query II rowsort
+select on_li.pk, g.t from on_li join on_pt on on_li.pk = on_pt.pk
+  left join (select pk as gpk, sum(qty) as t from on_li group by pk) g on on_pt.pk = g.gpk;
+----
+1 305
+1 305
+1 305
+1 305
+2 168
+2 168
+2 168
+2 168
+
+# referencing the left half of the composite input keeps working
+query II rowsort
+select on_li.pk, g.t from on_li join on_pt on on_li.pk = on_pt.pk
+  join (select pk as gpk, sum(qty) as t from on_li group by pk) g on on_li.pk = g.gpk;
+----
+1 305
+1 305
+1 305
+1 305
+2 168
+2 168
+2 168
+2 168

@@ -1,0 +1,71 @@
+statement ok
+create table cs_part(pk int, brand varchar, container varchar);
+
+statement ok
+create table cs_line(pk int, qty decimal(15,2), price decimal(15,2));
+
+statement ok
+insert into cs_part values (1,'B23','MED BOX'),(2,'B23','MED BOX'),(3,'B23','SM BOX'),(4,'B11','MED BOX');
+
+# Per-part thresholds (0.2 * avg qty): part 1 -> 15.25, part 2 -> 8.4, parts 3 and 4 -> 10.1.
+# Parts 3 and 4 also have a qualifying row, so a broken brand/container filter or a mis-correlated
+# subquery would pull them in and change the totals.
+statement ok
+insert into cs_line values
+  (1,100,1000),(1,100,1000),(1,100,1000),(1,5,50),
+  (2,80,800),(2,80,800),(2,4,40),(2,4,40),
+  (3,100,9999),(3,1,9999),
+  (4,100,7777),(4,1,7777);
+
+query IRR rowsort
+select pk, avg(qty), 0.2 * avg(qty) from cs_line group by pk;
+----
+1 76.250000 15.25
+2 42.000000 8.4
+3 50.500000 10.100000000000001
+4 50.500000 10.100000000000001
+
+# The shape of TPC-H q17: a correlated scalar subquery whose threshold varies per group, joined
+# against a second relation. At scale factor 0.01 the real q17 matches no rows and returns NULL,
+# so this covers the arithmetic that q17 itself cannot.
+query IRR rowsort
+select cs_line.pk, qty, price
+from cs_line, cs_part
+where cs_part.pk = cs_line.pk
+  and brand = 'B23'
+  and container = 'MED BOX'
+  and qty < (select 0.2 * avg(qty) from cs_line where cs_line.pk = cs_part.pk);
+----
+1 5.00 50.00
+2 4.00 40.00
+2 4.00 40.00
+
+query R
+select sum(price)
+from cs_line, cs_part
+where cs_part.pk = cs_line.pk
+  and brand = 'B23'
+  and container = 'MED BOX'
+  and qty < (select 0.2 * avg(qty) from cs_line where cs_line.pk = cs_part.pk);
+----
+130.00
+
+query R
+select sum(price) / 7.0 as avg_yearly
+from cs_line, cs_part
+where cs_part.pk = cs_line.pk
+  and brand = 'B23'
+  and container = 'MED BOX'
+  and qty < (select 0.2 * avg(qty) from cs_line where cs_line.pk = cs_part.pk);
+----
+18.571428571428573
+
+# the subquery may name a different relation than the outer query
+query IR rowsort
+select cs_line.pk, qty from cs_line, cs_part
+where cs_part.pk = cs_line.pk and brand = 'B23' and container = 'MED BOX'
+  and qty < (select 0.2 * avg(l2.qty) from cs_line l2 where l2.pk = cs_part.pk);
+----
+1 5.00
+2 4.00
+2 4.00

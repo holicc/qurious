@@ -76,11 +76,15 @@ impl TableSchema {
         Arc::new(Schema::new_with_metadata(fields, metadata))
     }
 
+    /// Whether this schema holds a field with the given qualifier and name.
+    ///
+    /// Every field of that name has to be considered, not just the first: a joined schema can hold
+    /// several columns sharing a name, and looking only at the first reports `false` for all the
+    /// others. Callers use this to decide which side of a join a predicate belongs to, so a false
+    /// negative silently reclassifies -- or drops -- the predicate.
     pub fn has_field(&self, qualifier: Option<&TableRelation>, name: &str) -> bool {
-        match (self.schema.index_of(name).ok(), qualifier) {
-            (Some(i), q) => self.field_qualifiers[i].as_ref() == q,
-            _ => false,
-        }
+        self.iter()
+            .any(|(field_qualifier, field)| field.name() == name && field_qualifier == qualifier)
     }
 
     pub fn has_column(&self, column: &Column) -> bool {
@@ -191,5 +195,57 @@ pub fn qualified_name(qualifier: Option<&TableRelation>, name: &str) -> String {
     match qualifier {
         Some(q) => format!("{}.{}", q, name),
         None => name.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn qualified(relation: &str, name: &str) -> (Option<TableRelation>, Arc<Field>) {
+        (
+            Some(TableRelation::from(relation)),
+            Arc::new(Field::new(name, DataType::Int64, true)),
+        )
+    }
+
+    /// A joined schema can hold several columns sharing a name. `has_field` used to look at only
+    /// the first of them, so every later one was reported missing; callers use it to decide which
+    /// side of a join a predicate belongs to, so that silently misplaced or dropped the predicate.
+    #[test]
+    fn has_field_finds_every_column_of_a_shared_name() {
+        let schema = TableSchema::try_new(vec![
+            qualified("li", "pk"),
+            qualified("li", "qty"),
+            qualified("pt", "pk"),
+            qualified("pt", "brand"),
+        ])
+        .unwrap();
+
+        assert!(schema.has_field(Some(&"li".into()), "pk"));
+        assert!(
+            schema.has_field(Some(&"pt".into()), "pk"),
+            "the second `pk` was not found"
+        );
+        assert!(schema.has_field(Some(&"li".into()), "qty"));
+        assert!(schema.has_field(Some(&"pt".into()), "brand"));
+
+        assert!(!schema.has_field(Some(&"other".into()), "pk"));
+        assert!(!schema.has_field(Some(&"li".into()), "brand"));
+        assert!(!schema.has_field(None, "pk"));
+    }
+
+    #[test]
+    fn has_field_matches_unqualified_fields() {
+        let schema = TableSchema::try_new(vec![
+            (None, Arc::new(Field::new("bare", DataType::Int64, true))),
+            qualified("t", "named"),
+        ])
+        .unwrap();
+
+        assert!(schema.has_field(None, "bare"));
+        assert!(!schema.has_field(Some(&"t".into()), "bare"));
+        assert!(schema.has_field(Some(&"t".into()), "named"));
+        assert!(!schema.has_field(None, "named"));
     }
 }
