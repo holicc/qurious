@@ -12,8 +12,9 @@ use crate::logical::expr::alias::Alias;
 use crate::logical::expr::{BinaryExpr, Column, LogicalExpr, SubQuery};
 use crate::logical::plan::LogicalPlan;
 use crate::logical::LogicalPlanBuilder;
+use crate::optimizer::rule::rule_optimizer::optimize_subquery_plan;
 use crate::optimizer::rule::OptimizerRule;
-use crate::utils::alias::AliasGenerator;
+use crate::utils::alias::{AliasGenerator, SubqueryAliases};
 use crate::utils::expr::split_conjunctive_predicates;
 
 const SCALAR_SUBQUERY_ALIAS_PREFIX: &str = "__scalar_sq";
@@ -30,7 +31,13 @@ const SCALAR_SUBQUERY_ALIAS_PREFIX: &str = "__scalar_sq";
 /// ```
 #[derive(Default)]
 pub struct ScalarSubqueryToJoin {
-    id_generator: AliasGenerator,
+    aliases: SubqueryAliases,
+}
+
+impl ScalarSubqueryToJoin {
+    pub fn with_aliases(aliases: SubqueryAliases) -> Self {
+        Self { aliases }
+    }
 }
 
 impl OptimizerRule for ScalarSubqueryToJoin {
@@ -45,13 +52,14 @@ impl OptimizerRule for ScalarSubqueryToJoin {
                     return Ok(Transformed::no(LogicalPlan::Filter(filter)));
                 }
 
-                let (subqueries, rewritten_expr) = extract_subquery_exprs(filter.expr.clone(), &self.id_generator)?;
+                let (subqueries, rewritten_expr) = extract_subquery_exprs(filter.expr.clone(), &self.aliases.scalar)?;
                 let mut cur_input = filter.input.as_ref().clone();
 
                 // iterate through all subqueries in predicate, turning each into a left join
                 for (subquery, subquery_alias) in subqueries {
-                    let (correlated_exprs, new_subquery_plan) =
-                        find_correlated_exprs(subquery.subquery.as_ref().clone())?;
+                    let subquery_plan =
+                        optimize_subquery_plan(subquery.subquery.as_ref().clone(), self.aliases.clone())?;
+                    let (correlated_exprs, new_subquery_plan) = find_correlated_exprs(subquery_plan)?;
 
                     let new_subquery_plan = LogicalPlanBuilder::from(new_subquery_plan)
                         .alias(&subquery_alias)?
@@ -509,10 +517,13 @@ mod tests {
                 "          SubqueryAlias: __scalar_sq_0",
                 "            Projection: (MIN(partsupp.ps_supplycost), partsupp.ps_partkey)",
                 "              Aggregate: group_expr=[partsupp.ps_partkey], aggregat_expr=[MIN(partsupp.ps_supplycost)]",
-                "                Filter: supplier.s_suppkey = partsupp.ps_suppkey AND supplier.s_nationkey = nation.n_nationkey AND nation.n_regionkey = region.r_regionkey AND region.r_name = Utf8('EUROPE')",
-                "                  CrossJoin",
-                "                    CrossJoin",
-                "                      CrossJoin",
+                // The rule optimizes the subquery plan before inlining it as a join input, so the
+                // subquery's cross joins are already resolved into keyed inner joins here even
+                // though only this one rule is applied at the outer level.
+                "                Filter: region.r_name = Utf8('EUROPE')",
+                "                  Inner Join: On: (nation.n_regionkey, region.r_regionkey)",
+                "                    Inner Join: On: (supplier.s_nationkey, nation.n_nationkey)",
+                "                      Inner Join: On: (partsupp.ps_suppkey, supplier.s_suppkey)",
                 "                        TableScan: partsupp",
                 "                        TableScan: supplier",
                 "                      TableScan: nation",

@@ -999,13 +999,13 @@ impl<'a> SqlQueryPlanner<'a> {
                 Literal::Null => Ok(LogicalExpr::Literal(ScalarValue::Null)),
             },
             Expression::BinaryOperator(op) => self.parse_binary_op(op),
-            Expression::Function(name, args) => {
+            Expression::Function { name, args, distinct } => {
                 let exprs = args
                     .into_iter()
                     .map(|expr| self.sql_function_args_to_expr(expr))
                     .collect::<Result<Vec<_>>>()?;
 
-                self.handle_function(&name, exprs)
+                self.handle_function(&name, exprs, distinct)
             }
             Expression::Cast { expr, data_type } => {
                 let expr = self.sql_to_expr(*expr)?;
@@ -1020,6 +1020,7 @@ impl<'a> SqlQueryPlanner<'a> {
                 self.handle_function(
                     "EXTRACT",
                     vec![LogicalExpr::Literal(ScalarValue::Utf8(Some(field.to_string()))), args],
+                    false,
                 )
             }
             Expression::IsNull(expr) => self.sql_to_expr(*expr).map(|expr| LogicalExpr::IsNull(Box::new(expr))),
@@ -1264,8 +1265,12 @@ impl<'a> SqlQueryPlanner<'a> {
         fold(expr)
     }
 
-    fn handle_function(&self, name: &str, mut args: Vec<LogicalExpr>) -> Result<LogicalExpr> {
+    fn handle_function(&self, name: &str, mut args: Vec<LogicalExpr>, distinct: bool) -> Result<LogicalExpr> {
         if let Some(udf) = self.udfs.get(name.to_uppercase().as_str()) {
+            if distinct {
+                return internal_err!("DISTINCT is not supported for function {name}");
+            }
+
             return Ok(LogicalExpr::Function(Function {
                 func: udf.clone(),
                 args,
@@ -1273,11 +1278,19 @@ impl<'a> SqlQueryPlanner<'a> {
         }
 
         if let Ok(op) = name.try_into() {
+            // Taking only the last argument would silently drop the others and return a wrong
+            // answer, so require exactly one.
+            if args.len() != 1 {
+                return internal_err!(
+                    "aggregate function {name} takes exactly one argument, got {}",
+                    args.len()
+                );
+            }
+
             return Ok(LogicalExpr::AggregateExpr(AggregateExpr {
                 op,
-                expr: Box::new(args.pop().ok_or(Error::InternalError(
-                    "Aggregate function should have at least one expr".to_string(),
-                ))?),
+                expr: Box::new(args.pop().expect("checked above")),
+                distinct,
             }));
         }
 

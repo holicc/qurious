@@ -99,6 +99,17 @@ fn coercion_types(lhs: &DataType, op: &Operator, rhs: &DataType) -> Result<Binar
                     rhs: DataType::Decimal128(*p, *s),
                     ret: DataType::Boolean,
                 }),
+                // Mixed integer/float comparisons: compare as Float64. `0.5 * sum(x)` yields a
+                // float while the other side stays integral, and arrow's comparison kernels
+                // require both sides to have the same type.
+                (Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64, Float32 | Float64)
+                | (Float32 | Float64, Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64) => {
+                    Ok(BinaryTypes {
+                        lhs: Float64,
+                        rhs: Float64,
+                        ret: DataType::Boolean,
+                    })
+                }
                 // Fallback: keep as-is (may error later if Arrow can't compare them)
                 _ => Ok(BinaryTypes {
                     lhs: lhs.clone(),

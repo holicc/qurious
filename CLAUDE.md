@@ -45,6 +45,7 @@ DDL/DML statements bypass the optimizer and are handled directly by `ExecuteSess
 - Optimizer rule order in `RuleBaseOptimizer::new()` is load-bearing — `TypeCoercion` runs **last**, after subquery decorrelation. Don't reorder casually.
 - Arrow `Schema` fields are name-only, so per-field table qualifiers are smuggled through schema metadata under `FIELD_QUALIFIERS_META_KEY` ([table_schema.rs](qurious/src/common/table_schema.rs)). Needed for self-joins (`nation n1, nation n2`). Preserve it when building physical schemas.
 - Plan/expr rewrites go through the `Transformed` / `TransformNode` API in `common/transformed.rs`, not manual recursion.
+- `LogicalPlan::children()` does **not** include the subquery plans held by `Exists`/`SubQuery` expressions, so a plain rule transform never reaches them. The subquery rules call `optimize_subquery_plan` on a subquery before inlining it as a join input; everything after that point sees it as an ordinary child. Alias generators are shared across nesting levels (`SubqueryAliases`) so nested aliases cannot collide.
 - `unused_imports = "deny"` at workspace level — unused imports fail the build.
 - rustfmt: `max_width = 120`.
 - `datasource/connectorx/` (Postgres via connectorx) is **not** wired into `datasource/mod.rs` and has no cargo feature; it does not compile today. CI still passes `--features postgres`, which is also stale.
@@ -54,7 +55,7 @@ DDL/DML statements bypass the optimizer and are handled directly by `ExecuteSess
 Primary test surface is [sqllogictest](https://github.com/risinglightdb/sqllogictest-rs) files, not Rust unit tests:
 
 - `qurious/tests/sql/*.slt` — feature tests, run in parallel by [sqllogictests.rs](qurious/tests/sqllogictests.rs) (custom harness, `harness = false`).
-- `qurious/tests/tpch/*.slt` — TPC-H queries (q1–q17, q19, q22 so far); skipped unless `INCLUDE_TPCH=true`. `tpch.slt` globs `q*.slt`, so a new `qN.slt` is picked up automatically.
+- `qurious/tests/tpch/*.slt` — the full TPC-H suite, q1–q22, all passing; skipped unless `INCLUDE_TPCH=true`. `tpch.slt` globs `q*.slt`, so a new `qN.slt` is picked up automatically. Expected results were cross-checked against sqlite3 loaded with the same scale-factor 0.01 data.
 - Unit tests live inline in `#[cfg(test)]` modules; helpers in `src/test_utils.rs` (`sql_to_plan`, `build_mem_datasource!`).
 
 ```bash

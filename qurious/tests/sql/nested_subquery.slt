@@ -1,0 +1,48 @@
+statement ok
+create table sup(sk int, nm varchar);
+
+statement ok
+create table ps(pk int, sk int, qty int);
+
+statement ok
+create table pt(pk int, nm varchar);
+
+statement ok
+create table li(pk int, sk int, q int);
+
+statement ok
+insert into sup values (1,'s1'),(2,'s2'),(3,'s3');
+
+statement ok
+insert into pt values (10,'forest a'),(11,'oak'),(12,'forest b');
+
+statement ok
+insert into ps values (10,1,100),(10,2,5),(12,1,50),(11,3,999);
+
+statement ok
+insert into li values (10,1,20),(10,1,30),(10,2,80),(12,1,10);
+
+# A correlated scalar subquery nested inside an IN subquery. Subquery plans hang off expressions
+# rather than plan children, so the main optimizer pass never walked into them and the inner
+# subquery was left undecorrelated, leaving its outer references unresolvable.
+query T
+select nm from sup where sk in (
+  select sk from ps where pk in (select pk from pt where nm like 'forest%')
+    and qty > (select 0.5 * sum(q) from li where li.pk = ps.pk and li.sk = ps.sk)
+) order by nm;
+----
+s1
+
+# an integer compared against a float needs a common type before arrow will compare them
+query II
+select sk, qty from ps where qty > (select 0.5 * sum(q) from li) order by sk, qty;
+----
+1 100
+3 999
+
+# IN nested directly inside IN
+query T
+select nm from sup where sk in (select sk from ps where pk in (select pk from pt where nm like 'forest%')) order by nm;
+----
+s1
+s2

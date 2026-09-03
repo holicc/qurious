@@ -8,8 +8,8 @@ use crate::error::Result;
 use crate::logical::expr::{BinaryExpr, Column, Exists, LogicalExpr};
 use crate::logical::plan::{Filter, LogicalPlan};
 use crate::logical::LogicalPlanBuilder;
-use crate::optimizer::rule::rule_optimizer::OptimizerRule;
-use crate::utils::alias::AliasGenerator;
+use crate::optimizer::rule::rule_optimizer::{optimize_subquery_plan, OptimizerRule};
+use crate::utils::alias::{AliasGenerator, SubqueryAliases};
 use crate::utils::expr::{check_all_columns_from_schema, replace_cols_by_name, split_conjunctive_predicates};
 
 const PREDICATE_SUBQUERY_ALIAS_PREFIX: &str = "__predicate_sq";
@@ -22,13 +22,19 @@ const PREDICATE_SUBQUERY_ALIAS_PREFIX: &str = "__predicate_sq";
 /// - `col IN (subquery)` -> `LeftSemi` join (if subquery returns single column)
 /// - `col NOT IN (subquery)` -> `LeftAnti` join (if subquery returns single column)
 pub struct DecorrelatePredicateSubquery {
-    id_generator: AliasGenerator,
+    aliases: SubqueryAliases,
+}
+
+impl DecorrelatePredicateSubquery {
+    pub fn with_aliases(aliases: SubqueryAliases) -> Self {
+        Self { aliases }
+    }
 }
 
 impl Default for DecorrelatePredicateSubquery {
     fn default() -> Self {
         Self {
-            id_generator: AliasGenerator::default(),
+            aliases: SubqueryAliases::default(),
         }
     }
 }
@@ -47,7 +53,7 @@ impl OptimizerRule for DecorrelatePredicateSubquery {
             return Ok(Transformed::no(LogicalPlan::Filter(Filter { input, expr: predicate })));
         }
 
-        let (subqueries, rewritten_expr) = extract_predicate_subqueries(predicate, &self.id_generator)?;
+        let (subqueries, rewritten_expr) = extract_predicate_subqueries(predicate, &self.aliases.predicate)?;
         let rewritten_expr = remove_true_conjuncts(rewritten_expr);
 
         if subqueries.is_empty() {
@@ -61,7 +67,8 @@ impl OptimizerRule for DecorrelatePredicateSubquery {
 
         // Iterate through all predicate subqueries, turning each into a semi/anti join
         for (subquery_info, subquery_alias) in subqueries {
-            let (correlated_exprs, new_subquery_plan) = find_correlated_exprs(subquery_info.subquery.as_ref().clone())?;
+            let subquery_plan = optimize_subquery_plan(subquery_info.subquery.as_ref().clone(), self.aliases.clone())?;
+            let (correlated_exprs, new_subquery_plan) = find_correlated_exprs(subquery_plan)?;
 
             // IMPORTANT:
             // - `subquery_schema` is the schema BEFORE applying `SubqueryAlias`, so it has original qualifiers
