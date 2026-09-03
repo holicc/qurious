@@ -21,16 +21,16 @@ test: ## Run unit tests (includes TPC-H tests when available)
 .PHONY: tpch-data
 tpch-data: ## Generate TPC-H test data (scale factor 0.01)
 	mkdir -p $(TPCH_DATA_DIR)
-	$(DOCKER) run -it -v "$(realpath $(TPCH_DATA_DIR))":/data $(TPCH_DOCKER_IMAGE) -vf -s 0.01
+	$(DOCKER) run --rm -v "$(CURDIR)/$(TPCH_DATA_DIR)":/data $(TPCH_DOCKER_IMAGE) -vf -s 0.01
 
 .PHONY: tpch-data-small
 tpch-data-small: ## Generate small TPC-H test data (scale factor 0.001)
 	mkdir -p $(TPCH_DATA_DIR)
-	$(DOCKER) run -it -v "$(realpath $(TPCH_DATA_DIR))":/data $(TPCH_DOCKER_IMAGE) -vf -s 0.001
+	$(DOCKER) run --rm -v "$(CURDIR)/$(TPCH_DATA_DIR)":/data $(TPCH_DOCKER_IMAGE) -vf -s 0.001
 
 .PHONY: tpch-data-large
 tpch-data-large: ## Generate large TPC-H test data (scale factor 0.1)
 	mkdir -p $(TPCH_DATA_DIR)
-	$(DOCKER) run -it -v "$(realpath $(TPCH_DATA_DIR))":/data $(TPCH_DOCKER_IMAGE) -vf -s 0.1
+	$(DOCKER) run --rm -v "$(CURDIR)/$(TPCH_DATA_DIR)":/data $(TPCH_DOCKER_IMAGE) -vf -s 0.1
 
 .DEFAULT_GOAL := help

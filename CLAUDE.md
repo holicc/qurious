@@ -48,7 +48,7 @@ DDL/DML statements bypass the optimizer and are handled directly by `ExecuteSess
 - `LogicalPlan::children()` does **not** include the subquery plans held by `Exists`/`SubQuery` expressions, so a plain rule transform never reaches them. The subquery rules call `optimize_subquery_plan` on a subquery before inlining it as a join input; everything after that point sees it as an ordinary child. Alias generators are shared across nesting levels (`SubqueryAliases`) so nested aliases cannot collide.
 - `unused_imports = "deny"` at workspace level — unused imports fail the build.
 - rustfmt: `max_width = 120`.
-- `datasource/connectorx/` (Postgres via connectorx) is **not** wired into `datasource/mod.rs` and has no cargo feature; it does not compile today. CI still passes `--features postgres`, which is also stale.
+- `datasource/connectorx/` (Postgres via connectorx) is **not** wired into `datasource/mod.rs` and has no cargo feature, so it is dead code that does not compile. `docker-compose.yaml` and `tests/db/pg/` exist only for it.
 
 ## Testing
 
@@ -59,9 +59,9 @@ Primary test surface is [sqllogictest](https://github.com/risinglightdb/sqllogic
 - Unit tests live inline in `#[cfg(test)]` modules; helpers in `src/test_utils.rs` (`sql_to_plan`, `build_mem_datasource!`).
 
 ```bash
+make tpch-data                # generate TPC-H data via docker (SF 0.01); needed once
+make test                     # everything, INCLUDE_TPCH=true -- this is what CI runs
 cargo test                    # unit + .slt, TPC-H excluded
-make test                     # same, with INCLUDE_TPCH=true
-make tpch-data                # generate TPC-H data via docker (SF 0.01)
 cargo test --lib              # unit tests only
 RUST_LOG=debug cargo test ... # harness uses env_logger; logs each SQL run
 ```

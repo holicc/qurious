@@ -10,35 +10,26 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  linux-test:
+  test:
     name: cargo test
     runs-on: ubuntu-latest
-    container:
-      image: amd64/rust
-    services:
-      postgres:
-        image: postgres
-        env:
-          POSTGRES_PASSWORD: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
     - uses: actions/checkout@v4
-    - name: Run tests 
-      run: cargo test --lib --tests --features postgres
-      env:
-        POSTGRES_HOST: postgres
-        POSTGRES_PORT: 5432
 
-  linux-build:
+    # The TPC-H cases are skipped unless the data is present and INCLUDE_TPCH is set, so
+    # generate it here -- otherwise the whole tpch suite silently does not run.
+    - name: Generate TPC-H data
+      run: make tpch-data
+
+    - name: Run tests
+      run: cargo test
+      env:
+        INCLUDE_TPCH: "true"
+
+  build:
+    name: cargo build --release
     runs-on: ubuntu-latest
-    container:
-      image: amd64/rust
     steps:
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --release
-
