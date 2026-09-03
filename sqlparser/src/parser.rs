@@ -634,7 +634,7 @@ impl<'a> Parser<'a> {
                 }
                 Expression::Literal(_)
                 | Expression::BinaryOperator(_)
-                | Expression::Function(_, _)
+                | Expression::Function { .. }
                 | Expression::InSubQuery { .. } => match alias {
                     Some(a) => SelectItem::ExprWithAlias(expr, a),
                     None => SelectItem::UnNamedExpr(expr),
@@ -1011,12 +1011,19 @@ impl<'a> Parser<'a> {
             TokenType::Ident => {
                 // parse function
                 if self.next_if_token(TokenType::LParen).is_some() {
+                    // `DISTINCT` is only meaningful for aggregates, but accepting it here keeps
+                    // the call syntax in one place; the planner rejects it for other functions.
+                    let distinct = self.next_if_token(TokenType::Keyword(Keyword::Distinct)).is_some();
                     let mut args = Vec::new();
                     while self.next_if_token(TokenType::RParen).is_none() {
                         args.push(self.parse_expression(0)?);
                         self.next_if_token(TokenType::Comma);
                     }
-                    Ok(ast::Expression::Function(literal, args))
+                    Ok(ast::Expression::Function {
+                        name: literal,
+                        args,
+                        distinct,
+                    })
                 } else {
                     let mut idents: Vec<Ident> = vec![literal.into()];
 
@@ -1089,7 +1096,11 @@ impl<'a> Parser<'a> {
 
         self.next_except(TokenType::RParen)?;
 
-        Ok(Expression::Function("substring".to_owned(), args))
+        Ok(Expression::Function {
+            name: "substring".to_owned(),
+            args,
+            distinct: false,
+        })
     }
 
     fn parse_exists_expr(&mut self, negated: bool) -> Result<Expression> {
@@ -1777,13 +1788,14 @@ mod tests {
                     Box::new(Expression::SubQuery(Box::new(Select {
                         with: None,
                         distinct: None,
-                        columns: vec![SelectItem::UnNamedExpr(Expression::Function(
-                            "MIN".to_owned(),
-                            vec![Expression::Identifier(Ident {
+                        columns: vec![SelectItem::UnNamedExpr(Expression::Function {
+                            name: "MIN".to_owned(),
+                            args: vec![Expression::Identifier(Ident {
                                 value: "user_id".to_owned(),
                                 quote_style: None,
                             })],
-                        ))],
+                            distinct: false,
+                        })],
                         from: vec![ast::From::Table {
                             name: "commits".to_owned(),
                             alias: None,
@@ -3586,7 +3598,11 @@ mod tests {
 
     #[test]
     fn test_parse_substring() {
-        let expr = |args: Vec<Expression>| ast::Expression::Function("substring".to_owned(), args);
+        let expr = |args: Vec<Expression>| ast::Expression::Function {
+            name: "substring".to_owned(),
+            args,
+            distinct: false,
+        };
         let phone = || ast::Expression::Identifier("c_phone".into());
         let int = |v: i64| ast::Expression::Literal(ast::Literal::Int(v));
 
@@ -4440,10 +4456,11 @@ mod tests {
                 limit: None,
                 offset: None,
                 having: Some(Expression::BinaryOperator(ast::BinaryOperator::Gt(
-                    Box::new(Expression::Function(
-                        "count".to_owned(),
-                        vec![Expression::Identifier("name".into())],
-                    )),
+                    Box::new(Expression::Function {
+                        name: "count".to_owned(),
+                        args: vec![Expression::Identifier("name".into())],
+                        distinct: false,
+                    }),
                     Box::new(Expression::Literal(ast::Literal::Int(2))),
                 ))),
                 distinct: None,
@@ -4620,31 +4637,34 @@ mod tests {
 
         assert_eq!(
             stmt,
-            Expression::Function(
-                "foo".to_owned(),
-                vec![
+            Expression::Function {
+                name: "foo".to_owned(),
+                args: vec![
                     Expression::Literal(ast::Literal::Int(1)),
                     Expression::Literal(ast::Literal::Int(2)),
                     Expression::Literal(ast::Literal::Int(3)),
-                ]
-            )
+                ],
+                distinct: false,
+            }
         );
 
         let stmt = parse_expr("foo(bar(1, 2, 3))").unwrap();
 
         assert_eq!(
             stmt,
-            Expression::Function(
-                "foo".to_owned(),
-                vec![Expression::Function(
-                    "bar".to_owned(),
-                    vec![
+            Expression::Function {
+                name: "foo".to_owned(),
+                args: vec![Expression::Function {
+                    name: "bar".to_owned(),
+                    args: vec![
                         Expression::Literal(ast::Literal::Int(1)),
                         Expression::Literal(ast::Literal::Int(2)),
                         Expression::Literal(ast::Literal::Int(3)),
-                    ]
-                ),]
-            )
+                    ],
+                    distinct: false,
+                }],
+                distinct: false,
+            }
         );
     }
 

@@ -131,9 +131,35 @@ impl TryFrom<&str> for AggregateOperator {
 pub struct AggregateExpr {
     pub op: AggregateOperator,
     pub expr: Box<LogicalExpr>,
+    /// `COUNT(DISTINCT x)`: only distinct argument values contribute.
+    pub distinct: bool,
 }
 
 impl AggregateExpr {
+    pub fn new(op: AggregateOperator, expr: LogicalExpr) -> Self {
+        Self {
+            op,
+            expr: Box::new(expr),
+            distinct: false,
+        }
+    }
+
+    pub fn distinct(op: AggregateOperator, expr: LogicalExpr) -> Self {
+        Self {
+            op,
+            expr: Box::new(expr),
+            distinct: true,
+        }
+    }
+
+    /// `DISTINCT ` prefix for naming/display, so the output field name matches the SQL text.
+    fn distinct_prefix(&self) -> &'static str {
+        if self.distinct {
+            "DISTINCT "
+        } else {
+            ""
+        }
+    }
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
         self.expr.field(plan).and_then(|field| {
             // Use the *expression string* for non-column arguments, otherwise we may generate
@@ -149,7 +175,7 @@ impl AggregateExpr {
             };
 
             Ok(Arc::new(Field::new(
-                format!("{}({})", self.op, col_name),
+                format!("{}({}{})", self.op, self.distinct_prefix(), col_name),
                 self.op.infer_type(field.data_type())?,
                 true,
             )))
@@ -177,7 +203,7 @@ impl AggregateExpr {
         };
 
         Ok(LogicalExpr::Column(Column {
-            name: format!("{}({})", self.op, arg_name),
+            name: format!("{}({}{})", self.op, self.distinct_prefix(), arg_name),
             relation: None,
             is_outer_ref: false,
         }))
@@ -186,7 +212,7 @@ impl AggregateExpr {
 
 impl Display for AggregateExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}({})", self.op, self.expr)
+        write!(f, "{}({}{})", self.op, self.distinct_prefix(), self.expr)
     }
 }
 
@@ -213,6 +239,7 @@ mod tests {
         // and sqllogictest expectations.
         let plan = empty_plan_with_schema(vec![]);
         let agg = AggregateExpr {
+            distinct: false,
             op: AggregateOperator::Count,
             expr: Box::new(LogicalExpr::Literal(ScalarValue::Int32(Some(1)))),
         };
@@ -251,6 +278,7 @@ mod tests {
         ));
 
         let agg = AggregateExpr {
+            distinct: false,
             op: AggregateOperator::Sum,
             expr: Box::new(expr),
         };
@@ -291,6 +319,7 @@ mod tests {
         };
 
         let agg = AggregateExpr {
+            distinct: false,
             op: AggregateOperator::Sum,
             expr: Box::new(LogicalExpr::Case(case)),
         };

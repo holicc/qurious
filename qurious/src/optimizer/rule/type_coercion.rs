@@ -166,12 +166,15 @@ fn type_coercion(schema: &Arc<Schema>, expr: LogicalExpr) -> Result<Transformed<
                 else_expr: Box::new(else_expr),
             })))
         }
-        LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => type_coercion(schema, *expr)?.map_data(|expr| {
-            Ok(LogicalExpr::AggregateExpr(AggregateExpr {
-                op,
-                expr: Box::new(expr),
-            }))
-        }),
+        LogicalExpr::AggregateExpr(AggregateExpr { op, expr, distinct }) => {
+            type_coercion(schema, *expr)?.map_data(|expr| {
+                Ok(LogicalExpr::AggregateExpr(AggregateExpr {
+                    op,
+                    expr: Box::new(expr),
+                    distinct,
+                }))
+            })
+        }
         LogicalExpr::Alias(Alias { expr, name }) => {
             let expr = type_coercion(schema, *expr).data().map(Box::new)?;
             Ok(Transformed::yes(LogicalExpr::Alias(Alias { expr, name })))
@@ -446,6 +449,7 @@ mod tests {
 
         // Create sum(int_col)
         let sum_expr = LogicalExpr::AggregateExpr(AggregateExpr {
+            distinct: false,
             op: AggregateOperator::Sum,
             expr: Box::new(LogicalExpr::Column(Column::new(
                 "int_col",
@@ -456,6 +460,7 @@ mod tests {
 
         // Create avg(float32_col)
         let avg_expr = LogicalExpr::AggregateExpr(AggregateExpr {
+            distinct: false,
             op: AggregateOperator::Avg,
             expr: Box::new(LogicalExpr::Column(Column::new(
                 "float32_col",
@@ -466,6 +471,7 @@ mod tests {
 
         // Create count(double_col)
         let count_expr = LogicalExpr::AggregateExpr(AggregateExpr {
+            distinct: false,
             op: AggregateOperator::Count,
             expr: Box::new(LogicalExpr::Column(Column::new(
                 "double_col",
@@ -517,6 +523,7 @@ mod tests {
 
         // Create avg(int32_col)
         let avg_expr = LogicalExpr::AggregateExpr(AggregateExpr {
+            distinct: false,
             op: AggregateOperator::Avg,
             expr: Box::new(LogicalExpr::Column(Column::new(
                 "int32_col",
@@ -527,6 +534,7 @@ mod tests {
 
         // Create sum(float32_col)
         let sum_expr = LogicalExpr::AggregateExpr(AggregateExpr {
+            distinct: false,
             op: AggregateOperator::Sum,
             expr: Box::new(LogicalExpr::Column(Column::new(
                 "float32_col",
@@ -634,6 +642,7 @@ mod tests {
 
         // Create sum(int_col + 1.5)
         let sum_expr = LogicalExpr::AggregateExpr(AggregateExpr {
+            distinct: false,
             op: AggregateOperator::Sum,
             expr: Box::new(add_expr),
         });

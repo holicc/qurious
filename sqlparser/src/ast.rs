@@ -626,7 +626,12 @@ pub enum Expression {
     CompoundIdentifier(Vec<Ident>),
     Literal(Literal),
     BinaryOperator(BinaryOperator),
-    Function(String, Vec<Expression>),
+    /// `name(<args>)`, or `name(DISTINCT <args>)` for an aggregate
+    Function {
+        name: String,
+        args: Vec<Expression>,
+        distinct: bool,
+    },
     Struct(Vec<StructField>),
     Array(Vec<Expression>),
     /// `(SELECT ...)`
@@ -764,11 +769,12 @@ impl Display for Expression {
         match self {
             Expression::Literal(l) => write!(f, "{}", l),
             Expression::BinaryOperator(o) => write!(f, "{}", o),
-            Expression::Function(n, args) => {
+            Expression::Function { name, args, distinct } => {
                 write!(
                     f,
-                    "{}({})",
-                    n,
+                    "{}({}{})",
+                    name,
+                    if *distinct { "DISTINCT " } else { "" },
                     args.iter()
                         .map(|arg| arg.to_string())
                         .collect::<Vec<String>>()

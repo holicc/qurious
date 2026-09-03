@@ -212,7 +212,7 @@ impl LogicalExpr {
             LogicalExpr::Cast(cast_expr) => Ok(cast_expr.data_type.clone()),
             LogicalExpr::Case(case_expr) => case_expr.data_type(schema),
             LogicalExpr::Function(function) => Ok(function.func.return_type()),
-            LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => op.infer_type(&expr.data_type(schema)?),
+            LogicalExpr::AggregateExpr(AggregateExpr { op, expr, .. }) => op.infer_type(&expr.data_type(schema)?),
             LogicalExpr::SortExpr(SortExpr { expr, .. }) | LogicalExpr::Negative(expr) => expr.data_type(schema),
             LogicalExpr::Like(_) | LogicalExpr::IsNull(_) | LogicalExpr::IsNotNull(_) => Ok(DataType::Boolean),
             LogicalExpr::SubQuery(subquery) => Ok(subquery.subquery.schema().fields[0].data_type().clone()),
@@ -262,8 +262,9 @@ impl TransformNode for LogicalExpr {
                     transformed,
                 }
             }
-            LogicalExpr::AggregateExpr(AggregateExpr { op, expr }) => f(*expr)?.update(|expr| {
+            LogicalExpr::AggregateExpr(AggregateExpr { op, expr, distinct }) => f(*expr)?.update(|expr| {
                 LogicalExpr::AggregateExpr(AggregateExpr {
+                    distinct,
                     op,
                     expr: Box::new(expr),
                 })

@@ -1,0 +1,43 @@
+statement ok
+create table cd(g varchar, v int, s varchar);
+
+statement ok
+insert into cd values ('a',1,'x'),('a',1,'y'),('a',2,'x'),('b',3,NULL),('b',NULL,'z'),('b',3,'z'),('c',NULL,NULL);
+
+# COUNT(DISTINCT x) ignores NULLs, like COUNT(x)
+query IIII
+select count(distinct v), count(v), count(*), count(distinct s) from cd;
+----
+3 5 7 3
+
+query TIII
+select g, count(distinct v), count(v), count(*) from cd group by g order by g;
+----
+a 2 3 3
+b 1 2 3
+c 0 0 1
+
+# distinct over a string column
+query TI
+select g, count(distinct s) from cd group by g order by g;
+----
+a 2
+b 1
+c 0
+
+# a group where every value is NULL counts zero distinct values
+query I
+select count(distinct v) from cd where g = 'c';
+----
+0
+
+# DISTINCT is only implemented for COUNT; silently ignoring it would give wrong answers
+statement error DISTINCT is not supported for SUM
+select sum(distinct v) from cd;
+
+# an aggregate takes exactly one argument; taking only the last would silently drop the rest
+statement error takes exactly one argument
+select count(distinct v, s) from cd;
+
+statement error takes exactly one argument
+select count(v, s) from cd;
