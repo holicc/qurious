@@ -1,0 +1,38 @@
+statement ok
+create table jo(ok int, tag varchar);
+
+statement ok
+create table jli(ok int, sk int, late int);
+
+statement ok
+insert into jo values (1,'F'),(2,'F'),(3,'F');
+
+statement ok
+insert into jli values (1,10,1),(1,20,0),(2,10,1),(2,10,0),(3,10,1),(3,20,1);
+
+# A join filter can reference identically-named columns from both sides. The intermediate batch it
+# runs against has to keep qualifiers: matching on field name alone pointed both references at the
+# same column, collapsing the predicate to `sk <> sk` so the semi join returned nothing.
+query II
+select l1.ok, l1.sk from jli l1, jo where jo.ok = l1.ok and l1.late = 1
+  and exists (select * from jli l2 where l2.ok = l1.ok and l2.sk <> l1.sk)
+  order by l1.ok, l1.sk;
+----
+1 10
+3 10
+3 20
+
+query II
+select l1.ok, l1.sk from jli l1, jo where jo.ok = l1.ok and l1.late = 1
+  and exists (select * from jli l2 where l2.ok = l1.ok and l2.sk <> l1.sk)
+  and not exists (select * from jli l3 where l3.ok = l1.ok and l3.sk <> l1.sk and l3.late = 1)
+  order by l1.ok, l1.sk;
+----
+1 10
+
+# a non-equi join condition between two same-named columns of a self-join
+query II
+select a.ok, b.ok from jli a, jli b where a.ok = b.ok and a.sk < b.sk order by a.ok, b.ok;
+----
+1 1
+3 3

@@ -4,12 +4,14 @@ use std::{fmt::Debug, sync::Arc};
 
 use arrow::{
     compute::SortOptions,
-    datatypes::{Schema, SchemaBuilder, SchemaRef},
+    datatypes::{Field, Schema, SchemaRef},
 };
 
 use crate::{
     arrow_err,
-    common::table_schema::FIELD_QUALIFIERS_META_KEY,
+    common::table_relation::TableRelation,
+    common::table_schema::{TableSchema, TableSchemaRef, FIELD_QUALIFIERS_META_KEY},
+    common::transformed::{TransformNode, TreeNodeRecursion},
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
     internal_err,
@@ -199,6 +201,12 @@ impl DefaultQueryPlanner {
                     .and_then(|expr| {
                         // get AggreateExpr return datatype
                         let return_type = e.data_type(&aggregate.input.schema())?;
+                        // Only COUNT implements DISTINCT; silently ignoring it elsewhere would
+                        // return wrong results, so refuse instead.
+                        if agg_expr.distinct && agg_expr.op != AggregateOperator::Count {
+                            return internal_err!("DISTINCT is not supported for {} yet", agg_expr.op);
+                        }
+
                         match agg_expr.op {
                             AggregateOperator::Sum => {
                                 Ok(Arc::new(physical::expr::SumAggregateExpr::new(expr, return_type))
@@ -212,7 +220,10 @@ impl DefaultQueryPlanner {
                                 Ok(Arc::new(physical::expr::MinAggregateExpr::new(expr, return_type))
                                     as Arc<dyn physical::expr::AggregateExpr>)
                             }
-                            AggregateOperator::Count => Ok(Arc::new(physical::expr::CountAggregateExpr::new(expr))
+                            AggregateOperator::Count => Ok(Arc::new(physical::expr::CountAggregateExpr::new(
+                                expr,
+                                agg_expr.distinct,
+                            ))
                                 as Arc<dyn physical::expr::AggregateExpr>),
                             AggregateOperator::Avg => Ok(Arc::new(physical::expr::AvgAggregateExpr::new(
                                 expr,
@@ -267,22 +278,30 @@ impl DefaultQueryPlanner {
         let right = self.create_physical_plan(join.right.as_ref())?;
 
         let join_filter = if let Some(filter) = &join.filter {
-            let using_columns = filter.using_columns();
+            // A join filter can reference identically-named columns from both sides, e.g. a
+            // self-join's `l2.l_suppkey <> l1.l_suppkey`. The intermediate batch it is evaluated
+            // against must therefore carry qualifiers: matching on field name alone points both
+            // references at the same column, and the predicate collapses to `x <> x`, which is
+            // never true -- so a semi join silently returns nothing.
+            let left_schema = join.left.table_schema();
+            let right_schema = join.right.table_schema();
 
-            let ls = left.schema();
-            let li = using_columns
-                .iter()
-                .filter_map(|c| ls.fields().find(&c.name))
-                .map(|(i, f)| (f.clone(), (i, JoinSide::Left)));
+            let mut qualified_fields = vec![];
+            let mut column_indices: Vec<ColumnIndex> = vec![];
 
-            let rs = right.schema();
-            let ri = using_columns
-                .iter()
-                .filter_map(|c| rs.fields().find(&c.name))
-                .map(|(i, f)| (f.clone(), (i, JoinSide::Right)));
+            for column in columns_in_order(filter) {
+                if let Some((index, qualifier, field)) = find_qualified_field(&left_schema, &column) {
+                    qualified_fields.push((qualifier, field));
+                    column_indices.push((index, JoinSide::Left));
+                } else if let Some((index, qualifier, field)) = find_qualified_field(&right_schema, &column) {
+                    qualified_fields.push((qualifier, field));
+                    column_indices.push((index, JoinSide::Right));
+                } else {
+                    return internal_err!("join filter references column [{column}] that is in neither input");
+                }
+            }
 
-            let (filter_schema, column_indices): (SchemaBuilder, Vec<ColumnIndex>) = li.chain(ri).unzip();
-            let filter_schema = Arc::new(filter_schema.finish());
+            let filter_schema = TableSchema::try_new(qualified_fields)?.arrow_schema();
             let filter_expr = self.create_physical_expr(&filter_schema, &filter)?;
 
             Some(JoinFilter {
@@ -405,6 +424,46 @@ impl DefaultQueryPlanner {
             .collect::<Result<Vec<_>>>()?;
         Ok(Arc::new(physical::expr::Function::new(function.func.clone(), args)))
     }
+}
+
+/// Columns referenced by `expr`, deduplicated, in the order they appear.
+///
+/// `LogicalExpr::column_refs` returns a `HashSet`, and a join filter's schema and its
+/// `column_indices` are built in lockstep, so the order has to be stable.
+fn columns_in_order(expr: &LogicalExpr) -> Vec<Column> {
+    let mut columns: Vec<Column> = vec![];
+
+    expr.apply(|expr| {
+        if let LogicalExpr::Column(column) = expr {
+            if !columns.contains(column) {
+                columns.push(column.clone());
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })
+    .expect("[columns_in_order] collecting columns cannot fail");
+
+    columns
+}
+
+/// Locate `column` in `schema` by qualifier *and* name, returning its position.
+///
+/// `Schema::index_of` matches on name only, which picks the wrong field when both join inputs
+/// expose the same column name.
+fn find_qualified_field(
+    schema: &TableSchemaRef,
+    column: &Column,
+) -> Option<(usize, Option<TableRelation>, Arc<Field>)> {
+    schema.iter().enumerate().find_map(|(index, (qualifier, field))| {
+        let qualifier_matches = match (&column.relation, qualifier) {
+            (Some(wanted), Some(actual)) => wanted == actual,
+            // an unqualified reference matches on name alone
+            (None, _) => true,
+            (Some(_), None) => false,
+        };
+
+        (field.name() == &column.name && qualifier_matches).then(|| (index, qualifier.cloned(), Arc::clone(field)))
+    })
 }
 
 pub fn check_join_is_valid(left: &Schema, right: &Schema, on: &[(LogicalExpr, LogicalExpr)]) -> Result<()> {
