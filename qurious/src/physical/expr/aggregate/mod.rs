@@ -111,7 +111,7 @@ macro_rules! make_accumulator {
             DataType::Timestamp(TimeUnit::Nanosecond, _) => $HELPER!($DATA_TYPE, i64, TimestampNanosecondType),
             DataType::Decimal128(_, _) => $HELPER!($DATA_TYPE, i128, Decimal128Type),
             DataType::Decimal256(_, _) => $HELPER!($DATA_TYPE, i256, Decimal256Type),
-            _ => unimplemented!("PrimitiveAccumulator not supported for datatype: {}", $DATA_TYPE),
+            other => return $crate::internal_err!("aggregate is not supported for {other}"),
         }
     }};
 }

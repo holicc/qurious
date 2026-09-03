@@ -186,7 +186,7 @@ impl ExecuteSession {
                     .table_factory
                     .create_parquet_table(&path)
                     .map(|provider| (TableRelation::parse_file_path(&path), provider)),
-                _ => unimplemented!("not support table function: {}", table.name),
+                name => internal_err!("unsupported table function: {name}"),
             }
         }
     }

@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::internal_err;
 use arrow::{
     array::{
         new_null_array, Array, ArrayRef, ArrowPrimitiveType, BooleanArray, Decimal128Array, Decimal256Array,
@@ -225,7 +226,7 @@ impl ScalarValue {
                     })?;
                 Ok(ScalarValue::IntervalMonthDayNano(Some(arr.value(index))))
             }
-            _ => unimplemented!("data type {} not supported", array.data_type()),
+            other => internal_err!("cannot read a ScalarValue out of a {other} array"),
         }
     }
 }
@@ -272,7 +273,7 @@ impl TryFrom<&DataType> for ScalarValue {
             DataType::Decimal128(p, s) => Ok(ScalarValue::Decimal128(None, *p, *s)),
             DataType::Decimal256(p, s) => Ok(ScalarValue::Decimal256(None, *p, *s)),
             DataType::Interval(IntervalUnit::MonthDayNano) => Ok(ScalarValue::IntervalMonthDayNano(None)),
-            _ => unimplemented!("data type {} not supported", value),
+            other => internal_err!("cannot make a ScalarValue of type {other}"),
         }
     }
 }
@@ -312,5 +313,26 @@ impl Display for ScalarValue {
                 None => write!(f, "interval(null)"),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod unsupported_type_tests {
+    use super::*;
+    use arrow::array::BinaryArray;
+
+    /// An unsupported type has to come back as an error rather than aborting the process: these are
+    /// reachable from user SQL, and a panic takes the whole session down.
+    #[test]
+    fn making_a_scalar_of_an_unsupported_type_is_an_error() {
+        let err = ScalarValue::try_from(&DataType::Binary).unwrap_err();
+        assert!(err.to_string().contains("Binary"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn reading_a_scalar_from_an_unsupported_array_is_an_error() {
+        let array = Arc::new(BinaryArray::from(vec![Some(&b"x"[..])])) as ArrayRef;
+        let err = ScalarValue::try_from_array(&array, 0).unwrap_err();
+        assert!(err.to_string().contains("Binary"), "unexpected error: {err}");
     }
 }

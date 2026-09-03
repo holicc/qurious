@@ -8,6 +8,7 @@ use arrow::csv::ReaderBuilder;
 use crate::arrow_err;
 use crate::datasource::memory::MemoryTable;
 use crate::error::{Error, Result};
+use crate::internal_err;
 use crate::provider::table::TableProvider;
 
 use super::DataFilePath;
@@ -67,7 +68,7 @@ pub fn read_csv<T: DataFilePath>(path: T, options: CsvReadOptions) -> Result<Arc
                 .map_err(|e| arrow_err!(e))
                 .and_then(|data| MemoryTable::try_new(schema, data).map(|v| Arc::new(v) as Arc<dyn TableProvider>))
         }
-        _ => unimplemented!(),
+        scheme => internal_err!("reading a csv file over `{scheme}` is not supported"),
     }
 }
 

@@ -149,7 +149,7 @@ impl QueryPlanner for DefaultQueryPlanner {
             LogicalExpr::SubQuery(plan) => self
                 .create_physical_plan(&plan.subquery)
                 .map(|plan| Arc::new(physical::expr::SubQuery { plan }) as Arc<dyn PhysicalExpr>),
-            _ => unimplemented!("unsupported logical expression: {}", expr),
+            expr => internal_err!("unsupported logical expression: {expr}"),
         }
     }
 }
@@ -499,4 +499,62 @@ pub fn check_join_is_valid(left: &Schema, right: &Schema, on: &[(LogicalExpr, Lo
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logical::expr::{Exists, SortExpr};
+    use arrow::datatypes::{DataType, Field};
+
+    fn schema() -> SchemaRef {
+        Arc::new(Schema::new(vec![Field::new("a", DataType::Int64, true)]))
+    }
+
+    /// These are reachable from user SQL, so an expression the physical planner has no rule for
+    /// has to surface as an error; panicking takes the whole session down with it.
+    #[test]
+    fn an_unsupported_expression_is_an_error_not_a_panic() {
+        let planner = DefaultQueryPlanner;
+
+        for expr in [
+            LogicalExpr::Wildcard,
+            LogicalExpr::SortExpr(SortExpr {
+                expr: Box::new(LogicalExpr::Column(Column::new("a", None::<TableRelation>, false))),
+                asc: true,
+            }),
+        ] {
+            let err = planner
+                .create_physical_expr(&schema(), &expr)
+                .expect_err("expected an error");
+            assert!(
+                err.to_string().contains("unsupported logical expression"),
+                "unexpected error for {expr}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_supported_expression_still_plans() {
+        let planner = DefaultQueryPlanner;
+        let expr = LogicalExpr::Column(Column::new("a", None::<TableRelation>, false));
+
+        assert!(planner.create_physical_expr(&schema(), &expr).is_ok());
+    }
+
+    #[test]
+    fn exists_is_still_unsupported_in_an_expression_position() {
+        // `Exists` is decorrelated into a join before physical planning; if one reaches here the
+        // rewrite did not happen, and an error is far easier to diagnose than a panic.
+        let planner = DefaultQueryPlanner;
+        let expr = LogicalExpr::Exists(Exists {
+            negated: false,
+            subquery: Box::new(LogicalPlan::EmptyRelation(EmptyRelation {
+                produce_one_row: true,
+                schema: schema(),
+            })),
+        });
+
+        assert!(planner.create_physical_expr(&schema(), &expr).is_err());
+    }
 }

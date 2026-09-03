@@ -5,7 +5,8 @@ use arrow::array::RecordBatch;
 use arrow::datatypes::SchemaRef;
 
 use crate::datatypes::scalar::ScalarValue;
-use crate::error::Result;
+use crate::error::{Error, Result};
+use crate::internal_err;
 use crate::physical::expr::PhysicalExpr;
 use crate::physical::plan::PhysicalPlan;
 use std::fmt::Debug;
@@ -45,13 +46,13 @@ pub trait TableProvider: Debug + Send + Sync {
     }
 
     fn insert(&self, _input: Arc<dyn PhysicalPlan>) -> Result<u64> {
-        unimplemented!("insert_into not implemented")
+        internal_err!("this table provider does not support INSERT")
     }
 
     /// Delete records from the data source
     /// The input plan is the filter expression to apply to the data source
     fn delete(&self, _filter: Option<Arc<dyn PhysicalExpr>>) -> Result<u64> {
-        unimplemented!("delete not implemented")
+        internal_err!("this table provider does not support DELETE")
     }
 
     fn table_type(&self) -> TableType {

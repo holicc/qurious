@@ -731,7 +731,7 @@ impl<'a> SqlQueryPlanner<'a> {
 
                         (
                             LogicalPlanBuilder::from(left)
-                                .join(right, JoinType::from(join_type), vec![], Some(filter_expr))?
+                                .join(right, JoinType::try_from(join_type)?, vec![], Some(filter_expr))?
                                 .build(),
                             None,
                         )

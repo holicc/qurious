@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::error::{Error, Result};
 use arrow::datatypes::DataType;
 use std::sync::Arc;
 

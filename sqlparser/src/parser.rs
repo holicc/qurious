@@ -108,7 +108,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_drop_statement(&mut self) -> Result<Statement> {
-        match self.next_token()?.token_type {
+        let token = self.next_token()?;
+        match token.token_type {
             TokenType::Keyword(Keyword::Schema) => {
                 let check_exists = self.parse_if_exists()?;
                 let schema = self.next_ident()?;
@@ -127,7 +128,7 @@ impl<'a> Parser<'a> {
 
                 Ok(Statement::DropTable { table, check_exists })
             }
-            _ => unimplemented!(),
+            _ => Err(Error::UnexpectedToken(token)),
         }
     }
 
@@ -2609,6 +2610,17 @@ mod tests {
                 check_exists: false,
             },
         );
+    }
+
+    #[test]
+    fn dropping_something_unsupported_is_an_error() {
+        // Anything other than TABLE/SCHEMA used to hit `unimplemented!()` and abort the process.
+        for sql in ["DROP INDEX foo;", "DROP VIEW v;", "DROP;"] {
+            assert!(parse_stmt(sql).is_err(), "expected an error for: {sql}");
+        }
+
+        assert!(parse_stmt("DROP TABLE t;").is_ok());
+        assert!(parse_stmt("DROP SCHEMA s;").is_ok());
     }
 
     #[test]

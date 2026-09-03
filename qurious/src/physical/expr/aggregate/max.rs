@@ -4,7 +4,7 @@ use arrow::datatypes::DataType;
 
 use super::PrimitiveAccumulator;
 use super::{Accumulator, AggregateExpr};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::make_accumulator;
 use crate::physical::expr::PhysicalExpr;
 

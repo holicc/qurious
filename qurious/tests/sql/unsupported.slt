@@ -1,0 +1,37 @@
+statement ok
+create table u(a int, b varchar);
+
+statement ok
+insert into u values (1, 'x');
+
+# Unsupported input has to come back as an error. These all used to be `todo!()` or
+# `unimplemented!()`, which aborts the process rather than failing the statement -- under the
+# parallel test harness that took every other file's results down with it.
+
+statement error unsupported table function
+select * from read_avro('/tmp/x.avro');
+
+statement error Unknown function
+select nosuchfunction(a) from u;
+
+statement error aggregate function sum takes exactly one argument
+select sum(a, b) from u;
+
+statement error DISTINCT is not supported for SUM
+select sum(distinct a) from u;
+
+statement error COPY TO is not supported
+copy u to '/tmp/x.csv';
+
+statement error column aliases are only supported on a derived table
+select * from u as t (x, y);
+
+statement error IN subquery must return exactly one column
+select a from u where a in (select a, b from u);
+
+statement error unexpected token
+drop index nope;
+
+# and a plain unsupported statement is an error, not a panic
+statement error
+explain select * from u;
