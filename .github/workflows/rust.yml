@@ -26,6 +26,14 @@ jobs:
       env:
         INCLUDE_TPCH: "true"
 
+  fmt:
+    name: cargo fmt --check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Check formatting
+      run: cargo fmt --all --check
+
   build:
     name: cargo build --release
     runs-on: ubuntu-latest

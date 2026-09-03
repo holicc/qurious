@@ -47,7 +47,7 @@ DDL/DML statements bypass the optimizer and are handled directly by `ExecuteSess
 - Plan/expr rewrites go through the `Transformed` / `TransformNode` API in `common/transformed.rs`, not manual recursion.
 - `LogicalPlan::children()` does **not** include the subquery plans held by `Exists`/`SubQuery` expressions, so a plain rule transform never reaches them. The subquery rules call `optimize_subquery_plan` on a subquery before inlining it as a join input; everything after that point sees it as an ordinary child. Alias generators are shared across nesting levels (`SubqueryAliases`) so nested aliases cannot collide.
 - `unused_imports = "deny"` at workspace level — unused imports fail the build.
-- rustfmt: `max_width = 120`.
+- rustfmt: `max_width = 120`; `make fmt-check` is what CI enforces.
 
 ## Testing
 
@@ -62,6 +62,7 @@ make tpch-data                # generate TPC-H data via docker (SF 0.01); needed
 make test                     # everything, INCLUDE_TPCH=true -- this is what CI runs
 cargo test                    # unit + .slt, TPC-H excluded
 cargo test --lib              # unit tests only
+make fmt                      # format; make fmt-check to verify without writing
 RUST_LOG=debug cargo test ... # harness uses env_logger; logs each SQL run
 ```
 

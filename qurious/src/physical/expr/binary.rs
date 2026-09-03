@@ -1,8 +1,8 @@
 use arrow::array::{ArrayRef, AsArray, BooleanArray, Datum};
+use arrow::compute::cast;
 use arrow::compute::kernels::cmp::*;
 use arrow::compute::kernels::numeric::{add_wrapping, div, mul_wrapping, rem, sub_wrapping};
 use arrow::compute::{and_kleene, or_kleene};
-use arrow::compute::cast;
 use arrow::datatypes::DataType;
 use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatch;

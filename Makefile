@@ -18,6 +18,14 @@ help: ## Show available commands
 test: ## Run unit tests (includes TPC-H tests when available)
 	INCLUDE_TPCH=true $(CARGO) test
 
+.PHONY: fmt
+fmt: ## Format all crates
+	$(CARGO) fmt --all
+
+.PHONY: fmt-check
+fmt-check: ## Check formatting without writing (what CI runs)
+	$(CARGO) fmt --all --check
+
 .PHONY: tpch-data
 tpch-data: ## Generate TPC-H test data (scale factor 0.01)
 	mkdir -p $(TPCH_DATA_DIR)

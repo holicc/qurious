@@ -64,5 +64,3 @@ impl From<ScalarValue> for CaseExpr {
         }
     }
 }
-
-
