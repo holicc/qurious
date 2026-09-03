@@ -12,6 +12,7 @@ use crate::optimizer::rule::scalar_subquery_to_join::ScalarSubqueryToJoin;
 use crate::optimizer::rule::simplify_exprs::SimplifyExprs;
 use crate::optimizer::rule::type_coercion::TypeCoercion;
 use crate::optimizer::Optimizer;
+use crate::utils::alias::SubqueryAliases;
 
 pub trait OptimizerRule: Sync + Send {
     fn name(&self) -> &str;
@@ -25,13 +26,20 @@ pub struct RuleBaseOptimizer {
 
 impl RuleBaseOptimizer {
     pub fn new() -> Self {
+        // One set of counters for the whole tree, including nested subqueries.
+        let aliases = SubqueryAliases::default();
+
         Self {
             rules: vec![
                 Box::new(CountWildcardRule),
                 Box::new(SimplifyExprs),
-                Box::new(ScalarSubqueryToJoin::default()),
-                Box::new(DecorrelatePredicateSubquery::default()),
+                // EliminateCrossJoin needs the Filter holding the join keys to sit directly on top
+                // of the cross joins. The subquery rules insert a semi/anti join in between, and
+                // PushdownFilter later turns a CrossJoin into a keyless Inner Join, after which
+                // nothing can recover the keys -- so this has to run before both.
                 Box::new(EliminateCrossJoin),
+                Box::new(ScalarSubqueryToJoin::with_aliases(aliases.clone())),
+                Box::new(DecorrelatePredicateSubquery::with_aliases(aliases)),
                 Box::new(ExtractEquijoinPredicate),
                 Box::new(PushdownFilter),
                 // Run type coercion late so correlated subqueries have been rewritten/decorrelated
@@ -44,6 +52,28 @@ impl RuleBaseOptimizer {
     pub fn with_rules(rules: Vec<Box<dyn OptimizerRule>>) -> Self {
         Self { rules }
     }
+}
+
+/// Optimize a subquery plan before it is inlined as a join input.
+///
+/// Subquery plans hang off expressions (`Exists`, `SubQuery`) rather than
+/// `LogicalPlan::children()`, so the main pass never walks into them. Once a subquery has become a
+/// join input every *later* rule reaches it as an ordinary child, so only the rules at or before
+/// the decorrelation step need to be applied here -- notably `ScalarSubqueryToJoin`, without which
+/// a correlated scalar subquery nested inside an IN/EXISTS subquery is left undecorrelated and its
+/// outer references cannot be resolved (TPC-H q20).
+///
+/// This recurses through `DecorrelatePredicateSubquery`, but each level operates on a strictly
+/// more deeply nested subquery, so it terminates at the query's nesting depth.
+pub(crate) fn optimize_subquery_plan(plan: LogicalPlan, aliases: SubqueryAliases) -> Result<LogicalPlan> {
+    RuleBaseOptimizer::with_rules(vec![
+        Box::new(CountWildcardRule),
+        Box::new(SimplifyExprs),
+        Box::new(EliminateCrossJoin),
+        Box::new(ScalarSubqueryToJoin::with_aliases(aliases.clone())),
+        Box::new(DecorrelatePredicateSubquery::with_aliases(aliases)),
+    ])
+    .optimize(&plan)
 }
 
 impl Optimizer for RuleBaseOptimizer {
