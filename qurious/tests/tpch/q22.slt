@@ -24,23 +24,23 @@ from
                   ('13', '31', '23', '29', '30', '18', '17')
         )
           and not exists (
-            select
-                *
-            from
-                orders
-            where
-                    o_custkey = c_custkey
-        )
+                select
+                    *
+                from
+                    orders
+                where
+                        o_custkey = c_custkey
+            )
     ) as custsale
 group by
     cntrycode
 order by
     cntrycode;
 ----
-13 10 75359.29
-17 8 62288.98
-18 14 111072.45
-23 5 40458.86
-29 11 88722.85
-30 17 122189.33
-31 8 66313.16
+13 94 714035.05
+17 96 722560.15
+18 99 738012.52
+23 93 708285.25
+29 85 632693.46
+30 87 646748.02
+31 87 647372.5

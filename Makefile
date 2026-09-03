@@ -11,9 +11,8 @@ help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: test
-# Tests in `qurious/tests/tpch/` run against the TPC-H dataset and require
-# data generation ahead of time (default scale factor is 0.01 here).
-# Generate data from the repository root with:
+# Tests in `qurious/tests/tpch/` run against the TPC-H dataset (SF 0.1), which must be
+# generated first from the repository root with:
 #   make tpch-data
 test: ## Run unit tests (includes TPC-H tests when available)
 	INCLUDE_TPCH=true $(CARGO) test
@@ -27,17 +26,10 @@ fmt-check: ## Check formatting without writing (what CI runs)
 	$(CARGO) fmt --all --check
 
 .PHONY: tpch-data
-tpch-data: ## Generate TPC-H test data (scale factor 0.01)
-	mkdir -p $(TPCH_DATA_DIR)
-	$(DOCKER) run --rm -v "$(CURDIR)/$(TPCH_DATA_DIR)":/data $(TPCH_DOCKER_IMAGE) -vf -s 0.01
-
-.PHONY: tpch-data-small
-tpch-data-small: ## Generate small TPC-H test data (scale factor 0.001)
-	mkdir -p $(TPCH_DATA_DIR)
-	$(DOCKER) run --rm -v "$(CURDIR)/$(TPCH_DATA_DIR)":/data $(TPCH_DOCKER_IMAGE) -vf -s 0.001
-
-.PHONY: tpch-data-large
-tpch-data-large: ## Generate large TPC-H test data (scale factor 0.1)
+# Scale factor 0.1 is not arbitrary: the expected results in qurious/tests/tpch/ are DataFusion's
+# answer files, which are computed at SF 0.1. Generating any other scale makes every TPC-H case
+# fail, so there is deliberately only one target here.
+tpch-data: ## Generate the TPC-H test data the tpch tests expect (scale factor 0.1)
 	mkdir -p $(TPCH_DATA_DIR)
 	$(DOCKER) run --rm -v "$(CURDIR)/$(TPCH_DATA_DIR)":/data $(TPCH_DOCKER_IMAGE) -vf -s 0.1
 

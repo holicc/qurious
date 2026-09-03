@@ -241,6 +241,14 @@ fn cell_to_string(col: &ArrayRef, row: usize) -> Result<String> {
             DataType::LargeUtf8 => Ok(varchar_to_str(get_row_value!(array::LargeStringArray, col, row))),
             DataType::Utf8 => Ok(varchar_to_str(get_row_value!(array::StringArray, col, row))),
             DataType::Utf8View => Ok(varchar_to_str(get_row_value!(array::StringViewArray, col, row))),
+            DataType::Decimal128(_, scale) => Ok(decimal_to_str(
+                get_row_value!(array::Decimal128Array, col, row).to_string(),
+                *scale,
+            )),
+            DataType::Decimal256(_, scale) => Ok(decimal_to_str(
+                get_row_value!(array::Decimal256Array, col, row).to_string(),
+                *scale,
+            )),
             _ => {
                 let f = ArrayFormatter::try_new(
                     col.as_ref(),
@@ -250,6 +258,116 @@ fn cell_to_string(col: &ArrayRef, row: usize) -> Result<String> {
             }
         }
         .map_err(|e| arrow_err!(e))
+    }
+}
+
+/// Render a number the way DataFusion's sqllogictest harness does: at most 12 fractional digits,
+/// rounded half away from zero, with trailing zeros stripped.
+///
+/// The TPC-H expected results are taken from DataFusion's answer files, so the two have to agree on
+/// text as well as value -- otherwise `3774200.00` and `3774200`, or `16.283855689005982` and
+/// `16.283855689006`, read as mismatches.
+fn normalize_number(text: &str) -> String {
+    const MAX_FRACTIONAL_DIGITS: usize = 12;
+
+    let (sign, rest) = match text.strip_prefix('-') {
+        Some(rest) => ("-", rest),
+        None => ("", text),
+    };
+
+    let Some((integral, fractional)) = rest.split_once('.') else {
+        return text.to_owned();
+    };
+
+    let (integral, fractional) = if fractional.len() > MAX_FRACTIONAL_DIGITS {
+        match round_half_up(fractional, MAX_FRACTIONAL_DIGITS) {
+            // Rounding carried out of the leading digit, e.g. 0.9999... -> 1.
+            Rounded { carry: true, digits } => (increment(integral), digits),
+            Rounded { carry: false, digits } => (integral.to_owned(), digits),
+        }
+    } else {
+        (integral.to_owned(), fractional.to_owned())
+    };
+
+    let fractional = fractional.trim_end_matches('0');
+    if fractional.is_empty() {
+        // `-0` is not a useful rendering of a value that rounded away to zero.
+        if integral.bytes().all(|b| b == b'0') {
+            return integral;
+        }
+        format!("{sign}{integral}")
+    } else {
+        format!("{sign}{integral}.{fractional}")
+    }
+}
+
+/// Exact text for a decimal held as an unscaled integer, then normalized.
+///
+/// Going through f64 would lose precision on the larger TPC-H sums, so the scaling is done on the
+/// digit string.
+fn decimal_to_str(unscaled: String, scale: i8) -> String {
+    let (sign, digits) = match unscaled.strip_prefix('-') {
+        Some(rest) => ("-", rest.to_owned()),
+        None => ("", unscaled),
+    };
+
+    // A negative scale means trailing implicit zeros, so there is no fractional part.
+    if scale <= 0 {
+        return format!("{sign}{digits}{}", "0".repeat(scale.unsigned_abs() as usize));
+    }
+
+    let scale = scale as usize;
+    // Left-pad so there are always at least `scale` digits to split off, plus one for the integral part.
+    let digits = format!("{:0>width$}", digits, width = scale + 1);
+    let split = digits.len() - scale;
+
+    normalize_number(&format!("{sign}{}.{}", &digits[..split], &digits[split..]))
+}
+
+struct Rounded {
+    digits: String,
+    carry: bool,
+}
+
+/// Round a fractional digit string to `keep` digits, half away from zero.
+fn round_half_up(fractional: &str, keep: usize) -> Rounded {
+    let mut digits: Vec<u8> = fractional[..keep].bytes().map(|b| b - b'0').collect();
+    let mut carry = u8::from(fractional.as_bytes()[keep] >= b'5');
+
+    for digit in digits.iter_mut().rev() {
+        if carry == 0 {
+            break;
+        }
+        let sum = *digit + carry;
+        *digit = sum % 10;
+        carry = sum / 10;
+    }
+
+    Rounded {
+        digits: digits.iter().map(|d| (d + b'0') as char).collect(),
+        carry: carry > 0,
+    }
+}
+
+/// Add one to a non-negative integer held as a digit string.
+fn increment(integral: &str) -> String {
+    let mut digits: Vec<u8> = integral.bytes().map(|b| b - b'0').collect();
+    let mut carry = 1;
+
+    for digit in digits.iter_mut().rev() {
+        if carry == 0 {
+            break;
+        }
+        let sum = *digit + carry;
+        *digit = sum % 10;
+        carry = sum / 10;
+    }
+
+    let rest: String = digits.iter().map(|d| (d + b'0') as char).collect();
+    if carry > 0 {
+        format!("1{rest}")
+    } else {
+        rest
     }
 }
 
@@ -279,7 +397,7 @@ fn f32_to_str(value: f32) -> String {
     } else if value == f32::NEG_INFINITY {
         "-Infinity".to_string()
     } else {
-        value.to_string()
+        normalize_number(&value.to_string())
     }
 }
 
@@ -293,6 +411,6 @@ fn f64_to_str(value: f64) -> String {
     } else if value == f64::NEG_INFINITY {
         "-Infinity".to_string()
     } else {
-        value.to_string()
+        normalize_number(&value.to_string())
     }
 }

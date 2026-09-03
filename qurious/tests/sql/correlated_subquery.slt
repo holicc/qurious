@@ -20,10 +20,10 @@ insert into cs_line values
 query IRR rowsort
 select pk, avg(qty), 0.2 * avg(qty) from cs_line group by pk;
 ----
-1 76.250000 15.25
-2 42.000000 8.4
-3 50.500000 10.100000000000001
-4 50.500000 10.100000000000001
+1 76.25 15.25
+2 42 8.4
+3 50.5 10.1
+4 50.5 10.1
 
 # The shape of TPC-H q17: a correlated scalar subquery whose threshold varies per group, joined
 # against a second relation. At scale factor 0.01 the real q17 matches no rows and returns NULL,
@@ -36,9 +36,9 @@ where cs_part.pk = cs_line.pk
   and container = 'MED BOX'
   and qty < (select 0.2 * avg(qty) from cs_line where cs_line.pk = cs_part.pk);
 ----
-1 5.00 50.00
-2 4.00 40.00
-2 4.00 40.00
+1 5 50
+2 4 40
+2 4 40
 
 query R
 select sum(price)
@@ -48,7 +48,7 @@ where cs_part.pk = cs_line.pk
   and container = 'MED BOX'
   and qty < (select 0.2 * avg(qty) from cs_line where cs_line.pk = cs_part.pk);
 ----
-130.00
+130
 
 query R
 select sum(price) / 7.0 as avg_yearly
@@ -58,7 +58,7 @@ where cs_part.pk = cs_line.pk
   and container = 'MED BOX'
   and qty < (select 0.2 * avg(qty) from cs_line where cs_line.pk = cs_part.pk);
 ----
-18.571428571428573
+18.571428571429
 
 # the subquery may name a different relation than the outer query
 query IR rowsort
@@ -66,6 +66,6 @@ select cs_line.pk, qty from cs_line, cs_part
 where cs_part.pk = cs_line.pk and brand = 'B23' and container = 'MED BOX'
   and qty < (select 0.2 * avg(l2.qty) from cs_line l2 where l2.pk = cs_part.pk);
 ----
-1 5.00
-2 4.00
-2 4.00
+1 5
+2 4
+2 4

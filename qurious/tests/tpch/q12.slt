@@ -8,8 +8,8 @@ select
             else 0
         end) as high_line_count,
     sum(case
-            when o_orderpriority != '1-URGENT'
-                and o_orderpriority != '2-HIGH'
+            when o_orderpriority <> '1-URGENT'
+                and o_orderpriority <> '2-HIGH'
                 then 1
             else 0
         end) as low_line_count
@@ -30,5 +30,5 @@ group by
 order by
     l_shipmode;
 ----
-MAIL 64 86
-SHIP 61 96
+MAIL 647 945
+SHIP 620 943

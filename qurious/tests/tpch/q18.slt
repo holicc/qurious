@@ -1,4 +1,4 @@
-query TIITRR
+query TIIDRR
 select
     c_name,
     c_custkey,
@@ -17,8 +17,7 @@ where
         from
             lineitem
         group by
-            l_orderkey
-        having
+            l_orderkey having
                 sum(l_quantity) > 300
     )
   and c_custkey = o_custkey
@@ -33,5 +32,8 @@ order by
     o_totalprice desc,
     o_orderdate;
 ----
-Customer#000000667 667 29158 1995-10-21 439687.23 305.00
-Customer#000000178 178 6882 1997-04-09 422359.65 303.00
+Customer#000001639 1639 502886 1994-04-12 456423.88 312
+Customer#000006655 6655 29158 1995-10-21 452805.02 305
+Customer#000014110 14110 565574 1995-09-24 425099.85 301
+Customer#000001775 1775 6882 1997-04-09 408368.1 303
+Customer#000011459 11459 551136 1993-05-19 386812.74 308

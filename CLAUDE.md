@@ -54,11 +54,11 @@ DDL/DML statements bypass the optimizer and are handled directly by `ExecuteSess
 Primary test surface is [sqllogictest](https://github.com/risinglightdb/sqllogictest-rs) files, not Rust unit tests:
 
 - `qurious/tests/sql/*.slt` — feature tests, run in parallel by [sqllogictests.rs](qurious/tests/sqllogictests.rs) (custom harness, `harness = false`).
-- `qurious/tests/tpch/*.slt` — the full TPC-H suite, q1–q22, all passing; skipped unless `INCLUDE_TPCH=true`. `tpch.slt` globs `q*.slt`, so a new `qN.slt` is picked up automatically. Expected results were cross-checked against sqlite3 loaded with the same scale-factor 0.01 data.
+- `qurious/tests/tpch/*.slt` — the full TPC-H suite, q1–q22, all passing; skipped unless `INCLUDE_TPCH=true`. `tpch.slt` globs `q*.slt`, so a new `qN.slt` is picked up automatically. The queries and expected results are **Apache DataFusion's** answer files at **scale factor 0.1** — see [tpch/README.md](qurious/tests/tpch/README.md). Generating any other scale factor fails every case. The harness normalizes decimals and floats to 12 fractional digits with trailing zeros stripped, matching DataFusion's, so its answers can be used verbatim.
 - Unit tests live inline in `#[cfg(test)]` modules; helpers in `src/test_utils.rs` (`sql_to_plan`, `build_mem_datasource!`).
 
 ```bash
-make tpch-data                # generate TPC-H data via docker (SF 0.01); needed once
+make tpch-data                # generate TPC-H data via docker (SF 0.1); needed once
 make test                     # everything, INCLUDE_TPCH=true -- this is what CI runs
 cargo test                    # unit + .slt, TPC-H excluded
 cargo test --lib              # unit tests only

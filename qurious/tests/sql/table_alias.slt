@@ -10,17 +10,17 @@ insert into al values (1, 10.50), (1, 20.25), (2, 30.75), (2, 5.00);
 query IR
 select k, q from al a order by k, q;
 ----
-1 10.50
+1 10.5
 1 20.25
-2 5.00
+2 5
 2 30.75
 
 query IR
 select a.k, a.q from al a order by a.k, a.q;
 ----
-1 10.50
+1 10.5
 1 20.25
-2 5.00
+2 5
 2 30.75
 
 # the base table name is out of scope once aliased, like in postgres and sqlite
@@ -31,8 +31,8 @@ select al.q from al a;
 query R
 select q from al a where q < (select avg(q) from al b where b.k = a.k) order by q;
 ----
-5.00
-10.50
+5
+10.5
 
 query R
 select q from al a where q = (select max(q) from al b where b.k = a.k) order by q;
@@ -44,8 +44,8 @@ select q from al a where q = (select max(q) from al b where b.k = a.k) order by 
 query RR
 select a.q, b.q from al a, al b where a.k = b.k and a.q < b.q order by a.q, b.q;
 ----
-5.00 30.75
-10.50 20.25
+5 30.75
+10.5 20.25
 
 # the same relation may not be introduced twice under one name
 statement error already in scope

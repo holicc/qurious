@@ -6,53 +6,28 @@ from
     (
         select
             c_custkey,
-            count(o_orderkey) as c_count
+            count(o_orderkey)
         from
-            customer
-                left outer join
-            orders
-            on
+            customer left outer join orders on
                         c_custkey = o_custkey
                     and o_comment not like '%special%requests%'
         group by
             c_custkey
-    ) as c_orders
+    ) as c_orders (c_custkey, c_count)
 group by
     c_count
 order by
     custdist desc,
-    c_count desc;
+    c_count desc
+limit 10;
 ----
-0 500
-11 68
-10 64
-12 62
-9 62
-8 61
-14 54
-13 52
-7 49
-20 48
-21 47
-16 46
-15 45
-19 44
-17 41
-18 38
-22 33
-6 33
-24 30
-23 27
-25 21
-27 17
-26 15
-5 14
-28 6
-4 6
-32 5
-29 5
-30 2
-3 2
-31 1
-2 1
-1 1
+0 5000
+10 665
+9 657
+11 621
+12 567
+8 564
+13 492
+18 482
+7 480
+20 456

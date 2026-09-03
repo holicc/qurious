@@ -1,3 +1,5 @@
+# The TPC-H queries and expected results come from Apache DataFusion's sqllogictest suite and are
+# computed at scale factor 0.1. See ../tpch/README.md for provenance and how to generate the data.
 include ../tpch/create_tables.slt
 include ../tpch/insert.slt
 include ../tpch/q*.slt
