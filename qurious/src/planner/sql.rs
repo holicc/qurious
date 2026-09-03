@@ -675,7 +675,7 @@ impl<'a> SqlQueryPlanner<'a> {
                             // which gives both sides of a self-join the same qualifier and leaves
                             // them indistinguishable to the optimizer.
                             Some(alias) => {
-                                let aliased = self.apply_table_alias(scan, alias.clone())?;
+                                let aliased = self.apply_table_alias(scan, alias.clone(), vec![])?;
                                 self.add_relation(alias.into(), aliased.table_schema())?;
 
                                 (aliased, None)
@@ -687,7 +687,7 @@ impl<'a> SqlQueryPlanner<'a> {
                             }
                         }
                     }
-                    From::SubQuery { query, alias } => {
+                    From::SubQuery { query, alias, columns } => {
                         let alias =
                             alias.ok_or(Error::InternalError("SubQuery in FROM requires an alias".to_owned()))?;
 
@@ -697,8 +697,11 @@ impl<'a> SqlQueryPlanner<'a> {
                             stmt => internal_err!("SubQuery in FROM only supports SELECT, got: {:?}", stmt),
                         })?;
 
-                        // Alias the subquery output so outer query can reference `alias.col`.
-                        let aliased_plan = self.apply_table_alias(sub_plan, alias.clone())?;
+                        // Alias the subquery output so the outer query can reference `alias.col`,
+                        // renaming its columns if `AS alias (c1, c2, ...)` gave them names. That is
+                        // how a derived table names an otherwise unnamed expression, e.g. TPC-H
+                        // q13's `count(o_orderkey)`.
+                        let aliased_plan = self.apply_table_alias(sub_plan, alias.clone(), columns)?;
 
                         // Register the derived table (by its alias) into the current context for column resolution.
                         let relation: TableRelation = alias.clone().into();
@@ -736,7 +739,7 @@ impl<'a> SqlQueryPlanner<'a> {
                 };
 
                 if let Some(alias) = alias {
-                    self.apply_table_alias(plan, alias)
+                    self.apply_table_alias(plan, alias, vec![])
                 } else {
                     Ok(plan)
                 }
@@ -788,8 +791,8 @@ impl<'a> SqlQueryPlanner<'a> {
         }
     }
 
-    fn apply_table_alias(&mut self, input: LogicalPlan, alias: String) -> Result<LogicalPlan> {
-        SubqueryAlias::try_new(input, &alias).map(LogicalPlan::SubqueryAlias)
+    fn apply_table_alias(&mut self, input: LogicalPlan, alias: String, columns: Vec<String>) -> Result<LogicalPlan> {
+        SubqueryAlias::try_new_with_columns(input, &alias, columns).map(LogicalPlan::SubqueryAlias)
     }
 
     fn insert_plan(
@@ -943,7 +946,7 @@ impl<'a> SqlQueryPlanner<'a> {
     fn cte_tables(&mut self, ctes: Vec<Cte>) -> Result<()> {
         ctes.into_iter().try_for_each(|cte| {
             self.new_context_scope(|planner| planner.select_to_plan(*cte.query))
-                .and_then(|plan| self.apply_table_alias(plan, cte.alias.clone()))
+                .and_then(|plan| self.apply_table_alias(plan, cte.alias.clone(), cte.columns))
                 .and_then(|plan| self.add_cte_table(cte.alias, plan))
         })
     }

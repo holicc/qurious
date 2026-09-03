@@ -267,6 +267,8 @@ impl<'a> Parser<'a> {
         self.next_except(TokenType::Keyword(Keyword::Into))?;
 
         let table = self.next_ident()?;
+        // Not `parse_table_alias`: a parenthesised list after an INSERT target is the column list,
+        // not a set of alias columns.
         let alias = self.parse_alias()?;
 
         self.add_relation_table(TableInfo {
@@ -421,6 +423,15 @@ impl<'a> Parser<'a> {
         loop {
             let cte_table_name = self.parse_ident()?.value;
 
+            // `WITH name (c1, c2, ...) AS (...)` names the CTE's output columns.
+            let mut cte_columns = vec![];
+            if self.next_if_token(TokenType::LParen).is_some() {
+                while self.next_if_token(TokenType::RParen).is_none() {
+                    cte_columns.push(self.next_ident()?);
+                    self.next_if_token(TokenType::Comma);
+                }
+            }
+
             self.next_except(TokenType::Keyword(Keyword::As))?;
 
             self.next_except(TokenType::LParen)?;
@@ -430,6 +441,7 @@ impl<'a> Parser<'a> {
                 TokenType::Keyword(Keyword::Select) => ctes.push(Cte {
                     alias: cte_table_name.clone(),
                     query: Box::new(self.parse_select()?),
+                    columns: cte_columns,
                 }),
                 _ => return Err(Error::UnexpectedToken(token)),
             }
@@ -717,9 +729,12 @@ impl<'a> Parser<'a> {
             let subquery = self.parse_select_statement()?;
             self.next_except(TokenType::RParen)?;
 
+            let (alias, columns) = self.parse_table_alias()?;
+
             return Ok(ast::From::SubQuery {
                 query: Box::new(subquery),
-                alias: self.parse_alias()?,
+                alias,
+                columns,
             });
         }
 
@@ -741,7 +756,14 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let alias = self.parse_alias()?;
+        let (alias, alias_columns) = self.parse_table_alias()?;
+        // Consumed above so the tokens cannot be left behind, but only a derived table can act on
+        // them; renaming a base table's columns would need a projection the planner does not build.
+        if !alias_columns.is_empty() {
+            return Err(Error::ParserError(format!(
+                "column aliases are only supported on a derived table, not on `{table_name}`"
+            )));
+        }
 
         self.add_relation_table(TableInfo {
             name: table_name.clone(),
@@ -763,6 +785,25 @@ impl<'a> Parser<'a> {
         };
 
         Ok(table)
+    }
+
+    /// An alias on a table factor, optionally followed by names for its columns:
+    /// `AS alias (c1, c2, ...)`.
+    ///
+    /// The column list has to be consumed even where it is not supported, otherwise the leftover
+    /// tokens make the enclosing statement stop early and silently drop its remaining clauses.
+    fn parse_table_alias(&mut self) -> Result<(Option<String>, Vec<String>)> {
+        let alias = self.parse_alias()?;
+
+        let mut columns = vec![];
+        if alias.is_some() && self.next_if_token(TokenType::LParen).is_some() {
+            while self.next_if_token(TokenType::RParen).is_none() {
+                columns.push(self.next_ident()?);
+                self.next_if_token(TokenType::Comma);
+            }
+        }
+
+        Ok((alias, columns))
     }
 
     fn parse_alias(&mut self) -> Result<Option<String>> {
@@ -3319,6 +3360,7 @@ mod tests {
                 having: None,
                 columns: vec![SelectItem::Wildcard],
                 from: vec![ast::From::SubQuery {
+                    columns: vec![],
                     query: Box::new(ast::Statement::Select(Box::new(Select {
                         with: None,
                         order_by: None,
@@ -4268,6 +4310,7 @@ mod tests {
                 with: Some(ast::With {
                     recursive: false,
                     cte_tables: vec![ast::Cte {
+                        columns: vec![],
                         alias: "t1".to_owned(),
                         query: Box::new(Select {
                             with: None,
@@ -4321,6 +4364,7 @@ mod tests {
                     recursive: false,
                     cte_tables: vec![
                         ast::Cte {
+                            columns: vec![],
                             alias: "t1".to_owned(),
                             query: Box::new(Select {
                                 with: None,
@@ -4339,6 +4383,7 @@ mod tests {
                             }),
                         },
                         ast::Cte {
+                            columns: vec![],
                             alias: "t2".to_owned(),
                             query: Box::new(Select {
                                 with: None,

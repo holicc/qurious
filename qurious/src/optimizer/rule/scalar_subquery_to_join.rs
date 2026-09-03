@@ -10,7 +10,7 @@ use crate::error::Result;
 use crate::internal_err;
 use crate::logical::expr::alias::Alias;
 use crate::logical::expr::{BinaryExpr, Column, LogicalExpr, SubQuery};
-use crate::logical::plan::LogicalPlan;
+use crate::logical::plan::{LogicalPlan, SubqueryAlias};
 use crate::logical::LogicalPlanBuilder;
 use crate::optimizer::rule::rule_optimizer::optimize_subquery_plan;
 use crate::optimizer::rule::OptimizerRule;
@@ -100,13 +100,18 @@ impl OptimizerRule for ScalarSubqueryToJoin {
 
                 LogicalPlanBuilder::filter(cur_input, rewritten_expr)?
             }
-            LogicalPlan::SubqueryAlias(subquery_alias) => self
-                .rewrite(Arc::unwrap_or_clone(subquery_alias.input))
-                .and_then(|new_plan| {
-                    LogicalPlanBuilder::from(new_plan.data)
-                        .alias(&subquery_alias.alias.to_qualified_name())
-                        .map(LogicalPlanBuilder::build)
-                })?,
+            // Rebuild the node around the rewritten input rather than re-aliasing it: building a
+            // fresh `SubqueryAlias` derives its schema from the input and so discards any column
+            // names the alias carried (`AS t (c1, c2)`).
+            LogicalPlan::SubqueryAlias(SubqueryAlias { input, alias, schema }) => {
+                let input = self.rewrite(Arc::unwrap_or_clone(input))?;
+
+                LogicalPlan::SubqueryAlias(SubqueryAlias {
+                    input: Arc::new(input.data),
+                    alias,
+                    schema,
+                })
+            }
             _ => plan,
         };
 

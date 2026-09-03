@@ -1,0 +1,53 @@
+statement ok
+create table src(k int, v int);
+
+statement ok
+insert into src values (1,10),(1,20),(2,30),(3,40),(3,50);
+
+# `WITH name (c1, c2) AS (...)` and `(...) AS name (c1, c2)` name a derived relation's output
+# columns. This is how the canonical TPC-H q13 and q15 give a name to an unnamed aggregate, and it
+# is the only way to reference one without repeating the expression.
+query II
+with t (grp, total) as (select k, sum(v) from src group by k) select grp, total from t order by grp;
+----
+1 30
+2 30
+3 90
+
+query II
+select grp, total from (select k, sum(v) from src group by k) as t (grp, total) order by grp;
+----
+1 30
+2 30
+3 90
+
+# equivalent to naming the columns inside the subquery
+query II
+select grp, total from (select k as grp, sum(v) as total from src group by k) as t order by grp;
+----
+1 30
+2 30
+3 90
+
+# the names are usable everywhere an ordinary column is
+query II
+select total, count(*) as n from (select k, sum(v) from src group by k) as t (grp, total) group by total order by total;
+----
+30 2
+90 1
+
+query I
+select total from (select k, sum(v) from src group by k) as t (grp, total) where grp = 3;
+----
+90
+
+# the alias list has to match the relation's arity
+statement error 2 columns available but 3 column aliases
+select * from (select k, sum(v) from src group by k) as t (a, b, c);
+
+statement error 2 columns available but 1 column aliases
+select * from (select k, sum(v) from src group by k) as t (a);
+
+# a parenthesised list after a plain table is not an alias list
+statement error column aliases are only supported on a derived table
+select * from src as s (a, b);

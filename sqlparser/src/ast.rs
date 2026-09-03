@@ -200,11 +200,17 @@ impl Display for With {
 pub struct Cte {
     pub alias: String,
     pub query: Box<Select>,
+    /// Names for the CTE's output columns, from `WITH name (c1, c2, ...) AS (...)`.
+    pub columns: Vec<String>,
 }
 
 impl Display for Cte {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} AS ({})", self.alias, self.query)
+        write!(f, "{}", self.alias)?;
+        if !self.columns.is_empty() {
+            write!(f, " ({})", self.columns.join(", "))?;
+        }
+        write!(f, " AS ({})", self.query)
     }
 }
 
@@ -544,6 +550,8 @@ pub enum From {
     SubQuery {
         query: Box<Statement>,
         alias: Option<String>,
+        /// Names for the derived table's output columns, from `AS alias (c1, c2, ...)`.
+        columns: Vec<String>,
     },
     Join {
         left: Box<From>,
@@ -581,10 +589,16 @@ impl Display for From {
                         .join(", ")
                 ),
             },
-            From::SubQuery { query, alias } => match alias {
-                Some(a) => write!(f, "({}) AS {}", query, a),
-                None => write!(f, "({})", query),
-            },
+            From::SubQuery { query, alias, columns } => {
+                write!(f, "({})", query)?;
+                if let Some(a) = alias {
+                    write!(f, " AS {}", a)?;
+                    if !columns.is_empty() {
+                        write!(f, " ({})", columns.join(", "))?;
+                    }
+                }
+                Ok(())
+            }
             From::Join {
                 left,
                 right,
