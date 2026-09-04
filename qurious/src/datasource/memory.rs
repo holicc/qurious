@@ -102,12 +102,20 @@ impl TableProvider for MemoryTable {
     }
 
     fn insert(&self, input: Arc<dyn PhysicalPlan>) -> Result<u64> {
-        let mut batces = self.data.write().map_err(|e| Error::InternalError(e.to_string()))?;
+        // Execute before taking the write lock. The input may scan this very table --
+        // `INSERT INTO t SELECT ... FROM t` -- and `RwLock` is not reentrant, so holding the write
+        // lock across `execute` deadlocks the thread against itself and hangs the process.
         let mut input_batch = input.execute()?;
 
-        batces.append(&mut input_batch);
+        // Count first: `append` drains `input_batch`, so counting afterwards always reported 0.
+        let inserted = input_batch.iter().map(|batch| batch.num_rows()).sum::<usize>() as u64;
 
-        Ok(input_batch.iter().map(|batch| batch.num_rows()).sum::<usize>() as u64)
+        self.data
+            .write()
+            .map_err(|e| Error::InternalError(e.to_string()))?
+            .append(&mut input_batch);
+
+        Ok(inserted)
     }
 
     fn delete(&self, filter: Option<Arc<dyn PhysicalExpr>>) -> Result<u64> {
@@ -117,6 +125,8 @@ impl TableProvider for MemoryTable {
             .map_err(|e| Error::InternalError(format!("delete error: {}", e)))?;
 
         if let Some(predicate) = filter {
+            let before = data.iter().map(|batch| batch.num_rows()).sum::<usize>();
+
             let new_batch = data
                 .iter()
                 .map(|batch| {
@@ -130,7 +140,10 @@ impl TableProvider for MemoryTable {
             data.clear();
             data.extend(new_batch);
 
-            Ok(data.iter().map(|batch| batch.num_rows()).sum::<usize>() as u64)
+            // The rows removed, not the rows left behind, which is what this used to report.
+            let remaining = data.iter().map(|batch| batch.num_rows()).sum::<usize>();
+
+            Ok((before - remaining) as u64)
         } else {
             let row_effected = data.iter().map(|batch| batch.num_rows()).sum::<usize>() as u64;
             data.clear();

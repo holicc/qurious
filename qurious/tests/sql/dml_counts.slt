@@ -1,0 +1,57 @@
+statement ok
+create table ins(a int, b varchar);
+
+statement ok
+insert into ins values (1,'x'),(2,'y');
+
+# `INSERT INTO t SELECT ... FROM t` scans the table it writes to. The write lock used to be taken
+# before the input ran, and RwLock is not reentrant, so the thread deadlocked against itself and
+# the process hung -- a valid statement that could only be recovered from by killing it.
+statement ok
+insert into ins select * from ins;
+
+query I
+select count(*) from ins;
+----
+4
+
+query IT rowsort
+select * from ins;
+----
+1 x
+1 x
+2 y
+2 y
+
+# the count of rows an INSERT reports was always 0: `append` drains the batches, and the rows were
+# counted afterwards
+query I
+insert into ins values (3,'z');
+----
+1
+
+query I
+insert into ins select * from ins where a = 3;
+----
+1
+
+# DELETE reported how many rows were left, not how many it removed
+query I
+delete from ins where a = 3;
+----
+2
+
+query I
+select count(*) from ins;
+----
+4
+
+query I
+delete from ins;
+----
+4
+
+query I
+select count(*) from ins;
+----
+0

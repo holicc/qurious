@@ -13,6 +13,9 @@ jobs:
   test:
     name: cargo test
     runs-on: ubuntu-latest
+    # A deadlock or runaway query hangs the job rather than failing it, and the default is six
+    # hours. Fail fast instead: the suite takes a few minutes including TPC-H data generation.
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@v4
 
@@ -29,6 +32,7 @@ jobs:
   fmt:
     name: cargo fmt --check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
     - uses: actions/checkout@v4
     - name: Check formatting
@@ -37,6 +41,7 @@ jobs:
   build:
     name: cargo build --release
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v4
     - name: Build
