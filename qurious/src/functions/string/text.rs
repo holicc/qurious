@@ -47,7 +47,7 @@ fn map_strings(args: Vec<ArrayRef>, name: &str, f: impl Fn(&str) -> String) -> R
 }
 
 macro_rules! string_to_string {
-    ($ty:ident, $sql_name:literal, $doc:literal, $body:expr) => {
+    ($ty:ident, $sql_name:literal, $doc:literal, $body:expr $(, aliases: [$($alias:literal),+])?) => {
         #[doc = $doc]
         #[derive(Debug)]
         pub struct $ty;
@@ -55,6 +55,10 @@ macro_rules! string_to_string {
         impl UserDefinedFunction for $ty {
             fn name(&self) -> &str {
                 $sql_name
+            }
+
+            fn aliases(&self) -> &[&str] {
+                &[$($($alias),+)?]
             }
 
             fn return_type(&self, arg_types: &[DataType]) -> Result<DataType> {
@@ -71,9 +75,13 @@ macro_rules! string_to_string {
 
 string_to_string!(Upper, "upper", "`UPPER(s)`.", |s| s.to_uppercase());
 string_to_string!(Lower, "lower", "`LOWER(s)`.", |s| s.to_lowercase());
-string_to_string!(Trim, "trim", "`TRIM(s)` -- whitespace from both ends.", |s| s
-    .trim()
-    .to_owned());
+string_to_string!(
+    Trim,
+    "trim",
+    "`TRIM(s)` -- whitespace from both ends.",
+    |s| s.trim().to_owned(),
+    aliases: ["btrim"]
+);
 string_to_string!(Ltrim, "ltrim", "`LTRIM(s)` -- whitespace from the start.", |s| s
     .trim_start()
     .to_owned());

@@ -1571,7 +1571,7 @@ mod tests {
         common::table_relation::TableRelation,
         datasource::file::{self, csv::CsvReadOptions},
         datatypes::scalar::ScalarValue,
-        functions::all_builtin_functions,
+        functions::builtin_function_registry,
         test_utils::create_tpch_tables,
         utils,
     };
@@ -2098,10 +2098,7 @@ limit 10;",
 
         let mut parser = Parser::new(sql);
         let stmt = parser.parse().unwrap();
-        let udfs = all_builtin_functions()
-            .into_iter()
-            .map(|udf| (udf.name().to_uppercase().to_string(), udf))
-            .collect();
+        let udfs = builtin_function_registry();
         let plan = SqlQueryPlanner::create_logical_plan(stmt, tables, &udfs);
         match plan {
             Ok(plan) => assert_eq!(utils::format(&plan, 0), expected, "SQL: {sql}"),

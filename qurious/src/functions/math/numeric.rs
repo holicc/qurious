@@ -120,3 +120,90 @@ f64_function!(
     "`SQRT(x)` -- NaN for a negative argument, following f64.",
     |v| v.sqrt()
 );
+
+f64_function!(Ln, "ln", "`LN(x)` -- the natural logarithm.", |v| v.ln());
+f64_function!(Log10, "log10", "`LOG10(x)`.", |v| v.log10());
+f64_function!(Exp, "exp", "`EXP(x)`.", |v| v.exp());
+f64_function!(
+    Sign,
+    "sign",
+    "`SIGN(x)` -- -1, 0 or 1; NaN for a NaN argument, following f64.",
+    |v: f64| if v == 0.0 { 0.0 } else { v.signum() }
+);
+f64_function!(Trunc, "trunc", "`TRUNC(x)` -- towards zero.", |v| v.trunc());
+
+/// Applies `f` to two arguments as f64.
+fn map_f64_pair(args: Vec<ArrayRef>, name: &str, f: impl Fn(f64, f64) -> f64) -> Result<ArrayRef> {
+    let [lhs, rhs] = args.as_slice() else {
+        return internal_err!("{name} requires 2 arguments, got {}", args.len());
+    };
+    one_numeric_argument(name, &[lhs.data_type().clone()])?;
+    one_numeric_argument(name, &[rhs.data_type().clone()])?;
+
+    let lhs = cast(lhs.as_ref(), &DataType::Float64).map_err(|e| arrow_err!(e))?;
+    let rhs = cast(rhs.as_ref(), &DataType::Float64).map_err(|e| arrow_err!(e))?;
+    let (lhs, rhs) = (lhs.as_primitive::<Float64Type>(), rhs.as_primitive::<Float64Type>());
+
+    let rows = lhs.len().max(rhs.len());
+    let mut builder = Float64Builder::with_capacity(rows);
+
+    for row in 0..rows {
+        // A literal argument arrives as a single-row array while the columns are longer.
+        let left = (if lhs.len() == 1 { 0 } else { row }, lhs);
+        let right = (if rhs.len() == 1 { 0 } else { row }, rhs);
+
+        if left.1.is_null(left.0) || right.1.is_null(right.0) {
+            builder.append_null();
+        } else {
+            builder.append_value(f(left.1.value(left.0), right.1.value(right.0)));
+        }
+    }
+
+    Ok(Arc::new(builder.finish()))
+}
+
+macro_rules! f64_pair_function {
+    ($ty:ident, $sql_name:literal, $doc:literal, $body:expr $(, aliases: [$($alias:literal),+])?) => {
+        #[doc = $doc]
+        #[derive(Debug)]
+        pub struct $ty;
+
+        impl UserDefinedFunction for $ty {
+            fn name(&self) -> &str {
+                $sql_name
+            }
+
+            fn aliases(&self) -> &[&str] {
+                &[$($($alias),+)?]
+            }
+
+            fn return_type(&self, arg_types: &[DataType]) -> Result<DataType> {
+                if arg_types.len() != 2 {
+                    return internal_err!("{} requires 2 arguments, got {}", $sql_name, arg_types.len());
+                }
+                one_numeric_argument($sql_name, &arg_types[..1])?;
+                one_numeric_argument($sql_name, &arg_types[1..])?;
+
+                Ok(DataType::Float64)
+            }
+
+            fn eval(&self, args: Vec<ArrayRef>) -> Result<ArrayRef> {
+                map_f64_pair(args, $sql_name, $body)
+            }
+        }
+    };
+}
+
+f64_pair_function!(Power, "power", "`POWER(a, b)`.", |a: f64, b: f64| a.powf(b), aliases: ["pow"]);
+f64_pair_function!(
+    Modulo,
+    "mod",
+    "`MOD(a, b)` -- the remainder, taking the sign of the dividend as in postgres; NaN when b is 0.",
+    |a: f64, b: f64| if b == 0.0 { f64::NAN } else { a % b }
+);
+f64_pair_function!(
+    Log,
+    "log",
+    "`LOG(base, x)` -- the logarithm of x in the given base, argument order as in postgres.",
+    |base: f64, value: f64| value.log(base)
+);

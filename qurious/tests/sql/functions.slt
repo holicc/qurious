@@ -144,3 +144,110 @@ select abs(s) from fx;
 
 statement error requires 1 argument
 select round(d, 2) from mx;
+
+# GREATEST and LEAST ignore NULL arguments, as in postgres, so the result is NULL only when every
+# argument is. sqlite's scalar max/min return NULL if any argument is.
+query II
+select greatest(1, 5, 3), least(1, 5, 3);
+----
+5 1
+
+query II
+select greatest(a, b), least(a, b) from fx;
+----
+10 1
+20 20
+3 3
+
+query I
+select greatest(a) from fx where a is null;
+----
+NULL
+
+# CONCAT skips NULL arguments rather than propagating them, which is postgres's `concat()` -- and
+# deliberately unlike `||`.
+query T
+select concat(s, '!') from fx;
+----
+Hello!
+wörld!
+!
+
+query T
+select concat(s) from fx;
+----
+Hello
+wörld
+NULL
+
+query T
+select concat('a', 1, 'b');
+----
+a1b
+
+query TT
+select reverse('abc'), reverse('wörld');
+----
+cba dlröw
+
+query T
+select replace('a-b-c', '-', '+');
+----
+a+b+c
+
+# STRPOS counts characters, so the multi-byte case is 3 rather than a byte offset
+query III
+select strpos('hello world', 'world'), strpos('hello', 'zz'), strpos('wörld', 'rld');
+----
+7 0 3
+
+query BB
+select starts_with('hello', 'he'), starts_with('hello', 'x');
+----
+true false
+
+query TT
+select repeat('ab', 3), repeat('ab', 0);
+----
+ababab (empty)
+
+# a negative count takes from the far end, as in postgres
+query TTTT
+select left('abcdef', 3), left('abcdef', -2), right('abcdef', 3), right('abcdef', -2);
+----
+abc abcd def cdef
+
+query RRR
+select power(2, 10), mod(7, 3), mod(-7, 3);
+----
+1024 1 -1
+
+query RRRR
+select ln(1), log10(100), exp(0), log(10, 100);
+----
+0 2 1 2
+
+query RRR
+select sign(-3), sign(0), sign(7);
+----
+-1 0 1
+
+query RR
+select trunc(-2.5), trunc(2.9);
+----
+-2 2
+
+# Aliases reach the same implementations as the canonical names.
+query TTR
+select substr('abcdef', 2, 3), btrim('  pad  '), pow(2, 10);
+----
+bcd pad 1024
+
+statement error requires 2 arguments
+select power(2) from mx;
+
+statement error expects a string argument
+select reverse(a) from fx;
+
+statement error more than the
+select repeat('abcdefghij', 1000000);

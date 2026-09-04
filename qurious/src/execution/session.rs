@@ -9,7 +9,7 @@ use sqlparser::parser::{Parser, TableInfo};
 use crate::common::table_relation::TableRelation;
 use crate::datasource::memory::MemoryTable;
 use crate::error::Error;
-use crate::functions::{all_builtin_functions, UserDefinedFunction};
+use crate::functions::{builtin_function_registry, UserDefinedFunction};
 use crate::internal_err;
 use crate::logical::plan::{
     CreateMemoryTable, DdlStatement, DmlOperator, DmlStatement, DropTable, Filter, LogicalPlan,
@@ -54,12 +54,7 @@ impl ExecuteSession {
         )?;
         catalog_list.register_catalog(&config.default_catalog, catalog)?;
 
-        let udfs = RwLock::new(
-            all_builtin_functions()
-                .into_iter()
-                .map(|udf| (udf.name().to_uppercase().to_string(), udf))
-                .collect(),
-        );
+        let udfs = RwLock::new(builtin_function_registry());
 
         Ok(Self {
             config,

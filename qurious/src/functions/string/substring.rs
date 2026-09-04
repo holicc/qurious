@@ -24,6 +24,10 @@ impl UserDefinedFunction for Substring {
         "substring"
     }
 
+    fn aliases(&self) -> &[&str] {
+        &["substr"]
+    }
+
     fn return_type(&self, arg_types: &[DataType]) -> Result<DataType> {
         if !matches!(arg_types.len(), 2 | 3) {
             return Err(Error::InvalidArgumentError(format!(
