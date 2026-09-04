@@ -1086,22 +1086,18 @@ impl<'a> Parser<'a> {
                 }
                 Ok(ast::Expression::Array(list))
             }
+            // `LEFT` and `RIGHT` are join keywords, but they are also standard function names. In
+            // expression position, followed by a paren, only the function reading is possible.
+            TokenType::Keyword(Keyword::Left) | TokenType::Keyword(Keyword::Right)
+                if self.peek().map(|t| t.token_type == TokenType::LParen).unwrap_or(false) =>
+            {
+                self.next_except(TokenType::LParen)?;
+                self.parse_function_call(literal)
+            }
             TokenType::Ident => {
                 // parse function
                 if self.next_if_token(TokenType::LParen).is_some() {
-                    // `DISTINCT` is only meaningful for aggregates, but accepting it here keeps
-                    // the call syntax in one place; the planner rejects it for other functions.
-                    let distinct = self.next_if_token(TokenType::Keyword(Keyword::Distinct)).is_some();
-                    let mut args = Vec::new();
-                    while self.next_if_token(TokenType::RParen).is_none() {
-                        args.push(self.parse_expression(0)?);
-                        self.next_if_token(TokenType::Comma);
-                    }
-                    Ok(ast::Expression::Function {
-                        name: literal,
-                        args,
-                        distinct,
-                    })
+                    self.parse_function_call(literal)
                 } else {
                     let mut idents: Vec<Ident> = vec![literal.into()];
 
@@ -1179,6 +1175,21 @@ impl<'a> Parser<'a> {
             args,
             distinct: false,
         })
+    }
+
+    /// The arguments of a call whose name and opening paren have already been consumed.
+    fn parse_function_call(&mut self, name: String) -> Result<Expression> {
+        // `DISTINCT` is only meaningful for aggregates, but accepting it here keeps the call syntax
+        // in one place; the planner rejects it for other functions.
+        let distinct = self.next_if_token(TokenType::Keyword(Keyword::Distinct)).is_some();
+
+        let mut args = Vec::new();
+        while self.next_if_token(TokenType::RParen).is_none() {
+            args.push(self.parse_expression(0)?);
+            self.next_if_token(TokenType::Comma);
+        }
+
+        Ok(Expression::Function { name, args, distinct })
     }
 
     fn parse_exists_expr(&mut self, negated: bool) -> Result<Expression> {
@@ -4777,6 +4788,43 @@ mod tests {
         let stmt = parse_expr("false").unwrap();
 
         assert_eq!(stmt, Expression::Literal(ast::Literal::Boolean(false)));
+    }
+
+    #[test]
+    fn test_parse_function_named_after_a_keyword() {
+        // `LEFT`/`RIGHT` are join keywords, but they are also standard string functions. Followed by
+        // a paren in expression position they must parse as calls.
+        // The name keeps the case it was written in; function lookup is case-insensitive.
+        for (sql, name) in [("left('abcdef', 2)", "left"), ("LEFT('abcdef', 2)", "LEFT")] {
+            assert_eq!(
+                parse_expr(sql).unwrap(),
+                Expression::Function {
+                    name: name.to_owned(),
+                    args: vec![
+                        Expression::Literal(ast::Literal::String("abcdef".to_owned())),
+                        Expression::Literal(ast::Literal::Int(2)),
+                    ],
+                    distinct: false,
+                }
+            );
+        }
+
+        assert_eq!(
+            parse_expr("right(name, 3)").unwrap(),
+            Expression::Function {
+                name: "right".to_owned(),
+                args: vec![
+                    Expression::Identifier("name".to_owned().into()),
+                    Expression::Literal(ast::Literal::Int(3)),
+                ],
+                distinct: false,
+            }
+        );
+
+        // ...while the join keyword still reaches the FROM clause.
+        Parser::new("select * from a left join b on a.id = b.id")
+            .parse()
+            .unwrap();
     }
 
     #[test]
