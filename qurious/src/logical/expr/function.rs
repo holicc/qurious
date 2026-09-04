@@ -15,8 +15,13 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn field(&self, _plan: &LogicalPlan) -> Result<FieldRef> {
-        let return_type = self.func.return_type();
+    pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
+        let arg_types = self
+            .args
+            .iter()
+            .map(|arg| arg.field(plan).map(|field| field.data_type().clone()))
+            .collect::<Result<Vec<_>>>()?;
+        let return_type = self.func.return_type(&arg_types)?;
         let field = Field::new(self.to_string(), return_type, self.func.is_nullable());
         Ok(Arc::new(field))
     }

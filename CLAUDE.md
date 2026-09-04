@@ -37,7 +37,7 @@ DDL/DML statements bypass the optimizer and are handled directly by `ExecuteSess
 | `datasource/` | `MemoryTable`, `file/` (csv, parquet, json) |
 | `common/` | `TableRelation`, `TableSchema`, `Transformed` tree-rewrite plumbing, `JoinType` |
 | `datatypes/scalar.rs` | `ScalarValue` |
-| `functions/` | `UserDefinedFunction` trait + builtins (`all_builtin_functions()`) |
+| `functions/` | `UserDefinedFunction` trait + builtins, registered in `all_builtin_functions()`; `return_type` receives the argument types, and `common_argument_type` is the shared widening rule for functions that combine arguments |
 | `error.rs` | `Error`, `Result<T>`, `internal_err!` / `arrow_err!` macros |
 
 ### Conventions worth knowing

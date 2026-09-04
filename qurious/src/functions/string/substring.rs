@@ -24,8 +24,15 @@ impl UserDefinedFunction for Substring {
         "substring"
     }
 
-    fn return_type(&self) -> DataType {
-        DataType::Utf8
+    fn return_type(&self, arg_types: &[DataType]) -> Result<DataType> {
+        if !matches!(arg_types.len(), 2 | 3) {
+            return Err(Error::InvalidArgumentError(format!(
+                "substring requires 2 or 3 arguments, got {}",
+                arg_types.len()
+            )));
+        }
+
+        Ok(DataType::Utf8)
     }
 
     fn eval(&self, args: Vec<ArrayRef>) -> Result<ArrayRef> {

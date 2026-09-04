@@ -1,0 +1,146 @@
+statement ok
+create table fx(a int, b int, s varchar, padded varchar);
+
+statement ok
+insert into fx values (1, 10, 'Hello', '  Hello  '), (NULL, 20, 'wörld', 'wörld'), (3, NULL, NULL, NULL);
+
+# COALESCE takes the first argument that is not NULL. A mix of argument types is widened rather
+# than rejected: `coalesce(int_col, 0)` is the common case.
+query I
+select coalesce(a, b, 0) from fx;
+----
+1
+20
+3
+
+query I
+select coalesce(a, b) from fx;
+----
+1
+20
+3
+
+query I
+select coalesce(a) from fx;
+----
+1
+NULL
+3
+
+# NULLIF yields NULL when the two are equal, and keeps the first argument's own type
+query II
+select nullif(a, 1), nullif(b, 20) from fx;
+----
+NULL 10
+NULL NULL
+3 NULL
+
+query T
+select upper(s) from fx;
+----
+HELLO
+WÖRLD
+NULL
+
+query T
+select lower(s) from fx;
+----
+hello
+wörld
+NULL
+
+# Case conversion is full Unicode, as in postgres. sqlite only folds ASCII and would leave `ö`.
+query T
+select upper('wörld');
+----
+WÖRLD
+
+# trim is measured through length so the expected values carry no significant whitespace
+query IIII
+select length(padded), length(trim(padded)), length(ltrim(padded)), length(rtrim(padded)) from fx where a = 1;
+----
+9 5 7 7
+
+# LENGTH counts characters, not bytes: 'wörld' is 5 characters in 6 bytes
+query I
+select length(s) from fx;
+----
+5
+5
+NULL
+
+query I
+select char_length(s) from fx;
+----
+5
+5
+NULL
+
+# these are usable anywhere an expression is
+query T
+select s from fx where upper(s) = 'HELLO';
+----
+Hello
+
+query TI rowsort
+select lower(s), count(*) from fx where s is not null group by lower(s);
+----
+hello 1
+wörld 1
+
+# wrong argument types and counts are errors
+statement error expects a string argument
+select upper(a) from fx;
+
+statement error requires 1 argument
+select upper(s, s) from fx;
+
+statement error requires 2 arguments
+select nullif(a) from fx;
+
+statement error cannot combine arguments of type
+select coalesce(a, s) from fx;
+
+statement ok
+create table mx(i int, d double, dec decimal(15,2));
+
+statement ok
+insert into mx values (-3, -2.5, -1.25), (0, 0.0, 0.00), (7, 2.5, 3.75), (NULL, NULL, NULL);
+
+# ABS keeps the argument's own type rather than widening to a float, as postgres does. For a
+# decimal that also means keeping its precision and scale.
+query IRR
+select abs(i), abs(d), abs(dec) from mx;
+----
+3 2.5 1.25
+0 0 0
+7 2.5 3.75
+NULL NULL NULL
+
+query I
+select abs(i) + 1 from mx where i = -3;
+----
+4
+
+# halves round away from zero, as in sqlite and postgres
+query RRR
+select round(d), ceil(d), floor(d) from mx;
+----
+-3 -2 -3
+0 0 0
+3 3 2
+NULL NULL NULL
+
+query R
+select sqrt(abs(d)) from mx;
+----
+1.581138830084
+0
+1.581138830084
+NULL
+
+statement error expects a numeric argument
+select abs(s) from fx;
+
+statement error requires 1 argument
+select round(d, 2) from mx;

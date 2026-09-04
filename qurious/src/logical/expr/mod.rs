@@ -225,7 +225,15 @@ impl LogicalExpr {
             LogicalExpr::BinaryExpr(binary_expr) => binary_expr.get_result_type(schema),
             LogicalExpr::Cast(cast_expr) => Ok(cast_expr.data_type.clone()),
             LogicalExpr::Case(case_expr) => case_expr.data_type(schema),
-            LogicalExpr::Function(function) => Ok(function.func.return_type()),
+            LogicalExpr::Function(function) => {
+                let arg_types = function
+                    .args
+                    .iter()
+                    .map(|arg| arg.data_type(schema))
+                    .collect::<Result<Vec<_>>>()?;
+
+                function.func.return_type(&arg_types)
+            }
             LogicalExpr::AggregateExpr(AggregateExpr { op, expr, .. }) => op.infer_type(&expr.data_type(schema)?),
             LogicalExpr::SortExpr(SortExpr { expr, .. }) | LogicalExpr::Negative(expr) => expr.data_type(schema),
             LogicalExpr::Like(_) | LogicalExpr::IsNull(_) | LogicalExpr::IsNotNull(_) => Ok(DataType::Boolean),

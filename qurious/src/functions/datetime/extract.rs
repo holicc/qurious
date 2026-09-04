@@ -23,8 +23,15 @@ impl UserDefinedFunction for DatetimeExtract {
         "EXTRACT"
     }
 
-    fn return_type(&self) -> DataType {
-        DataType::Int64
+    fn return_type(&self, arg_types: &[DataType]) -> Result<DataType> {
+        if arg_types.len() != 2 {
+            return Err(Error::InvalidArgumentError(format!(
+                "EXTRACT requires 2 arguments, got {}",
+                arg_types.len()
+            )));
+        }
+
+        Ok(DataType::Int64)
     }
 
     fn eval(&self, args: Vec<ArrayRef>) -> Result<ArrayRef> {
