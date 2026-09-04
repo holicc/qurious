@@ -33,6 +33,24 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(&mut self) -> Result<Statement> {
+        let statement = self.parse_statement()?;
+
+        // Whatever the statement did not consume has to be an error. Without this a helper that
+        // leaves its tokens behind makes the statement quietly end at that point instead, so a
+        // trailing GROUP BY / ORDER BY / LIMIT is dropped and the query silently returns the
+        // wrong rows -- which is how several parser bugs here stayed invisible.
+        self.next_if_token(TokenType::Semicolon);
+
+        match self.peek() {
+            Ok(token) if token.token_type != TokenType::EOF => {
+                let token = self.lexer.next();
+                Err(Error::UnexpectedToken(token))
+            }
+            _ => Ok(statement),
+        }
+    }
+
+    fn parse_statement(&mut self) -> Result<Statement> {
         let token = self.next_token()?;
         match token.token_type {
             TokenType::Keyword(Keyword::Select) => self.parse_select_statement(),
@@ -168,6 +186,15 @@ impl<'a> Parser<'a> {
                     self.next_except(TokenType::Keyword(Keyword::Null))?;
 
                     nullable = false;
+                } else if self.next_if_token(TokenType::Keyword(Keyword::Null)).is_some() {
+                    // An explicit `NULL` marker. It used to be left in the stream and ignored,
+                    // which only looked harmless because nullable already defaults to true.
+                    if primary_key {
+                        return Err(Error::ParserError(format!(
+                            "column `{name}` is a PRIMARY KEY and cannot be declared NULL"
+                        )));
+                    }
+                    nullable = true;
                 }
 
                 columns.push(ast::Column {
@@ -181,6 +208,11 @@ impl<'a> Parser<'a> {
                 });
 
                 if self.next_if_token(TokenType::Comma).is_none() {
+                    // No comma, so the list ends here and the paren has to close it. Breaking
+                    // without consuming it left the `)` in the stream, and everything after the
+                    // column list was then silently ignored -- `CREATE TABLE t(a int) AS SELECT
+                    // ...` quietly built an empty table.
+                    self.next_except(TokenType::RParen)?;
                     break;
                 }
             }
@@ -1147,7 +1179,9 @@ impl<'a> Parser<'a> {
 
     fn parse_exists_expr(&mut self, negated: bool) -> Result<Expression> {
         self.next_except(TokenType::LParen)?;
-        let subquery = self.parse()?;
+        // `parse_statement`, not `parse`: the subquery is followed by its closing paren, so the
+        // token stream is deliberately not exhausted here.
+        let subquery = self.parse_statement()?;
         let Statement::Select(select) = subquery else {
             return Err(Error::ParserError(format!(
                 "[parse_exists_expr] unexpected token {:?}",
@@ -2610,6 +2644,59 @@ mod tests {
                 check_exists: false,
             },
         );
+    }
+
+    #[test]
+    fn leftover_tokens_are_an_error() {
+        // A helper that fails to consume its tokens used to make the statement quietly end there,
+        // dropping whatever followed. Requiring the stream to be exhausted turns that whole class
+        // of bug into a parse error instead of a silently wrong answer.
+        for sql in [
+            "select a from t group by a nonsense",
+            "select a from t where a = 1 nonsense",
+            "create table t(a int) total garbage",
+            "drop table t extra",
+        ] {
+            assert!(parse_stmt(sql).is_err(), "expected an error for: {sql}");
+        }
+
+        // a trailing semicolon is still fine, with or without surrounding space
+        assert!(parse_stmt("select a from t;").is_ok());
+        assert!(parse_stmt("select a from t ; ").is_ok());
+        assert!(parse_stmt("select a from t").is_ok());
+    }
+
+    #[test]
+    fn a_column_list_must_be_closed() {
+        // Breaking out of the list without consuming the `)` left it in the stream, so everything
+        // after the column list was ignored -- `AS SELECT` included, which built an empty table.
+        let stmt = parse_stmt("create table t(a int) as select * from src").unwrap();
+        let Statement::CreateTable { query, columns, .. } = stmt else {
+            panic!("expected CREATE TABLE");
+        };
+        assert_eq!(columns.len(), 1);
+        assert!(query.is_some(), "AS SELECT was dropped");
+
+        // a trailing comma is still accepted; TPC-H's create_tables.slt relies on it
+        let stmt = parse_stmt("create table t(a int,) as select * from src").unwrap();
+        let Statement::CreateTable { query, .. } = stmt else {
+            panic!("expected CREATE TABLE");
+        };
+        assert!(query.is_some());
+
+        assert!(parse_stmt("create table t(a int").is_err(), "unterminated list");
+    }
+
+    #[test]
+    fn an_explicit_null_marker_is_parsed() {
+        let stmt = parse_stmt("create table t(a int null, b int not null)").unwrap();
+        let Statement::CreateTable { columns, .. } = stmt else {
+            panic!("expected CREATE TABLE");
+        };
+        assert!(columns[0].nullable);
+        assert!(!columns[1].nullable);
+
+        assert!(parse_stmt("create table t(a int primary key null)").is_err());
     }
 
     #[test]
