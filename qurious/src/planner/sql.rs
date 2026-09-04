@@ -79,24 +79,41 @@ impl<'a> SqlQueryPlanner<'a> {
                 columns,
                 query,
             } => {
-                let schema = Arc::new(Schema::new(
-                    columns
-                        .into_iter()
-                        .map(|col| {
-                            let name = col.name.clone();
-                            let data_type = sql_to_arrow_data_type(&col.datatype)?;
-                            Ok(Field::new(&name, data_type, col.nullable))
-                        })
-                        .collect::<Result<Vec<_>>>()?,
-                ));
-
-                let input = if let Some(query) = query {
-                    planner.select_to_plan(query)?
-                } else {
-                    LogicalPlan::EmptyRelation(plan::EmptyRelation {
-                        schema: schema.clone(),
-                        produce_one_row: false,
+                let declared = columns
+                    .into_iter()
+                    .map(|col| {
+                        let name = col.name.clone();
+                        let data_type = sql_to_arrow_data_type(&col.datatype)?;
+                        Ok(Field::new(&name, data_type, col.nullable))
                     })
+                    .collect::<Result<Vec<_>>>()?;
+
+                let (input, schema) = match query {
+                    Some(query) => {
+                        let input = planner.select_to_plan(query)?;
+                        // `CREATE TABLE t AS SELECT ...` takes its schema from the query. Using the
+                        // declared columns unconditionally gave the no-column-list form a table
+                        // with no columns at all.
+                        let schema = if declared.is_empty() {
+                            input.schema()
+                        } else {
+                            Arc::new(Schema::new(declared))
+                        };
+
+                        (input, schema)
+                    }
+                    None => {
+                        if declared.is_empty() {
+                            return internal_err!("CREATE TABLE requires either a column list or a query");
+                        }
+                        let schema = Arc::new(Schema::new(declared));
+                        let input = LogicalPlan::EmptyRelation(plan::EmptyRelation {
+                            schema: schema.clone(),
+                            produce_one_row: false,
+                        });
+
+                        (input, schema)
+                    }
                 };
 
                 planner.create_table_to_plan(input, table, schema, check_exists)

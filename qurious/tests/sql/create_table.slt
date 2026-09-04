@@ -1,0 +1,66 @@
+statement ok
+create table cts_src(a int, b varchar);
+
+statement ok
+insert into cts_src values (1,'x'),(2,'y');
+
+# The column list must be closed. Breaking out of it without consuming the `)` left that token in
+# the stream, and everything after the list was then silently ignored -- so this CTAS built an
+# empty table instead of populating it, with no error.
+statement ok
+create table cts_1(a int, b varchar) as select * from cts_src;
+
+query IT rowsort
+select * from cts_1;
+----
+1 x
+2 y
+
+statement ok
+create table cts_2 as select * from cts_src;
+
+query IT rowsort
+select * from cts_2;
+----
+1 x
+2 y
+
+# a trailing comma in the column list is still accepted; TPC-H's create_tables.slt relies on it
+statement ok
+create table cts_3(a int, b varchar,) as select * from cts_src;
+
+query IT rowsort
+select * from cts_3;
+----
+1 x
+2 y
+
+# an unterminated column list is an error rather than a silently truncated statement
+statement error
+create table cts_bad(a int;
+
+# anything the statement did not consume is an error
+statement error
+create table cts_junk(a int) total garbage here;
+
+# `from cts_src garbage` would be a table alias, so use a second one it cannot absorb
+statement error
+select * from cts_src alias_one alias_two;
+
+statement error
+select a from cts_src where a = 1 nonsense;
+
+# an explicit NULL marker used to be dropped as an unconsumed token
+statement ok
+create table cts_null(a int null, b varchar not null);
+
+statement ok
+insert into cts_null values (NULL, 'here');
+
+query IT
+select * from cts_null;
+----
+NULL here
+
+statement error cannot be declared NULL
+create table cts_conflict(a int primary key null);
