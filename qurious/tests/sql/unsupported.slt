@@ -35,3 +35,8 @@ drop index nope;
 # and a plain unsupported statement is an error, not a panic
 statement error
 explain select * from u;
+
+# UPDATE parses and resolves its target, but the executor does not implement it. The parser used to
+# skip registering the target table, so this failed with a misleading "Table Not Found" instead.
+statement error Unsupported DML UPDATE
+update u set a = 2 where a = 1;

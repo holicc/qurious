@@ -279,6 +279,14 @@ impl<'a> Parser<'a> {
     fn parse_update_statement(&mut self) -> Result<Statement> {
         let table = self.next_ident()?;
 
+        // Collect the target the same way DELETE does; without this the session never resolves it
+        // and every UPDATE fails with "Table Not Found".
+        self.add_relation_table(TableInfo {
+            name: table.clone(),
+            alias: None,
+            args: vec![],
+        });
+
         self.next_except(TokenType::Keyword(Keyword::Set))?;
 
         let assignments = self.parse_comma_separated(Parser::parse_assignment)?;
