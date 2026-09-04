@@ -57,7 +57,7 @@ pub fn read_csv<T: DataFilePath>(path: T, options: CsvReadOptions) -> Result<Arc
             let (schema, _) = format.infer_schema(&mut file, None).map_err(|e| arrow_err!(e))?;
 
             // rewind the file to the beginning because the schema inference
-            file.rewind().unwrap();
+            file.rewind().map_err(|e| Error::InternalError(e.to_string()))?;
 
             let schema = Arc::new(schema);
 

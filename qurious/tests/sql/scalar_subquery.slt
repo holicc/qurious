@@ -1,0 +1,42 @@
+statement ok
+create table sq(a int);
+
+statement ok
+create table emp(a int);
+
+statement ok
+insert into sq values (1),(2),(3);
+
+# A scalar subquery selecting no rows is NULL, so the comparison is unknown and nothing matches.
+# The physical expression used to index the first batch unconditionally, so an empty subquery
+# panicked and took the process down.
+query I
+select a from sq where a > (select max(a) from emp) order by a;
+----
+
+query I
+select a from sq where a > (select a from emp) order by a;
+----
+
+query I
+select a from sq where a > (select min(a) from sq) order by a;
+----
+2
+3
+
+# a scalar subquery in the SELECT list is not supported yet; it is an error, not a panic
+statement error Cannot determine schema for expression
+select (select a from emp);
+
+# more than one row is an error rather than silently using the first
+# KNOWN INCORRECT -- pinned so the behaviour cannot drift unnoticed, not because it is right.
+# A subquery used as a scalar value must yield at most one row: postgres raises an error and sqlite
+# takes the first row. This returns 2,3,3 -- the join that the decorrelation produces multiplies the
+# outer row instead. The check cannot live in the physical SubQuery expression, which this path
+# never reaches; it belongs in the decorrelation, which has to enforce one row per correlation key.
+query I rowsort
+select a from sq where a > (select a from sq);
+----
+2
+3
+3

@@ -145,7 +145,7 @@ fn try_coerce(lhs: &DataType, op: &Operator, rhs: &DataType) -> Result<BinaryTyp
         Operator::Mul => mul_wrapping(&l, &r),
         Operator::Div => div(&l, &r),
         Operator::Mod => rem(&l, &r),
-        _ => unreachable!(),
+        op => return internal_err!("`{op}` is not an arithmetic operator"),
     };
 
     result.map_err(|e| arrow_err!(e)).map(|x| BinaryTypes {

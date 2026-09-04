@@ -79,7 +79,10 @@ where
             return ScalarValue::try_from_array(&array, 0);
         }
 
-        Ok(ScalarValue::Null)
+        // Nothing accumulated: a NULL of the aggregate's own type, not an untyped one. `Null` does
+        // not match the schema the aggregate declared, so `MIN`/`MAX` over an empty input produced
+        // a batch the projection above it refused to build.
+        ScalarValue::try_from(&self.data_type)
     }
 }
 

@@ -40,3 +40,11 @@ explain select * from u;
 # skip registering the target table, so this failed with a misleading "Table Not Found" instead.
 statement error Unsupported DML UPDATE
 update u set a = 2 where a = 1;
+
+# A bad file path is an argument error, not a reason to bring the process down. `Url::from_file_path`
+# used to be unwrapped, and canonicalize's failure is reported with the path that caused it.
+statement error file path
+select * from read_csv('/definitely/not/here/nope.csv');
+
+statement error
+select * from read_parquet('/definitely/not/here/nope.parquet');

@@ -6,7 +6,7 @@ use crate::{
     internal_err,
     logical::expr::Column,
 };
-use arrow::datatypes::{DataType, Field, FieldRef, Schema, SchemaRef};
+use arrow::datatypes::{Field, FieldRef, Schema, SchemaRef};
 
 pub type TableSchemaRef = Arc<TableSchema>;
 
@@ -110,21 +110,6 @@ impl TableSchema {
             .iter()
             .zip(self.schema.fields().iter())
             .map(|(q, f)| (q.as_ref(), f))
-    }
-
-    pub fn data_type_and_nullable(&self, relation: Option<&TableRelation>, name: &str) -> Result<(DataType, bool)> {
-        let index = self
-            .schema
-            .index_of(name)
-            .map_err(|e| Error::InternalError(format!("Field [{}] not found in schema, error: {}", name, e)))?;
-
-        if self.field_qualifiers[index].as_ref() != relation {
-            return internal_err!("Field [{}] is not qualified with [{}]", name, relation.unwrap());
-        }
-
-        let field = self.schema.field(index);
-
-        Ok((field.data_type().clone(), field.is_nullable()))
     }
 
     pub fn qualified_field(&self, index: usize) -> (Option<&TableRelation>, &Field) {
@@ -251,6 +236,7 @@ pub fn qualified_name(qualifier: Option<&TableRelation>, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow::datatypes::DataType;
 
     fn qualified(relation: &str, name: &str) -> (Option<TableRelation>, Arc<Field>) {
         (

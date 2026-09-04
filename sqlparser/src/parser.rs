@@ -676,15 +676,11 @@ impl<'a> Parser<'a> {
                         SelectItem::UnNamedExpr(expr)
                     }
                 }
-                Expression::Identifier(ref ident) => {
-                    if ident.value == "*" && alias.is_none() {
-                        SelectItem::Wildcard
-                    } else if alias.is_some() {
-                        SelectItem::ExprWithAlias(expr, alias.unwrap())
-                    } else {
-                        SelectItem::UnNamedExpr(expr)
-                    }
-                }
+                Expression::Identifier(ref ident) => match alias {
+                    Some(alias) => SelectItem::ExprWithAlias(expr, alias),
+                    None if ident.value == "*" => SelectItem::Wildcard,
+                    None => SelectItem::UnNamedExpr(expr),
+                },
                 Expression::Literal(_)
                 | Expression::BinaryOperator(_)
                 | Expression::Function { .. }

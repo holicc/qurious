@@ -78,8 +78,13 @@ impl TableRelation {
     /// Return the fully qualified name of the table
     pub fn to_qualified_name(&self) -> String {
         if self.is_file_source {
-            let identify = self.identify.as_ref().expect("should have identify");
-            return format!("tmp_table({})", &identify[..7]);
+            // A file source without its identity cannot be named; fall back rather than panicking
+            // in the middle of formatting an error message.
+            return match self.identify.as_ref() {
+                Some(identify) if identify.len() >= 7 => format!("tmp_table({})", &identify[..7]),
+                Some(identify) => format!("tmp_table({identify})"),
+                None => "tmp_table(?)".to_string(),
+            };
         }
 
         match &self.relation {

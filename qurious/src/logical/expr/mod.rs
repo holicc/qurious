@@ -229,7 +229,13 @@ impl LogicalExpr {
             LogicalExpr::AggregateExpr(AggregateExpr { op, expr, .. }) => op.infer_type(&expr.data_type(schema)?),
             LogicalExpr::SortExpr(SortExpr { expr, .. }) | LogicalExpr::Negative(expr) => expr.data_type(schema),
             LogicalExpr::Like(_) | LogicalExpr::IsNull(_) | LogicalExpr::IsNotNull(_) => Ok(DataType::Boolean),
-            LogicalExpr::SubQuery(subquery) => Ok(subquery.subquery.schema().fields[0].data_type().clone()),
+            LogicalExpr::SubQuery(subquery) => subquery
+                .subquery
+                .schema()
+                .fields()
+                .first()
+                .map(|field| field.data_type().clone())
+                .ok_or_else(|| Error::InternalError("a scalar subquery must produce a column".to_string())),
             LogicalExpr::Exists(_) => Ok(DataType::Boolean),
             _ => internal_err!("[{}] has no data type", self),
         }
