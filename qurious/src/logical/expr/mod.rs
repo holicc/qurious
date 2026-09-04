@@ -22,6 +22,7 @@ pub use literal::*;
 pub use sort::*;
 
 use crate::common::table_relation::TableRelation;
+use crate::common::table_schema::qualified_field_index;
 use crate::common::transformed::{TransformNode, Transformed, TransformedResult, TreeNodeRecursion};
 use crate::datatypes::operator::Operator;
 use crate::datatypes::scalar::ScalarValue;
@@ -204,8 +205,21 @@ impl LogicalExpr {
         match self {
             LogicalExpr::Alias(Alias { expr, .. }) => expr.data_type(schema),
             LogicalExpr::Column(column) => {
-                let field = schema.field_with_name(&column.name)?;
-                Ok(field.data_type().clone())
+                // By qualifier as well as name: a joined schema can hold the same column name from
+                // both sides, and picking the first match reads the wrong side's type.
+                let index = qualified_field_index(schema, column.relation.as_ref(), &column.name).ok_or_else(|| {
+                    Error::InternalError(format!(
+                        "column [{column}] not found in schema: [{}]",
+                        schema
+                            .fields()
+                            .iter()
+                            .map(|f| f.name().as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                })?;
+
+                Ok(schema.field(index).data_type().clone())
             }
             LogicalExpr::Literal(scalar_value) => Ok(scalar_value.data_type()),
             LogicalExpr::BinaryExpr(binary_expr) => binary_expr.get_result_type(schema),

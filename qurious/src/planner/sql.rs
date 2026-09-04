@@ -1785,7 +1785,7 @@ mod tests {
 
         quick_test(
             "SELECT address FROM person",
-            "Arrow Error: Schema error: Unable to get field named \"address\". Valid fields: [\"id\", \"name\", \"first_name\", \"age\"]",
+            "Internal Error: column [address] not found in schema: [id, name, first_name, age]",
         );
 
         quick_test(

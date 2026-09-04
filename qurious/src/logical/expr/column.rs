@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use arrow::datatypes::FieldRef;
 
-use crate::arrow_err;
 use crate::common::table_relation::TableRelation;
+use crate::common::table_schema::qualified_field_index;
 use crate::error::{Error, Result};
 use crate::logical::plan::LogicalPlan;
 
@@ -28,10 +28,21 @@ impl Column {
     }
 
     pub fn field(&self, plan: &LogicalPlan) -> Result<FieldRef> {
-        plan.schema()
-            .field_with_name(&self.name)
-            .map(|f| Arc::new(f.clone()))
-            .map_err(|e| arrow_err!(e))
+        let schema = plan.schema();
+
+        qualified_field_index(&schema, self.relation.as_ref(), &self.name)
+            .map(|index| Arc::new(schema.field(index).clone()))
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "column [{self}] not found in schema: [{}]",
+                    schema
+                        .fields()
+                        .iter()
+                        .map(|f| f.name().as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+            })
     }
 
     pub fn qualified_name(&self) -> String {

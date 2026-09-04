@@ -33,8 +33,13 @@ impl TableSchema {
         })
     }
 
-    /// Deprecated use `try_new` instead
-    pub fn new(field_qualifiers: Vec<Option<TableRelation>>, schema: SchemaRef) -> Self {
+    /// Deprecated, use `try_new` instead.
+    ///
+    /// Pads `field_qualifiers` out to the field count. `iter` zips the two, so a list shorter than
+    /// the schema silently makes the trailing fields invisible -- an empty one hides every field.
+    pub fn new(mut field_qualifiers: Vec<Option<TableRelation>>, schema: SchemaRef) -> Self {
+        field_qualifiers.resize(schema.fields().len(), None);
+
         Self {
             field_qualifiers,
             schema,
@@ -177,10 +182,28 @@ impl Display for TableSchema {
 }
 
 impl From<SchemaRef> for TableSchema {
+    /// Recovers the qualifiers `arrow_schema` recorded in the schema's metadata.
+    ///
+    /// Without this the round trip through an arrow `Schema` is lossy and silently unqualifies
+    /// every column, so two relations' same-named columns become indistinguishable again.
+    ///
+    /// `field_qualifiers` is always as long as the field list, since `iter` zips the two and a
+    /// short list makes the trailing fields invisible.
     fn from(value: SchemaRef) -> Self {
+        let recorded = value
+            .metadata()
+            .get(FIELD_QUALIFIERS_META_KEY)
+            .map(|qualifiers| {
+                qualifiers
+                    .split(FIELD_QUALIFIERS_META_SEP)
+                    .map(|qualifier| (!qualifier.is_empty()).then(|| TableRelation::from(qualifier)))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|qualifiers| qualifiers.len() == value.fields().len());
+
         TableSchema {
+            field_qualifiers: recorded.unwrap_or_else(|| vec![None; value.fields().len()]),
             schema: value,
-            field_qualifiers: vec![],
         }
     }
 }
@@ -189,6 +212,33 @@ impl From<Schema> for TableSchema {
     fn from(value: Schema) -> Self {
         TableSchema::from(Arc::new(value))
     }
+}
+
+/// Index of the field a `(qualifier, name)` pair refers to in an arrow schema.
+///
+/// Arrow identifies fields by name alone, so a schema holding columns from several relations can
+/// contain the same name more than once. The qualifiers are carried alongside in schema metadata
+/// under [`FIELD_QUALIFIERS_META_KEY`]; consult them so the right one is found, and fall back to
+/// the name when there is no qualifier to match on.
+pub fn qualified_field_index(schema: &Schema, qualifier: Option<&TableRelation>, name: &str) -> Option<usize> {
+    if let (Some(qualifier), Some(recorded)) = (qualifier, schema.metadata().get(FIELD_QUALIFIERS_META_KEY)) {
+        let wanted = qualifier.to_qualified_name();
+        let qualifiers = recorded.split(FIELD_QUALIFIERS_META_SEP).collect::<Vec<_>>();
+
+        if qualifiers.len() == schema.fields().len() {
+            let found = schema
+                .fields()
+                .iter()
+                .enumerate()
+                .find(|(index, field)| field.name() == name && qualifiers[*index] == wanted);
+
+            if let Some((index, _)) = found {
+                return Some(index);
+            }
+        }
+    }
+
+    schema.index_of(name).ok()
 }
 
 pub fn qualified_name(qualifier: Option<&TableRelation>, name: &str) -> String {
@@ -233,6 +283,74 @@ mod tests {
         assert!(!schema.has_field(Some(&"other".into()), "pk"));
         assert!(!schema.has_field(Some(&"li".into()), "brand"));
         assert!(!schema.has_field(None, "pk"));
+    }
+
+    #[test]
+    fn qualifiers_survive_a_round_trip_through_an_arrow_schema() {
+        // `arrow_schema` records the qualifiers in metadata; rebuilding a TableSchema from it has
+        // to read them back, or two relations' same-named columns become indistinguishable again.
+        let original = TableSchema::try_new(vec![
+            qualified("li", "pk"),
+            qualified("li", "v"),
+            qualified("pt", "pk"),
+            (None, Arc::new(Field::new("bare", DataType::Int64, true))),
+        ])
+        .unwrap();
+
+        let round_tripped = TableSchema::from(original.arrow_schema());
+
+        assert_eq!(round_tripped.field_qualifiers, original.field_qualifiers);
+        assert!(round_tripped.has_field(Some(&"pt".into()), "pk"));
+        assert!(round_tripped.has_field(None, "bare"));
+    }
+
+    #[test]
+    fn a_schema_without_qualifier_metadata_is_fully_unqualified() {
+        let plain = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int64, true),
+            Field::new("b", DataType::Int64, true),
+        ]));
+
+        let schema = TableSchema::from(plain);
+
+        // Not an empty vec: `iter` zips qualifiers with fields, so a short list hides fields.
+        assert_eq!(schema.field_qualifiers, vec![None, None]);
+        assert_eq!(schema.iter().count(), 2);
+        assert!(schema.has_field(None, "a"));
+    }
+
+    #[test]
+    fn new_pads_a_short_qualifier_list() {
+        let plain = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int64, true),
+            Field::new("b", DataType::Int64, true),
+        ]));
+
+        let schema = TableSchema::new(vec![], plain);
+
+        assert_eq!(schema.iter().count(), 2, "an empty qualifier list hid every field");
+    }
+
+    #[test]
+    fn qualified_field_index_picks_the_right_side_of_a_join() {
+        let joined = TableSchema::try_new(vec![
+            qualified("da", "k"),
+            qualified("da", "v"),
+            qualified("db", "k"),
+            qualified("db", "v"),
+        ])
+        .unwrap()
+        .arrow_schema();
+
+        assert_eq!(qualified_field_index(&joined, Some(&"da".into()), "v"), Some(1));
+        assert_eq!(qualified_field_index(&joined, Some(&"db".into()), "v"), Some(3));
+        assert_eq!(
+            qualified_field_index(&joined, Some(&"nope".into()), "v"),
+            Some(1),
+            "falls back to the name"
+        );
+        assert_eq!(qualified_field_index(&joined, None, "v"), Some(1));
+        assert_eq!(qualified_field_index(&joined, Some(&"da".into()), "missing"), None);
     }
 
     #[test]

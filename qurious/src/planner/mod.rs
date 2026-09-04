@@ -8,9 +8,8 @@ use arrow::{
 };
 
 use crate::{
-    arrow_err,
     common::table_relation::TableRelation,
-    common::table_schema::{TableSchema, TableSchemaRef, FIELD_QUALIFIERS_META_KEY},
+    common::table_schema::{qualified_field_index, TableSchema, TableSchemaRef},
     common::transformed::{TransformNode, TreeNodeRecursion},
     datatypes::scalar::ScalarValue,
     error::{Error, Result},
@@ -376,29 +375,19 @@ impl DefaultQueryPlanner {
 
     // Physical expression functions
     fn physical_expr_column(&self, schema: &SchemaRef, column: &Column) -> Result<Arc<dyn PhysicalExpr>> {
-        // Prefer qualified lookup when we have relation info and schema carries qualifier metadata.
-        if let (Some(rel), Some(qualifiers_str)) = (
-            column.relation.as_ref(),
-            schema.metadata().get(FIELD_QUALIFIERS_META_KEY),
-        ) {
-            let rel_name = rel.to_qualified_name();
-            let qualifiers: Vec<&str> = qualifiers_str.split('\u{1f}').collect();
-            if qualifiers.len() == schema.fields().len() {
-                if let Some((index, _)) = schema
-                    .fields()
-                    .iter()
-                    .enumerate()
-                    .find(|(i, f)| f.name() == &column.name && qualifiers[*i] == rel_name)
-                {
-                    return Ok(Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>);
-                }
-            }
-        }
-
-        schema
-            .index_of(&column.name)
-            .map_err(|e| arrow_err!(e))
+        qualified_field_index(schema, column.relation.as_ref(), &column.name)
             .map(|index| Arc::new(physical::expr::Column::new(&column.name, index)) as Arc<dyn PhysicalExpr>)
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "column [{column}] not found in schema: [{}]",
+                    schema
+                        .fields()
+                        .iter()
+                        .map(|f| f.name().as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+            })
     }
 
     fn physical_expr_literal(&self, value: &ScalarValue) -> Result<Arc<dyn PhysicalExpr>> {

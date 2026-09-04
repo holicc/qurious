@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use arrow::datatypes::{DataType, Schema};
@@ -10,7 +11,6 @@ use crate::logical::expr::{AggregateExpr, BinaryExpr, CaseExpr, LogicalExpr};
 use crate::logical::plan::{Aggregate, EmptyRelation, Filter, LogicalPlan, Projection};
 use crate::optimizer::rule::rule_optimizer::OptimizerRule;
 use crate::utils::expr::exprs_to_fields;
-use crate::utils::merge_schema;
 use crate::utils::type_coercion::get_input_types;
 
 pub struct TypeCoercion;
@@ -32,12 +32,7 @@ impl OptimizerRule for TypeCoercion {
             scan.filter = Some(filter);
             return Ok(Transformed::yes(LogicalPlan::TableScan(scan)));
         }
-        let mut merged_schema = Arc::new(Schema::empty());
-        let schema = plan.schema();
-
-        for input in plan.children().into_iter().flat_map(|x| x) {
-            merged_schema = merge_schema(&schema, &input.schema()).map(Arc::new)?;
-        }
+        let merged_schema = visible_schema(&plan)?;
 
         // IMPORTANT: if we change expressions, we must rebuild the node schema so output field
         // names/types stay consistent with the new expressions (otherwise physical planning fails
@@ -111,6 +106,30 @@ impl OptimizerRule for TypeCoercion {
             _ => Ok(Transformed::no(plan)),
         }
     }
+}
+
+/// Every column an expression on `plan` may refer to: the node's own output plus its inputs'.
+///
+/// Fields are deduplicated on qualifier *and* name. Merging on name alone -- as arrow's
+/// `SchemaBuilder::try_merge` does -- collapses two relations' same-named columns into one, and
+/// rejects the join outright when their types differ, even though `a.id` and `b.id` are perfectly
+/// distinct columns.
+fn visible_schema(plan: &LogicalPlan) -> Result<Arc<Schema>> {
+    let mut qualified_fields = vec![];
+    let mut seen = HashSet::new();
+
+    let inputs = plan.children().unwrap_or_default();
+    let schemas = std::iter::once(plan.table_schema()).chain(inputs.into_iter().map(|input| input.table_schema()));
+
+    for schema in schemas {
+        for (qualifier, field) in schema.iter() {
+            if seen.insert((qualifier.cloned(), field.name().clone())) {
+                qualified_fields.push((qualifier.cloned(), Arc::clone(field)));
+            }
+        }
+    }
+
+    Ok(TableSchema::try_new(qualified_fields)?.arrow_schema())
 }
 
 fn type_coercion(schema: &Arc<Schema>, expr: LogicalExpr) -> Result<Transformed<LogicalExpr>> {

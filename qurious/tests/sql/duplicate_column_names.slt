@@ -1,0 +1,52 @@
+statement ok
+create table da(k int, v bigint);
+
+statement ok
+create table db(k int, v varchar);
+
+statement ok
+create table dc(k int, v double);
+
+statement ok
+insert into da values (1,100),(2,200);
+
+statement ok
+insert into db values (1,'x'),(2,'y');
+
+statement ok
+insert into dc values (1,1.5),(2,2.5);
+
+# Two relations may expose the same column name with different types. The schema an expression is
+# typed against used to be merged by name, which collapsed `da.v` and `db.v` into one field and
+# then rejected the join outright because their types disagree.
+query IT
+select da.v, db.v from da, db where da.k = db.k order by da.v;
+----
+100 x
+200 y
+
+query ITR
+select da.v, db.v, dc.v from da, db, dc where da.k = db.k and db.k = dc.k order by da.v;
+----
+100 x 1.5
+200 y 2.5
+
+# the qualifier has to pick the right side's type, not just the right column
+query IT
+select da.v + 1, db.v from da, db where da.k = db.k order by 1;
+----
+101 x
+201 y
+
+query TI
+select db.v, da.v from da, db where da.k = db.k order by da.v;
+----
+x 100
+y 200
+
+# same name and same type still works
+query II
+select da.v, e.v from da, (select k, v from da) as e (k, v) where da.k = e.k order by da.v;
+----
+100 100
+200 200

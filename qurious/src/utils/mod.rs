@@ -4,10 +4,8 @@ pub mod batch;
 pub mod expr;
 pub mod type_coercion;
 
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
-use crate::error::Result;
-use arrow::datatypes::{Schema, SchemaBuilder};
 use sqlparser::ast::Ident;
 
 use crate::logical::plan::LogicalPlan;
@@ -37,12 +35,6 @@ pub fn normalize_ident(i: Ident) -> String {
         Some(_) => i.value,
         None => i.value.to_ascii_lowercase(),
     }
-}
-
-pub fn merge_schema(a: &Arc<Schema>, b: &Arc<Schema>) -> Result<Schema> {
-    let mut builder = SchemaBuilder::from(a.as_ref());
-    b.fields().iter().try_for_each(|f| builder.try_merge(f))?;
-    Ok(builder.finish())
 }
 
 pub fn get_file_type(file_path: &str) -> Option<&str> {
